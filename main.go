@@ -1,25 +1,11 @@
 package main
 
 import (
-	"fmt"
-
-	"github.com/cli/go-gh/v2/pkg/api"
+	"github.com/serpro69/gh-arc/cmd"
 )
 
 func main() {
-	fmt.Println("hi world, this is the gh-arc extension!")
-	client, err := api.DefaultRESTClient()
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	response := struct{ Login string }{}
-	err = client.Get("user", &response)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	fmt.Printf("running as %s\n", response.Login)
+	cmd.Execute()
 }
 
 // For more examples of using go-gh, see:
