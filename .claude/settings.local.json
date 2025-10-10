@@ -8,9 +8,16 @@
       "mcp__serena__list_dir",
       "mcp__serena__search_for_pattern",
       "mcp__taskmaster__next_task",
-      "mcp__taskmaster__get_tasks"
+      "mcp__taskmaster__get_tasks",
+      "mcp__task-master-ai__parse_prd",
+      "mcp__task-master-ai__analyze_project_complexity",
+      "mcp__task-master-ai__complexity_report",
+      "mcp__task-master-ai__expand_all",
+      "mcp__task-master-ai__get_tasks"
     ],
-    "deny": ["Bash(task-master:*)"],
+    "deny": [
+      "Bash(task-master:*)"
+    ],
     "ask": []
   },
   "enabledMcpjsonServers": []

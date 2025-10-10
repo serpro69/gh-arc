@@ -1,0 +1,692 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Set up project foundation and CLI framework",
+        "description": "Initialize Go module structure with Cobra CLI framework, implement basic command routing, configuration parsing, and logging infrastructure",
+        "details": "1. Initialize Go module with 'go mod init github.com/[user]/gh-arc'\n2. Add Cobra dependency: 'go get github.com/spf13/cobra@v1.8.1'\n3. Create cmd/ directory structure with root.go containing RootCmd\n4. Implement version command with semver support\n5. Add Viper for configuration: 'go get github.com/spf13/viper@v1.19.0'\n6. Create config package to handle .arc configuration files (JSON/YAML)\n7. Set up structured logging with zerolog: 'go get github.com/rs/zerolog@v1.33.0'\n8. Implement --verbose, --quiet, --json global flags\n9. Create internal/version package for version management\n10. Add config search paths: ./.arc, ~/.config/gh-arc/.arc",
+        "testStrategy": "Unit tests for config parsing, command routing, and flag handling. Test configuration file loading from multiple paths. Verify logging at different verbosity levels. Test JSON output mode formatting.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Initialize Cobra CLI framework and create basic command structure",
+            "description": "Set up Cobra CLI framework with root command, add required dependencies, and create the fundamental cmd/ directory structure for organizing commands",
+            "dependencies": [],
+            "details": "Install Cobra and Viper dependencies using 'go get github.com/spf13/cobra@v1.8.1' and 'go get github.com/spf13/viper@v1.19.0'. Create cmd/ directory and implement cmd/root.go with RootCmd initialization. Set up basic command execution flow, replacing the current basic main.go implementation. Configure persistent flags like --verbose, --quiet, and --json for global usage across all subcommands.",
+            "status": "pending",
+            "testStrategy": "Unit tests for command initialization and flag parsing. Verify that root command executes correctly and flags are properly registered and accessible from subcommands."
+          },
+          {
+            "id": 2,
+            "title": "Implement version command and version management package",
+            "description": "Create a version command using Cobra and implement an internal version package to handle semantic versioning and build information",
+            "dependencies": [
+              1
+            ],
+            "details": "Create internal/version/ package with version.go to manage semantic versioning (major.minor.patch format). Implement cmd/version.go as a Cobra subcommand that outputs version information. Support multiple output formats based on global flags (plain text, JSON). Include build metadata like commit hash and build date using ldflags during compilation. The version command should integrate with the root command structure.",
+            "status": "pending",
+            "testStrategy": "Unit tests for version parsing and formatting. Test version command output in different formats (plain, JSON). Verify build metadata injection through ldflags."
+          },
+          {
+            "id": 3,
+            "title": "Create configuration system with Viper integration",
+            "description": "Build a comprehensive configuration package using Viper to handle .arc configuration files, supporting multiple formats and search paths",
+            "dependencies": [
+              1
+            ],
+            "details": "Create internal/config/ package with config.go implementing configuration management. Set up Viper to search for .arc configuration files in multiple paths: ./.arc (current directory), ~/.config/gh-arc/.arc (user config), and /etc/gh-arc/.arc (system-wide). Support both JSON and YAML formats for configuration files. Implement configuration loading, validation, and merging from multiple sources. Create default configuration values and environment variable overrides using GHARC_ prefix.",
+            "status": "pending",
+            "testStrategy": "Unit tests for configuration loading from different paths and formats. Test configuration precedence (env vars > user config > system config > defaults). Mock file system for testing different configuration scenarios."
+          },
+          {
+            "id": 4,
+            "title": "Set up structured logging with zerolog",
+            "description": "Implement a centralized logging system using zerolog with support for different verbosity levels and output formats including JSON",
+            "dependencies": [
+              1,
+              3
+            ],
+            "details": "Install zerolog using 'go get github.com/rs/zerolog@v1.33.0'. Create internal/logger/ package with logger.go implementing structured logging. Configure log levels based on --verbose and --quiet flags (debug, info, warn, error). Implement JSON logging when --json flag is set for machine-readable output. Set up contextual logging with request IDs and command context. Create helper functions for common logging patterns. Integrate logger initialization in root command's PersistentPreRun.",
+            "status": "pending",
+            "testStrategy": "Unit tests for logger initialization with different verbosity levels. Test log output formats (console vs JSON). Verify that log level filtering works correctly. Test contextual logging with various fields."
+          },
+          {
+            "id": 5,
+            "title": "Refactor main.go and integrate all foundation components",
+            "description": "Refactor the existing main.go to use Cobra commands and integrate all foundation components including config, logging, and version management",
+            "dependencies": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "details": "Refactor main.go to initialize and execute the Cobra root command instead of direct GitHub API calls. Move the existing GitHub authentication check into a proper command or initialization routine. Ensure proper initialization order: config loading, logger setup, then command execution. Add graceful error handling and exit codes. Implement command hooks for pre/post execution logging. Create a simple 'status' or 'auth' command to verify GitHub authentication using the existing API client code. Ensure all components work together seamlessly.",
+            "status": "pending",
+            "testStrategy": "Integration tests for the complete CLI initialization flow. Test that configuration, logging, and commands work together. Verify error handling and exit codes. Test the authentication check command with mock GitHub responses."
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Implement GitHub API integration foundation",
+        "description": "Create GitHub API client wrapper using go-gh library with authentication, rate limiting, retry logic, and error handling",
+        "details": "1. Create internal/github package for API operations\n2. Implement client wrapper around go-gh/v2 (already in go.mod)\n3. Add authentication check using gh.CurrentRepository() and gh.RESTClient()\n4. Implement exponential backoff retry logic for transient failures\n5. Add rate limit detection and handling with X-RateLimit headers\n6. Create response caching layer with TTL support\n7. Implement conditional requests using ETags\n8. Add GraphQL client setup for future optimization\n9. Create error types for different GitHub API failures\n10. Add context support for cancellation\nExample initialization:\n```go\nclient, err := gh.RESTClient(nil)\nrepo, err := gh.CurrentRepository()\n```",
+        "testStrategy": "Mock GitHub API responses using httptest. Test authentication flows, rate limit handling, retry logic with different failure scenarios. Verify caching behavior and ETag usage. Test error handling for various API error codes.",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create internal/github package structure with core client types",
+            "description": "Set up the internal/github package directory structure and define the core client wrapper types, interfaces, and configuration structures that will be used throughout the API integration",
+            "dependencies": [],
+            "details": "Create internal/github directory with client.go file. Define Client struct wrapping go-gh's REST and GraphQL clients. Create Config struct for client configuration options including timeout, retry settings, cache TTL. Define ClientOption functional options pattern for flexible client initialization. Create interfaces for mockable testing: GitHubClient interface with core methods. Add constants for default values like retry count, backoff intervals, and cache TTL.",
+            "status": "pending",
+            "testStrategy": "Unit tests for Config validation and ClientOption application. Test client initialization with various configuration combinations. Verify interface contracts are properly defined."
+          },
+          {
+            "id": 2,
+            "title": "Implement authentication and repository context handling",
+            "description": "Create authentication mechanism using go-gh's built-in auth support and implement repository context detection for commands that operate on the current repository",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement NewClient constructor that initializes gh.RESTClient and gh.GraphQLClient with proper authentication. Use gh.CurrentRepository() to detect and store current repo context. Add methods to check authentication status and retrieve authenticated user information. Implement fallback mechanisms for non-repository contexts. Create AuthError custom error type for authentication failures. Add methods to refresh authentication tokens when needed. Store repo owner/name for easy access in API calls.",
+            "status": "pending",
+            "testStrategy": "Mock gh.CurrentRepository responses for different scenarios. Test authentication with valid and invalid tokens. Verify behavior in non-repository directories. Test token refresh logic with expired tokens."
+          },
+          {
+            "id": 3,
+            "title": "Build rate limiting and retry logic with exponential backoff",
+            "description": "Implement comprehensive rate limit detection, handling, and retry mechanisms with exponential backoff for transient failures to ensure robust API interactions",
+            "dependencies": [
+              1
+            ],
+            "details": "Create RateLimitHandler that intercepts responses and checks X-RateLimit-* headers. Implement exponential backoff algorithm with configurable base delay and max retries. Add jitter to prevent thundering herd problem. Parse GitHub API rate limit headers: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset. Implement automatic retry for 429 (rate limited) and 5xx errors. Create RetryableError type to distinguish transient from permanent failures. Add circuit breaker pattern to prevent excessive retries. Log rate limit status and retry attempts for debugging.",
+            "status": "pending",
+            "testStrategy": "Test exponential backoff timing with mock time.Sleep. Verify rate limit header parsing with various response scenarios. Test retry logic with different HTTP status codes. Verify circuit breaker triggers after max retries."
+          },
+          {
+            "id": 4,
+            "title": "Create response caching layer with ETag support",
+            "description": "Implement an in-memory cache with TTL support and GitHub's ETag/If-None-Match conditional request mechanism to reduce API calls and improve performance",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Design Cache interface with Get, Set, Delete methods and TTL support. Implement in-memory cache using sync.Map for thread-safety. Store responses with ETag values as cache metadata. Add If-None-Match header to requests when cached ETag exists. Handle 304 Not Modified responses by returning cached data. Implement cache key generation from request URL and parameters. Add cache invalidation methods for write operations. Configure per-endpoint TTL values based on data volatility. Add cache statistics for monitoring hit/miss rates.",
+            "status": "pending",
+            "testStrategy": "Test cache operations with concurrent access. Verify ETag header injection in requests. Test 304 response handling returns cached data. Verify TTL expiration and cache eviction. Test cache invalidation on write operations."
+          },
+          {
+            "id": 5,
+            "title": "Define error types and implement error handling strategy",
+            "description": "Create a comprehensive error type system for different GitHub API failures and implement consistent error handling throughout the client with proper error wrapping and context",
+            "dependencies": [
+              1,
+              2,
+              3
+            ],
+            "details": "Create custom error types: AuthenticationError for 401 responses, AuthorizationError for 403, NotFoundError for 404, ValidationError for 422, RateLimitError with reset time information. Implement error wrapping with context using fmt.Errorf with %w verb. Add IsRetryable() method to distinguish transient from permanent errors. Parse GitHub API error response JSON for detailed error messages. Create ErrorResponse struct matching GitHub's error format. Add helper functions like IsNotFound(), IsRateLimited() for error type checking. Implement proper error chain for debugging with stack traces.",
+            "status": "pending",
+            "testStrategy": "Test error type creation from various API responses. Verify error wrapping preserves original error type. Test IsRetryable logic for different error types. Verify error message extraction from GitHub API responses."
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Build Git operations module",
+        "description": "Implement Git repository detection, branch operations, commit analysis, diff generation, and working directory state management",
+        "details": "1. Create internal/git package for Git operations\n2. Add go-git dependency: 'go get github.com/go-git/go-git/v5@v5.12.0'\n3. Implement repository detection and validation\n4. Create branch operations: getCurrentBranch(), getDefaultBranch(), createBranch()\n5. Implement commit analysis: getCommitRange(), parseCommitMessages()\n6. Add diff generation between branches/commits\n7. Create working directory state checker (clean, dirty, staged files)\n8. Implement Git config reader for user.name, user.email\n9. Add support for detecting detached HEAD state\n10. Create helper for finding repository root\n11. Fallback to git CLI for complex operations using os/exec",
+        "testStrategy": "Integration tests with temporary Git repositories. Test various repository states (clean, dirty, detached HEAD). Verify commit parsing and diff generation. Test branch operations and state detection. Mock git CLI calls for fallback operations.",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create internal/git package structure and add go-git dependency",
+            "description": "Set up the internal/git package directory structure and add the go-git library dependency to the project",
+            "dependencies": [],
+            "details": "Create internal/git directory with git.go as the main file. Run 'go get github.com/go-git/go-git/v5@v5.12.0' to add the dependency. Set up the basic package structure with proper imports including go-git/v5, go-git/v5/plumbing, and go-git/v5/plumbing/object. Create a Git struct type that will hold the repository instance and provide methods for all Git operations.",
+            "status": "pending",
+            "testStrategy": "Verify package imports correctly and go-git dependency is properly added to go.mod. Create basic unit test file git_test.go to ensure package compiles."
+          },
+          {
+            "id": 2,
+            "title": "Implement repository detection, validation and state checking",
+            "description": "Create functions for detecting Git repositories, validating them, finding repository root, and checking working directory state",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement OpenRepository() to detect and open Git repos using go-git. Create FindRepositoryRoot() to traverse up directories looking for .git folder. Add IsValidRepository() to verify repo integrity. Implement GetWorkingDirectoryStatus() to check if repo is clean/dirty with staged/unstaged files. Add IsDetachedHead() to detect detached HEAD state. Create GetRepositoryState() that combines all state checks into a single status struct.",
+            "status": "pending",
+            "testStrategy": "Create temporary Git repositories in various states (clean, dirty, detached HEAD) using testing.TempDir(). Test repository detection from subdirectories. Verify state detection accuracy."
+          },
+          {
+            "id": 3,
+            "title": "Implement branch operations and Git config reading",
+            "description": "Create functions for branch management operations and reading Git configuration values",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement GetCurrentBranch() to return current branch name or HEAD SHA if detached. Create GetDefaultBranch() to detect main/master/custom default branch. Add CreateBranch(name, baseBranch) for new branch creation. Implement ListBranches() for local and remote branches. Create GetGitConfig() to read user.name, user.email and other config values using go-git's Config() method. Add fallback to git CLI using os/exec when go-git operations fail.",
+            "status": "pending",
+            "testStrategy": "Test branch operations with multiple branch scenarios. Mock Git config with test values. Verify fallback to git CLI when go-git fails. Test with various default branch names."
+          },
+          {
+            "id": 4,
+            "title": "Implement commit analysis and parsing functions",
+            "description": "Create functions for analyzing commits, parsing commit messages, and getting commit ranges between branches",
+            "dependencies": [
+              1,
+              3
+            ],
+            "details": "Implement GetCommitRange(baseBranch, headBranch) to get commits between branches using go-git's Log() with revision ranges. Create ParseCommitMessage(commit) to extract title, body, and metadata from commits. Add GetCommitsBetween() for finding commits exclusive to a branch. Implement GetFirstCommitMessage() and GetAllCommitMessages() for PR description generation. Create CommitInfo struct with SHA, author, date, and message fields.",
+            "status": "pending",
+            "testStrategy": "Create test repositories with known commit histories. Test commit range calculation between branches. Verify commit message parsing with various formats including conventional commits."
+          },
+          {
+            "id": 5,
+            "title": "Implement diff generation between branches and commits",
+            "description": "Create functions for generating diffs between branches, commits, and working directory changes",
+            "dependencies": [
+              1,
+              3,
+              4
+            ],
+            "details": "Implement GetDiffBetween(base, head) using go-git's Patch() method to generate unified diffs. Create GetWorkingDiff() for unstaged changes and GetStagedDiff() for staged changes. Add GetFilesChanged(base, head) to list modified files between refs. Implement diff statistics calculation with additions/deletions count. Add support for binary file detection and handling. Create fallback to 'git diff' CLI command for complex diff scenarios that go-git doesn't handle well.",
+            "status": "pending",
+            "testStrategy": "Test diff generation with various file changes including additions, deletions, modifications. Verify binary file handling. Test diff statistics accuracy. Compare go-git output with git CLI output."
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Implement 'gh arc diff' command",
+        "description": "Create core command to submit code for review by creating or updating GitHub Pull Requests with commit analysis and PR metadata",
+        "details": "1. Create cmd/diff.go with Cobra command definition\n2. Analyze commits between current branch and base branch\n3. Generate PR title from first commit or branch name\n4. Generate PR body from commit messages\n5. Check if PR already exists for current branch using GitHub API\n6. If PR exists, update it; otherwise create new PR\n7. Use go-gh to create/update PR:\n```go\npr := map[string]interface{}{\n  \"title\": title,\n  \"body\": body,\n  \"head\": headBranch,\n  \"base\": baseBranch,\n  \"draft\": isDraft,\n}\nclient.Post(\"repos/{owner}/{repo}/pulls\", pr)\n```\n8. Handle draft vs ready-for-review state\n9. Add --draft, --ready, --title, --body flags\n10. Display PR URL after creation/update\n11. Optionally trigger lint/unit checks if configured",
+        "testStrategy": "Mock GitHub API calls for PR creation/update. Test commit message parsing and PR metadata generation. Verify PR exists check logic. Test draft/ready state handling. Integration test with test repository and GitHub API.",
+        "priority": "high",
+        "dependencies": [
+          2,
+          3
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create cmd/diff.go with Cobra command structure and flags",
+            "description": "Set up the basic Cobra command structure for 'gh arc diff' including command definition, flags for --draft, --ready, --title, --body, and help text documentation",
+            "dependencies": [],
+            "details": "Create cmd/diff.go file with proper package structure. Import cobra and go-gh libraries. Define diffCmd with Use, Short, Long descriptions. Add persistent flags for --draft (bool), --ready (bool), --title (string), --body (string). Implement flag validation to ensure draft and ready are mutually exclusive. Set up RunE function signature that will contain the main command logic. Register the command to be exposed via the main command router.",
+            "status": "pending",
+            "testStrategy": "Unit test flag parsing and validation logic. Test mutual exclusivity of draft/ready flags. Verify command registration and help text output."
+          },
+          {
+            "id": 2,
+            "title": "Implement commit analysis and PR metadata generation",
+            "description": "Create functions to analyze commits between current branch and base branch, extracting commit messages to generate PR title and body automatically when not provided via flags",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement getBaseBranch() to detect base branch (main/master/trunk). Create analyzeCommits() to run git log and parse commits between base and HEAD. Implement generatePRTitle() to extract title from first commit or branch name if no commits. Create generatePRBody() to aggregate commit messages into formatted PR description with bullet points. Handle edge cases like empty commits, merge commits, and special characters in commit messages. Use git commands via exec.Command for reliability.",
+            "status": "pending",
+            "testStrategy": "Mock git commands and test with various commit scenarios. Test title generation from commits vs branch names. Verify body formatting with multiple commit messages."
+          },
+          {
+            "id": 3,
+            "title": "Implement PR existence check and retrieval logic",
+            "description": "Create functions to check if a Pull Request already exists for the current branch using GitHub API, retrieving existing PR details for update operations",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement findExistingPR() using go-gh RESTClient to query GitHub API endpoint /repos/{owner}/{repo}/pulls with head filter. Parse response to check for existing PR matching current branch. Extract PR number, current state (draft/ready), and existing title/body for comparison. Handle pagination if user has many open PRs. Create struct types for PR API responses. Implement proper error handling for API failures and network issues. Cache PR lookup results to avoid repeated API calls within same command execution.",
+            "status": "pending",
+            "testStrategy": "Mock GitHub API responses for PR list queries. Test with no existing PR, one matching PR, and multiple PRs scenarios. Verify pagination handling."
+          },
+          {
+            "id": 4,
+            "title": "Implement PR creation and update operations",
+            "description": "Build the core logic to create new Pull Requests or update existing ones via GitHub API, handling draft/ready states and user-provided metadata",
+            "dependencies": [
+              2,
+              3
+            ],
+            "details": "Implement createPullRequest() using go-gh RESTClient.Post to /repos/{owner}/{repo}/pulls endpoint. Build request payload with title, body, head, base, and draft fields. Implement updatePullRequest() using RESTClient.Patch to /repos/{owner}/{repo}/pulls/{number} endpoint. Handle state transitions between draft and ready-for-review using /repos/{owner}/{repo}/pulls/{number}/ready_for_review endpoint. Merge user-provided flags with generated metadata, prioritizing explicit flags. Add proper error handling and retry logic for transient API failures. Parse and display the created/updated PR URL from API response.",
+            "status": "pending",
+            "testStrategy": "Mock GitHub API for PR creation and update endpoints. Test draft to ready transitions and vice versa. Verify metadata override behavior with flags."
+          },
+          {
+            "id": 5,
+            "title": "Add error handling, output formatting, and integration testing",
+            "description": "Implement comprehensive error handling, user-friendly output messages with PR URL display, and create integration tests for the complete diff command workflow",
+            "dependencies": [
+              4
+            ],
+            "details": "Implement detailed error messages for common failures like no commits to diff, unauthorized access, PR already exists in different state. Add colored output using termenv for success/error states. Display PR URL prominently after creation/update with instructions for next steps. Create integration tests that exercise full workflow with mock GitHub API server. Add --verbose flag for debugging API calls. Implement --dry-run mode to preview actions without making API calls. Handle edge cases like archived repositories, disabled PRs, and branch protection rules. Add progress indicators for long-running operations.",
+            "status": "pending",
+            "testStrategy": "Integration tests with httptest mock server simulating full GitHub API. Test error scenarios and recovery paths. Verify output formatting and color codes. Manual testing with real GitHub repository."
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Implement 'gh arc list' command",
+        "description": "Display pending Pull Requests with status information, CI states, and review status in formatted table output",
+        "details": "1. Create cmd/list.go with Cobra command\n2. Query GitHub API for user's PRs using REST or GraphQL\n3. Fetch PR status: draft, review_required, approved, changes_requested\n4. Get CI/checks status for each PR\n5. Retrieve reviewer information and review states\n6. Use tablewriter for formatted output: 'go get github.com/olekukonko/tablewriter@v0.0.5'\n7. Add filtering flags: --author, --status, --branch\n8. Implement color coding: green=approved, yellow=pending, red=changes_requested\n9. Sort by updated timestamp by default\n10. Add --json flag for machine-readable output\n11. Cache results for 60 seconds to reduce API calls\nExample query:\n```go\nprs, err := client.Get(\"repos/{owner}/{repo}/pulls?state=open&sort=updated\")\n```",
+        "testStrategy": "Mock GitHub API responses with various PR states. Test filtering logic and sorting. Verify table formatting and color output. Test JSON output mode. Verify caching behavior and TTL.",
+        "priority": "high",
+        "dependencies": [
+          2
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create Cobra command structure for 'gh arc list'",
+            "description": "Set up the cmd/list.go file with Cobra command definition, flags, and basic command structure following the existing project patterns for command organization",
+            "dependencies": [],
+            "details": "Create cmd/list.go file and import necessary packages including cobra and go-gh. Define listCmd with proper Use, Short, and Long descriptions. Add command flags: --author (string), --status (string), --branch (string), --json (bool) for output format, --no-cache (bool) to skip caching. Set up the RunE function signature that will contain the main command logic. Ensure the command is properly registered with the root command when that structure is created.",
+            "status": "pending",
+            "testStrategy": "Unit test the command initialization and flag parsing logic. Verify flags are correctly parsed and validated. Test that invalid flag combinations are rejected appropriately."
+          },
+          {
+            "id": 2,
+            "title": "Implement GitHub API integration for fetching PRs",
+            "description": "Build the core functionality to query GitHub API for pull requests, including handling authentication, pagination, and error scenarios using the go-gh REST client",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement functions to query GitHub API for PRs using go-gh's RESTClient. Create getPullRequests() function that constructs the API query with parameters: state=open, sort=updated. Handle pagination for repositories with many PRs using the Link header. Parse the PR response data into structured Go types including fields for number, title, state, draft status, created_at, updated_at, user, head, and base branches. Implement proper error handling for API failures, rate limiting (checking X-RateLimit headers), and network issues. Add retry logic with exponential backoff for transient failures.",
+            "status": "pending",
+            "testStrategy": "Mock GitHub API responses using httptest to test various PR states and pagination scenarios. Test error handling for rate limits, network failures, and invalid responses. Verify correct parsing of PR data structures."
+          },
+          {
+            "id": 3,
+            "title": "Fetch and aggregate PR metadata (reviews, checks)",
+            "description": "Retrieve additional metadata for each PR including review states, CI/checks status, and reviewer information through separate API calls and aggregate the data",
+            "dependencies": [
+              2
+            ],
+            "details": "For each PR fetched, make additional API calls to retrieve review states using /repos/{owner}/{repo}/pulls/{number}/reviews endpoint. Parse review data to determine overall status: approved, changes_requested, or review_required. Query checks API at /repos/{owner}/{repo}/commits/{sha}/check-runs to get CI status for the head commit. Aggregate check states into overall status: success, failure, pending, or in_progress. Fetch requested reviewers from /repos/{owner}/{repo}/pulls/{number}/requested_reviewers. Build a complete PR data structure combining base PR info with reviews, checks, and reviewer data. Implement parallel API calls with goroutines and proper synchronization to improve performance.",
+            "status": "pending",
+            "testStrategy": "Mock multiple API endpoints to test aggregation logic. Test parallel API call handling and synchronization. Verify correct status determination from multiple review and check states. Test handling of missing or partial metadata."
+          },
+          {
+            "id": 4,
+            "title": "Build table output with formatting and colors",
+            "description": "Create formatted table output using tablewriter library with color coding for different PR states, implementing proper column alignment and responsive formatting",
+            "dependencies": [
+              3
+            ],
+            "details": "Add tablewriter dependency with 'go get github.com/olekukonko/tablewriter@v0.0.5'. Create formatTable() function that builds table with columns: PR#, Title, Author, Status, Checks, Reviews, Branch, Updated. Implement color coding using ANSI escape codes or a color library: green for approved PRs, yellow for pending review, red for changes requested, blue for draft PRs. Add status icons/symbols for better visual clarity (✓ for approved, ✗ for changes requested, ○ for pending). Handle terminal width detection to truncate long titles appropriately. Implement sorting by updated timestamp (most recent first) or allow custom sort orders. Format timestamps in human-readable relative format (e.g., '2 hours ago'). Add summary row showing total counts by status.",
+            "status": "pending",
+            "testStrategy": "Test table formatting with various terminal widths. Verify color output works correctly and can be disabled for non-TTY outputs. Test truncation logic for long titles and proper column alignment. Verify sorting functionality."
+          },
+          {
+            "id": 5,
+            "title": "Implement filtering, caching, and JSON output",
+            "description": "Add filtering logic based on command flags, implement result caching to reduce API calls, and provide JSON output format for machine consumption and scripting",
+            "dependencies": [
+              4
+            ],
+            "details": "Implement filtering logic based on --author flag to show only PRs by specific user (support 'me' for current user). Add --status filter to show only PRs with specific status (draft, approved, changes_requested, review_required). Implement --branch filter to show PRs from specific branch patterns (support wildcards). Create caching layer using filesystem cache in ~/.cache/gh-arc/ with 60-second TTL for API responses. Store cache with proper invalidation based on repository and query parameters. Implement --json flag to output raw PR data in JSON format instead of table, including all metadata. Add --no-cache flag to bypass cache when fresh data is required. Implement cache cleanup for old entries to prevent unbounded growth.",
+            "status": "pending",
+            "testStrategy": "Test all filtering combinations and edge cases. Verify cache hit/miss behavior and TTL expiration. Test JSON output format is valid and contains all expected fields. Verify cache invalidation works correctly when parameters change."
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Implement 'gh arc land' command",
+        "description": "Merge approved Pull Requests to main branch with verification checks, squash options, and local branch cleanup",
+        "details": "1. Create cmd/land.go with Cobra command\n2. Accept PR number or detect from current branch\n3. Verify PR is approved using reviews API\n4. Check CI/checks status (all must pass)\n5. Offer squash, merge, or rebase options (default: squash)\n6. Merge PR via GitHub API:\n```go\nmergeReq := map[string]interface{}{\n  \"merge_method\": \"squash\",\n  \"commit_title\": title,\n  \"commit_message\": message,\n}\nclient.Put(\"repos/{owner}/{repo}/pulls/{number}/merge\", mergeReq)\n```\n7. After successful merge, switch to default branch locally\n8. Pull latest changes from origin\n9. Delete local feature branch\n10. Optionally delete remote branch\n11. Add --no-delete flag to preserve branches",
+        "testStrategy": "Mock GitHub API for PR status, reviews, and merge operations. Test approval verification logic. Verify CI status checking. Test local branch cleanup operations. Integration test with actual PR merge flow.",
+        "priority": "high",
+        "dependencies": [
+          2,
+          3
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create cmd/land.go with Cobra command structure and PR resolution",
+            "description": "Set up the land command file with Cobra framework, implement PR number resolution from arguments or current branch detection using git commands",
+            "dependencies": [],
+            "details": "Create cmd/land.go file, add Cobra dependency to go.mod (github.com/spf13/cobra), define landCmd with proper flags (--no-delete, --merge-method), implement logic to accept PR number from args or detect PR from current branch using 'gh pr view' or GitHub API search. Add validation to ensure PR exists and belongs to current repository.",
+            "status": "pending",
+            "testStrategy": "Unit tests for PR number parsing, mock git commands for branch detection, test error handling when PR not found"
+          },
+          {
+            "id": 2,
+            "title": "Implement PR approval and CI status verification",
+            "description": "Add functions to verify PR approval status through GitHub reviews API and check that all CI checks have passed before allowing merge",
+            "dependencies": [
+              1
+            ],
+            "details": "Create verifyPRReadyForMerge() function that uses GitHub API to fetch PR reviews (/repos/{owner}/{repo}/pulls/{number}/reviews), verify at least one approval exists and no changes requested. Implement checkCIStatus() to fetch check runs and status checks (/repos/{owner}/{repo}/commits/{ref}/status), ensure all are passing. Return detailed error messages for failed checks.",
+            "status": "pending",
+            "testStrategy": "Mock GitHub API responses for various review states, test with different CI status combinations, verify error handling for unapproved or failing PRs"
+          },
+          {
+            "id": 3,
+            "title": "Implement merge method selection and PR merge execution",
+            "description": "Add interactive merge method selection (squash/merge/rebase) with default to squash, and execute the merge through GitHub API with proper commit message handling",
+            "dependencies": [
+              2
+            ],
+            "details": "Implement selectMergeMethod() with prompt for user selection or use --merge-method flag value. Create mergePR() function using GitHub API PUT request to /repos/{owner}/{repo}/pulls/{number}/merge with selected merge_method, commit_title from PR title, and commit_message from PR body. Handle merge conflicts and other API errors gracefully. Add retry logic for transient failures.",
+            "status": "pending",
+            "testStrategy": "Mock GitHub merge API responses, test each merge method type, verify commit message formatting, test conflict handling and retry logic"
+          },
+          {
+            "id": 4,
+            "title": "Implement local branch management and cleanup",
+            "description": "Handle post-merge local operations including switching to default branch, pulling latest changes, and deleting the feature branch locally",
+            "dependencies": [
+              3
+            ],
+            "details": "After successful merge, use git commands to: detect default branch (main/master), checkout default branch using 'git checkout', pull latest changes with 'git pull origin', delete local feature branch with 'git branch -d'. Implement --no-delete flag to skip branch deletion. Add safety checks to prevent deleting uncommitted changes. Handle cases where user is on different branch than PR branch.",
+            "status": "pending",
+            "testStrategy": "Mock git command execution, test branch switching logic, verify --no-delete flag behavior, test error handling for uncommitted changes"
+          },
+          {
+            "id": 5,
+            "title": "Add remote branch deletion and comprehensive error handling",
+            "description": "Implement optional remote branch deletion after merge and add comprehensive error handling with rollback capabilities throughout the land workflow",
+            "dependencies": [
+              4
+            ],
+            "details": "Add prompt or flag for remote branch deletion using GitHub API DELETE /repos/{owner}/{repo}/git/refs/heads/{branch}. Implement comprehensive error handling with clear messages for each failure point. Add --dry-run flag to preview operations without execution. Create summary output showing what was done (PR merged, branches deleted). Add confirmation prompts for destructive operations unless --yes flag is provided.",
+            "status": "pending",
+            "testStrategy": "Test remote branch deletion API calls, verify dry-run mode, test confirmation prompts, verify error messages and rollback scenarios"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Build reviewer suggestion system ('gh arc cover')",
+        "description": "Implement intelligent reviewer suggestions based on Git blame analysis, contribution history, and CODEOWNERS files",
+        "details": "1. Create cmd/cover.go with Cobra command\n2. Get list of changed files from current diff\n3. For each file, run git blame to find recent contributors\n4. Build contributor score map based on lines touched\n5. Parse CODEOWNERS file if it exists\n6. Query GitHub API for valid reviewers (collaborators)\n7. Filter out PR author and non-collaborators\n8. Implement scoring algorithm:\n   - Recent commits to changed files: +10 points\n   - CODEOWNERS match: +20 points\n   - Overall file contribution: +5 points\n9. Sort reviewers by score and display top 5\n10. Add --count flag to control number of suggestions\n11. Show reasoning for each suggestion",
+        "testStrategy": "Test blame parsing and contributor scoring. Mock CODEOWNERS parsing. Verify scoring algorithm with various scenarios. Test filtering of invalid reviewers. Integration test with real repository history.",
+        "priority": "medium",
+        "dependencies": [
+          2,
+          3
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create cmd/cover.go with Cobra command structure and basic setup",
+            "description": "Set up the 'gh arc cover' command using Cobra framework with proper command definition, flags, and help documentation. Create the cmd package structure if it doesn't exist yet.",
+            "dependencies": [],
+            "details": "Create cmd/cover.go file implementing a Cobra command with proper Use, Short, Long descriptions, and RunE function. Add --count flag to control number of suggestions (default 5), --verbose flag for detailed reasoning output. Set up basic command validation and error handling. Import necessary packages including github.com/spf13/cobra for command framework and github.com/cli/go-gh/v2 for GitHub API integration.",
+            "status": "pending",
+            "testStrategy": "Unit test command initialization, flag parsing, and validation. Test help text generation. Verify command registration with root command."
+          },
+          {
+            "id": 2,
+            "title": "Implement Git operations for changed files and blame analysis",
+            "description": "Create Git integration module to identify changed files in the current branch/PR and perform blame analysis to extract contributor information with line counts and timestamps.",
+            "dependencies": [
+              1
+            ],
+            "details": "Create internal/git/blame.go with functions to: 1) Get list of changed files using 'git diff --name-only' against base branch, 2) Run 'git blame --line-porcelain' for each changed file to extract author emails and commit timestamps, 3) Parse blame output to build a map of contributors with line counts and most recent commit dates, 4) Handle binary files and deleted files gracefully. Use os/exec for Git commands or consider go-git library for pure Go implementation.",
+            "status": "pending",
+            "testStrategy": "Mock git command outputs for testing blame parsing. Test with various file states (new, modified, deleted). Verify handling of binary files and merge commits."
+          },
+          {
+            "id": 3,
+            "title": "Build CODEOWNERS parser and GitHub API reviewer validation",
+            "description": "Implement CODEOWNERS file parsing to identify designated reviewers and validate potential reviewers through GitHub API to ensure they have repository access.",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Create internal/github/codeowners.go to parse CODEOWNERS file from repository root or .github directory. Parse glob patterns and map to reviewer handles/teams. Create internal/github/reviewers.go using go-gh/v2 to: 1) Query repository collaborators endpoint, 2) Get PR author to exclude from suggestions, 3) Validate that suggested reviewers have push/maintain/admin access, 4) Handle team mentions by expanding to team members. Cache collaborator list to minimize API calls.",
+            "status": "pending",
+            "testStrategy": "Test CODEOWNERS parsing with various pattern formats and team mentions. Mock GitHub API responses for collaborator queries. Test permission filtering logic."
+          },
+          {
+            "id": 4,
+            "title": "Implement scoring algorithm and reviewer ranking system",
+            "description": "Create the core scoring engine that combines Git blame data, CODEOWNERS matches, and contribution history to rank potential reviewers with configurable weights.",
+            "dependencies": [
+              2,
+              3
+            ],
+            "details": "Create internal/scoring/reviewer.go implementing a scoring system: 1) Recent commits to changed files (+10 points per file), 2) CODEOWNERS match (+20 points), 3) Overall file contribution based on blame percentage (+5 points), 4) Recency bonus (commits within last 30 days get extra weight), 5) Create ReviewerScore struct with fields for score breakdown and reasoning. Sort reviewers by total score and prepare structured output with reasoning for each suggestion. Make scoring weights configurable through constants or config.",
+            "status": "pending",
+            "testStrategy": "Unit test scoring algorithm with various contributor scenarios. Test edge cases like single contributor files, no CODEOWNERS matches. Verify sorting and ranking logic."
+          },
+          {
+            "id": 5,
+            "title": "Integrate components and implement output formatting",
+            "description": "Wire together all components in the cover command, implement formatted output display with reviewer suggestions and reasoning, handle edge cases and error scenarios gracefully.",
+            "dependencies": [
+              4
+            ],
+            "details": "In cmd/cover.go RunE function: 1) Detect current repository and branch/PR context, 2) Call Git module to get changed files and blame data, 3) Parse CODEOWNERS if exists, 4) Query GitHub API for valid reviewers, 5) Run scoring algorithm to rank reviewers, 6) Display top N reviewers (based on --count flag) with formatted output showing: reviewer username, total score, reasoning breakdown (e.g., 'Recent commits to 3 files, CODEOWNERS for src/'), 7) Handle cases with no suggestions gracefully, 8) Add --json flag for machine-readable output.",
+            "status": "pending",
+            "testStrategy": "Integration test with mock Git repository and GitHub API. Test various output formats (table, JSON). Verify error handling for API failures and missing data."
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Implement code quality integration ('gh arc lint' and 'gh arc unit')",
+        "description": "Create pluggable linter and test runner system with configurable engines, changed file detection, and result parsing",
+        "details": "1. Create cmd/lint.go and cmd/unit.go\n2. Design plugin interface for linters/test runners\n3. Implement changed file detection from Git diff\n4. For lint command:\n   - Add golangci-lint support as default for Go\n   - Detect language from file extensions\n   - Run appropriate linter based on file type\n   - Parse linter output into standardized format\n   - Display results with file:line:column format\n5. For unit command:\n   - Detect test files related to changes\n   - Run 'go test' for Go projects\n   - Support custom test commands from config\n   - Parse test output and show pass/fail summary\n   - Add coverage reporting\n6. Read configuration from .arc/lint and .arc/unit\n7. Return non-zero exit code on failures\n8. Add --fix flag for auto-fixable lint issues",
+        "testStrategy": "Mock linter and test runner execution. Test output parsing for various formats. Verify changed file detection. Test configuration loading. Integration tests with actual linters and test frameworks.",
+        "priority": "medium",
+        "dependencies": [
+          3
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create cmd/lint.go and cmd/unit.go command structures with Cobra",
+            "description": "Set up the basic Cobra command structures for both lint and unit commands, including command definitions, flags, and help text",
+            "dependencies": [],
+            "details": "Create cmd/lint.go and cmd/unit.go files with Cobra command definitions. Add flags for --fix (lint), --coverage (unit), --config, --verbose, and file path arguments. Set up basic command structure that calls into internal packages for actual implementation. Include proper error handling and exit codes.",
+            "status": "pending",
+            "testStrategy": "Unit test command flag parsing and validation. Verify help text generation. Test command registration with root command."
+          },
+          {
+            "id": 2,
+            "title": "Design and implement plugin interface for linters and test runners",
+            "description": "Create a flexible plugin system that allows different linters and test runners to be integrated through a common interface",
+            "dependencies": [],
+            "details": "Create internal/quality/plugin.go with interfaces: LintPlugin and TestPlugin. Define methods for detection, execution, and output parsing. Create PluginRegistry for managing available plugins. Design configuration structure for .arc/lint and .arc/unit files. Implement plugin discovery based on file extensions and project type detection.",
+            "status": "pending",
+            "testStrategy": "Test plugin interface with mock implementations. Verify plugin registration and discovery. Test configuration loading and validation."
+          },
+          {
+            "id": 3,
+            "title": "Implement Git diff analysis and changed file detection",
+            "description": "Create utilities to detect which files have been modified compared to the base branch, supporting both staged and unstaged changes",
+            "dependencies": [],
+            "details": "Create internal/git/diff.go with functions to detect changed files using git diff commands. Support detecting changes against base branch (main/master), staged changes, and working directory changes. Parse git diff output to extract file paths, line numbers for changes. Create ChangedFile struct with path, status (added/modified/deleted), and changed line ranges.",
+            "status": "pending",
+            "testStrategy": "Mock git command execution and test diff parsing. Test various diff scenarios: new files, deletions, renames. Verify line number extraction accuracy."
+          },
+          {
+            "id": 4,
+            "title": "Implement golangci-lint plugin and Go test runner",
+            "description": "Create the default plugins for Go projects including golangci-lint integration for linting and go test for unit testing",
+            "dependencies": [
+              2,
+              3
+            ],
+            "details": "Create internal/quality/plugins/golang.go with GolangLintPlugin implementing LintPlugin interface. Detect golangci-lint installation, run against changed Go files, parse JSON/text output. Implement GoTestPlugin for running go test with coverage on affected packages. Parse test output and coverage reports. Support custom golangci-lint config from .golangci.yml or .arc/lint.",
+            "status": "pending",
+            "testStrategy": "Mock golangci-lint and go test execution. Test output parsing for various formats. Verify coverage report parsing. Test with actual Go code samples."
+          },
+          {
+            "id": 5,
+            "title": "Create output formatters and result display",
+            "description": "Implement standardized output formatting for lint and test results with colored terminal output and different verbosity levels",
+            "dependencies": [
+              4
+            ],
+            "details": "Create internal/quality/output.go with formatters for lint issues and test results. Display results in file:line:column format with issue severity coloring. Implement summary statistics (errors, warnings, passed/failed tests). Support JSON output mode for CI integration. Add progress indicators for long-running operations. Use termenv for terminal colors and formatting.",
+            "status": "pending",
+            "testStrategy": "Test output formatting with various result types. Verify color output and terminal detection. Test JSON output mode. Verify progress indicator behavior."
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Add branch and patch management commands",
+        "description": "Implement 'gh arc branch' for enhanced branch info, 'gh arc patch' to apply PR changes locally, and 'gh arc export' for patch files",
+        "details": "1. For 'gh arc branch':\n   - List local branches with git\n   - Query GitHub for associated PRs\n   - Show PR status, CI status, review state\n   - Mark branches safe to delete (already merged)\n   - Add --cleanup flag to delete merged branches\n2. For 'gh arc patch':\n   - Accept PR number or URL\n   - Use 'gh pr checkout' if available, else:\n   - Fetch PR diff from GitHub API\n   - Apply patch using git apply or go-git\n   - Handle merge conflicts gracefully\n   - Add --3way flag for three-way merge\n3. For 'gh arc export':\n   - Fetch PR as unified diff\n   - Support multiple formats: .patch, .diff\n   - Include commit metadata in patch\n   - Save to file or output to stdout\n4. For 'gh arc amend':\n   - Open editor with current commit messages\n   - Fetch PR discussion for context\n   - Update and force push",
+        "testStrategy": "Test branch association with PRs. Mock patch application with various conflict scenarios. Verify patch export formats. Test commit message amendment flow. Integration tests with real PRs.",
+        "priority": "low",
+        "dependencies": [
+          2,
+          3
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create 'gh arc branch' command with PR association logic",
+            "description": "Implement the branch command that lists local branches and queries GitHub API to find associated pull requests, showing PR status, CI checks, and review states",
+            "dependencies": [],
+            "details": "Create cmd/branch.go implementing Cobra command. Use go-git to list local branches, then query GitHub API using go-gh to find PRs for each branch. Display branch name, PR number, PR status (open/closed/merged), CI status (pending/success/failure), review status (approved/changes_requested/pending). Add color coding: green for merged/approved, yellow for pending, red for changes requested. Implement --cleanup flag to identify and optionally delete branches that are already merged. Use tablewriter for formatted output similar to 'gh arc list' command.",
+            "status": "pending",
+            "testStrategy": "Test branch listing with mock Git repository. Mock GitHub API responses for various PR states. Verify PR association logic matches branches correctly. Test --cleanup flag identifies only truly merged branches."
+          },
+          {
+            "id": 2,
+            "title": "Implement 'gh arc patch' for applying PR changes locally",
+            "description": "Build patch command that accepts PR number or URL, fetches the PR diff from GitHub API, and applies it to the local repository with conflict handling",
+            "dependencies": [
+              1
+            ],
+            "details": "Create cmd/patch.go with Cobra command accepting PR number/URL as argument. First attempt to use 'gh pr checkout' if available via exec.Command. If not available, fetch PR diff using GitHub REST API endpoint /repos/{owner}/{repo}/pulls/{number}.diff. Apply patch using git apply command with --check first to verify, then apply. Implement --3way flag for three-way merge using 'git apply --3way'. Handle conflicts gracefully by detecting git apply exit codes and providing clear error messages. Add --directory flag to apply patch in specific directory.",
+            "status": "pending",
+            "testStrategy": "Mock 'gh pr checkout' availability check. Test patch fetching from GitHub API. Verify patch application with various conflict scenarios. Test --3way merge fallback behavior."
+          },
+          {
+            "id": 3,
+            "title": "Build 'gh arc export' for downloading PR patches",
+            "description": "Create export command to fetch pull requests as unified diff files with support for multiple output formats and commit metadata preservation",
+            "dependencies": [
+              2
+            ],
+            "details": "Create cmd/export.go implementing export functionality. Accept PR number/URL as input parameter. Fetch PR diff from GitHub API /repos/{owner}/{repo}/pulls/{number}.diff endpoint. Support --format flag with options: patch (default), diff, mbox. Include commit metadata (author, date, message) in patch header when using patch format. Implement --output flag to specify file path, default to stdout if not specified. Add commit SHA information as comments in the patch file. Support exporting multiple PRs at once with comma-separated PR numbers.",
+            "status": "pending",
+            "testStrategy": "Test various export formats with sample PRs. Verify commit metadata is correctly included. Test stdout vs file output. Mock GitHub API responses for PR diff fetching."
+          },
+          {
+            "id": 4,
+            "title": "Implement 'gh arc amend' for updating commit messages",
+            "description": "Create amend command that opens an editor with current commit messages, fetches PR discussion context, and allows updating messages with force push",
+            "dependencies": [
+              3
+            ],
+            "details": "Create cmd/amend.go for commit message amendment. Use go-git to read current branch commits since base branch. Fetch PR discussion and review comments from GitHub API for context. Create temporary file with commit messages and PR discussion as comments. Open editor using EDITOR environment variable or fallback to vi/nano. Parse edited file to extract updated commit messages. Use git rebase -i or go-git to rewrite commit history with new messages. Implement --force-push flag to automatically push changes, otherwise prompt user. Add --no-fetch-discussion flag to skip PR context fetching.",
+            "status": "pending",
+            "testStrategy": "Test editor invocation with various EDITOR settings. Mock PR discussion fetching. Verify commit rewriting preserves changes. Test force push safety checks and prompts."
+          },
+          {
+            "id": 5,
+            "title": "Add integration tests and documentation for branch management commands",
+            "description": "Create comprehensive integration tests for all four commands and write detailed documentation with usage examples and workflow guides",
+            "dependencies": [
+              4
+            ],
+            "details": "Create test files cmd/branch_test.go, cmd/patch_test.go, cmd/export_test.go, cmd/amend_test.go with unit tests. Build integration test suite in tests/integration/branch_commands_test.go using temporary Git repositories and mock GitHub API server. Test complete workflows: branch->patch->amend->export cycles. Add command documentation in docs/commands/ directory with examples for each command. Update README.md with branch management workflow section. Create example .arc configuration showing branch cleanup preferences. Add CI workflow tests for PR patch application scenarios.",
+            "status": "pending",
+            "testStrategy": "Run integration tests with real Git operations in temp directories. Use httptest for mocking GitHub API. Verify all command combinations work together. Test documentation examples actually work."
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Implement auxiliary features and polish",
+        "description": "Add shell completion, gist management, configuration system, and enhanced UX with colors, progress indicators, and error handling",
+        "details": "1. For 'gh arc shell-complete':\n   - Use Cobra's built-in completion generation\n   - Generate scripts for bash, zsh, fish, powershell\n   - Add installation instructions for each shell\n   - Support dynamic completion for PR numbers\n2. For 'gh arc gist':\n   - Create gists from files or stdin\n   - List user's gists with pagination\n   - Support public/private visibility\n   - Add --edit flag to update existing gists\n3. Configuration improvements:\n   - Add 'gh arc config' for interactive setup\n   - Support project and user-level configs\n   - Validate configuration on load\n   - Provide migration for config changes\n4. UX enhancements:\n   - Add lipgloss for styled output: 'go get github.com/charmbracelet/lipgloss@v0.13.0'\n   - Use spinner for long operations with bubbles\n   - Improve error messages with suggestions\n   - Add --dry-run flag for testing\n   - Implement progress bars for multi-step operations",
+        "testStrategy": "Test completion script generation for each shell. Verify gist operations with mock API. Test configuration precedence and validation. Manual testing for UX improvements and terminal compatibility.",
+        "priority": "low",
+        "dependencies": [
+          1,
+          2
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement shell completion command with Cobra's built-in completion generation",
+            "description": "Create the 'gh arc shell-complete' command using Cobra's completion generation features to provide tab completion scripts for bash, zsh, fish, and powershell shells with proper installation instructions",
+            "dependencies": [],
+            "details": "Create cmd/shell-complete.go implementing a Cobra command for shell completion generation. Use Cobra's built-in completion generation methods: rootCmd.GenBashCompletion(), GenZshCompletion(), GenFishCompletion(), and GenPowerShellCompletion(). Add a --shell flag to specify target shell (bash|zsh|fish|powershell). Generate installation instructions specific to each shell type. Implement dynamic completion for PR numbers using ValidArgsFunction callbacks on commands that accept PR arguments. Create helper functions for common completion scenarios like branch names, PR states, and usernames. Store completion scripts in user's shell config directory with proper permissions.",
+            "status": "pending",
+            "testStrategy": "Test completion script generation for each shell type. Verify generated scripts are syntactically valid. Test dynamic completion callbacks return appropriate values. Manual testing in each shell environment to ensure completions work."
+          },
+          {
+            "id": 2,
+            "title": "Build gist management command with create, list, and edit operations",
+            "description": "Implement the 'gh arc gist' command to manage GitHub gists including creating from files or stdin, listing with pagination, and editing existing gists with visibility controls",
+            "dependencies": [],
+            "details": "Create cmd/gist.go with subcommands: create, list, view, edit, delete. For 'gist create': accept files as arguments or read from stdin, support --public/--private flags for visibility, add --description flag for gist description. For 'gist list': implement pagination using GitHub's API cursor, show gist ID, description, file count, and visibility status, add --limit flag for result count. For 'gist edit': support --add-file and --remove-file flags, allow updating description and visibility. Use go-gh's RESTClient to interact with GitHub Gist API endpoints. Handle multi-file gists properly. Implement proper error handling for API failures and rate limits.",
+            "status": "pending",
+            "testStrategy": "Mock GitHub Gist API responses for create, list, and edit operations. Test file reading from stdin and file paths. Verify pagination logic works correctly. Test visibility changes and multi-file gist handling."
+          },
+          {
+            "id": 3,
+            "title": "Create interactive configuration system with project and user-level configs",
+            "description": "Build 'gh arc config' command for interactive configuration setup supporting both project-level and user-level configuration files with validation and migration capabilities",
+            "dependencies": [],
+            "details": "Create cmd/config.go implementing interactive configuration setup using survey or promptui. Support config subcommands: init, get, set, list, validate. Create configuration schema with sections for: GitHub preferences (default branch, merge method), UI settings (colors, output format), linter configurations, test runner settings. Implement configuration precedence: project .arc > user ~/.config/gh-arc/config > system /etc/gh-arc/config. Add config migration for schema changes between versions. Use Viper for configuration management with JSON/YAML support. Implement validation rules for each config option. Create config templates for common workflows.",
+            "status": "pending",
+            "testStrategy": "Test configuration loading from multiple sources with correct precedence. Verify config validation catches invalid values. Test migration from older config formats. Mock file system for testing different config scenarios."
+          },
+          {
+            "id": 4,
+            "title": "Add lipgloss styling and color support for enhanced terminal output",
+            "description": "Integrate lipgloss library for styled terminal output with consistent color schemes, formatted tables, and improved visual hierarchy across all commands",
+            "dependencies": [
+              1,
+              2,
+              3
+            ],
+            "details": "Install lipgloss using 'go get github.com/charmbracelet/lipgloss@v0.13.0'. Create internal/ui/styles.go defining consistent style themes: success (green), warning (yellow), error (red), info (blue), muted (gray). Build reusable style components for headers, tables, lists, and status badges. Refactor existing command outputs to use lipgloss styles. Create styled table renderer for 'list' command with proper column alignment and borders. Add NO_COLOR environment variable support for color-free output. Implement adaptive styling based on terminal capabilities. Create style presets for different output contexts (TTY vs pipe).",
+            "status": "pending",
+            "testStrategy": "Test style rendering with different terminal capabilities. Verify NO_COLOR environment variable disables all styling. Test output formatting in both TTY and non-TTY contexts. Visual regression testing for command outputs."
+          },
+          {
+            "id": 5,
+            "title": "Implement progress indicators and dry-run mode for better UX",
+            "description": "Add bubbles spinner for long operations, progress bars for multi-step processes, improved error messages with suggestions, and --dry-run flag for testing commands without side effects",
+            "dependencies": [
+              4
+            ],
+            "details": "Install bubbles using 'go get github.com/charmbracelet/bubbles@latest'. Create internal/ui/progress.go with spinner and progress bar components. Implement spinner for operations like API calls, git operations, and test runs. Add progress bars for multi-step operations like 'land' (verify, merge, cleanup). Enhance error messages with actionable suggestions using 'Did you mean?' pattern. Add --dry-run flag globally to preview command effects without execution. Create operation summary output showing what would be done in dry-run mode. Implement context-aware error suggestions based on common mistakes. Add elapsed time display for long-running operations.",
+            "status": "pending",
+            "testStrategy": "Test spinner and progress bar rendering without blocking. Verify dry-run mode prevents all side effects while showing intended actions. Test error message suggestions are relevant and helpful. Measure performance impact of UI components."
+          }
+        ]
+      }
+    ],
+    "metadata": {
+      "created": "2025-10-10T16:18:54.137Z",
+      "updated": "2025-10-10T16:18:54.137Z",
+      "description": "Tasks for master context"
+    }
+  }
+}

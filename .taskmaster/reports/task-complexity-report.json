@@ -1,0 +1,93 @@
+{
+	"meta": {
+		"generatedAt": "2025-10-10T16:21:40.393Z",
+		"tasksAnalyzed": 10,
+		"totalTasks": 10,
+		"analysisCount": 10,
+		"thresholdScore": 5,
+		"projectName": "gh-arc",
+		"usedResearch": true
+	},
+	"complexityAnalysis": [
+		{
+			"taskId": 1,
+			"taskTitle": "Set up project foundation and CLI framework",
+			"complexityScore": 3,
+			"recommendedSubtasks": 3,
+			"expansionPrompt": "Break down into: 1) Core Cobra setup with root command and version command, 2) Configuration system with Viper and .arc file support, 3) Logging infrastructure with zerolog and global flags",
+			"reasoning": "The project already has main.go with basic go-gh setup. This task involves standard Cobra CLI setup which is well-documented. The components are straightforward: adding dependencies, creating command structure, and implementing configuration/logging. Each component is independent and follows established patterns."
+		},
+		{
+			"taskId": 2,
+			"taskTitle": "Implement GitHub API integration foundation",
+			"complexityScore": 5,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Break down into: 1) Basic go-gh client wrapper with authentication, 2) Rate limiting and retry logic implementation, 3) Response caching with ETags and TTL, 4) Error handling and GraphQL client setup",
+			"reasoning": "Building on existing go-gh/v2 dependency simplifies implementation. However, implementing proper rate limiting, exponential backoff, caching layer, and error handling requires careful design. The retry logic and caching mechanisms add moderate complexity."
+		},
+		{
+			"taskId": 3,
+			"taskTitle": "Build Git operations module",
+			"complexityScore": 4,
+			"recommendedSubtasks": 3,
+			"expansionPrompt": "Break down into: 1) Repository detection and basic branch operations, 2) Commit analysis and diff generation, 3) Working directory state management and Git config reading",
+			"reasoning": "Using go-git library provides most functionality out-of-box. The main complexity is in handling various Git states and edge cases. The fallback to git CLI adds some complexity but is manageable. Operations are mostly wrappers around library functions."
+		},
+		{
+			"taskId": 4,
+			"taskTitle": "Implement 'gh arc diff' command",
+			"complexityScore": 6,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Break down into: 1) Command setup and commit analysis, 2) PR metadata generation from commits, 3) PR creation/update logic with GitHub API, 4) Draft state handling and post-creation actions",
+			"reasoning": "This is a core feature requiring coordination between Git operations and GitHub API. The logic for detecting existing PRs, generating meaningful PR content from commits, and handling various states adds complexity. Integration between multiple modules increases testing requirements."
+		},
+		{
+			"taskId": 5,
+			"taskTitle": "Implement 'gh arc list' command",
+			"complexityScore": 4,
+			"recommendedSubtasks": 3,
+			"expansionPrompt": "Break down into: 1) GitHub API query and data fetching, 2) Status aggregation from PRs and CI checks, 3) Table formatting with colors and filtering options",
+			"reasoning": "Relatively straightforward API calls and data presentation. The tablewriter library handles formatting. Main complexity is in aggregating data from multiple API endpoints and implementing filtering logic. Caching adds minor complexity."
+		},
+		{
+			"taskId": 6,
+			"taskTitle": "Implement 'gh arc land' command",
+			"complexityScore": 7,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Break down into: 1) PR validation and approval checks, 2) CI status verification and merge execution, 3) Local Git operations for branch switching and cleanup, 4) Remote branch deletion and error recovery",
+			"reasoning": "High complexity due to multiple verification steps, API interactions, and local Git operations that must be coordinated. The command modifies both remote and local state, requiring careful error handling and potential rollback scenarios. Branch cleanup adds risk."
+		},
+		{
+			"taskId": 7,
+			"taskTitle": "Build reviewer suggestion system ('gh arc cover')",
+			"complexityScore": 6,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Break down into: 1) Changed file detection and git blame analysis, 2) CODEOWNERS parsing and interpretation, 3) Scoring algorithm implementation, 4) GitHub API validation and result presentation",
+			"reasoning": "Requires complex analysis of Git history, blame data parsing, and a scoring algorithm. CODEOWNERS parsing adds complexity with pattern matching. The scoring system needs careful tuning. Integration of multiple data sources increases complexity."
+		},
+		{
+			"taskId": 8,
+			"taskTitle": "Implement code quality integration ('gh arc lint' and 'gh arc unit')",
+			"complexityScore": 5,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Break down into: 1) Plugin interface design and changed file detection, 2) Lint command with golangci-lint integration, 3) Unit test runner with go test support, 4) Output parsing and result presentation",
+			"reasoning": "Two separate commands with shared infrastructure. Plugin system requires careful design. Output parsing from various tools can be complex. Configuration system and language detection add moderate complexity. The --fix flag requires additional implementation."
+		},
+		{
+			"taskId": 9,
+			"taskTitle": "Add branch and patch management commands",
+			"complexityScore": 7,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Break down into: 1) 'gh arc branch' with PR association and cleanup, 2) 'gh arc patch' with conflict handling, 3) 'gh arc export' with multiple formats, 4) 'gh arc amend' with commit editing",
+			"reasoning": "Four distinct commands each with moderate complexity. Patch application with conflict handling is complex. Branch cleanup requires careful validation. Export formats need proper implementation. Amend requires force push coordination."
+		},
+		{
+			"taskId": 10,
+			"taskTitle": "Implement auxiliary features and polish",
+			"complexityScore": 5,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Break down into: 1) Shell completion with Cobra's generators, 2) Gist management commands, 3) Configuration system improvements, 4) UX enhancements with lipgloss and progress indicators",
+			"reasoning": "Multiple independent features with varying complexity. Shell completion is straightforward with Cobra. Gist management requires API integration. Config system needs migration support. UX improvements with external libraries require integration work."
+		}
+	]
+}
