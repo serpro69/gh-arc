@@ -18,6 +18,32 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The `gh-arc` extension is written in Go and uses the `github.com/cli/go-gh/v2` library to interact with GitHub's API.
 
+## Development Processes
+
+!!! THIS SECTION IS VERY IMPORTANT AND MUST BE FOLLOWED DURING ALL DEVELOPMENT WORK !!!
+
+### Looking up dependencies
+
+Always try to use latest versions for dependencies. To find dependencnes, run:
+
+```bash
+go list -m -versions <module>
+```
+
+### Looking up documentation
+
+Before trying alternative methods, always try to use context7 MCP to find documentation for dependencies, libraries, SDKs, APIs, and so on.
+
+**IMPORTANT! Always make sure that documentation version is the same as declared dependency version.**
+
+### Testing the code
+
+- Always try to add tests for any new functionality, and make sure to cover all cases and code branches, according to requirements.
+
+- Always try to add tests for any bug-fixes, if the discovered bug is not already covered by tests. If the bug was already covered by tests, fix the existing tests.
+
+- Always run all tests after you are done with a given implementation
+
 ## Development Commands
 
 ### Building
