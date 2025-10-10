@@ -25,7 +25,9 @@
       "Bash(./gh-arc version)",
       "Bash(./gh-arc version --json)",
       "mcp__task-master-ai__get_task",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "Bash(./gh-arc version --verbose)",
+      "Bash(./gh-arc version --quiet)"
     ],
     "deny": [
       "Bash(task-master:*)"
