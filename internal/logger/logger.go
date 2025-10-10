@@ -30,7 +30,10 @@ func Init(cfg Config) {
 	}
 
 	// Determine log level based on flags
-	level := zerolog.InfoLevel
+	// Default: Warn level (only warnings and errors)
+	// Verbose: Debug level (debug, info, warn, error)
+	// Quiet: Error level (only errors)
+	level := zerolog.WarnLevel
 	if cfg.Quiet {
 		level = zerolog.ErrorLevel
 	} else if cfg.Verbose {
