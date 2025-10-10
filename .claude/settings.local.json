@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cat:*)",
+      "Bash(ls:*)",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__get-library-docs",
+      "mcp__serena__list_dir",
+      "mcp__serena__search_for_pattern",
+      "mcp__taskmaster__next_task",
+      "mcp__taskmaster__get_tasks"
+    ],
+    "deny": ["Bash(task-master:*)"],
+    "ask": []
+  },
+  "enabledMcpjsonServers": []
+}

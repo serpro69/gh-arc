@@ -1,1 +1,56 @@
+# ignore all hidden
+.*
+# except
+!.gitattributes
+!.gitignore
+!.gitmodules
+!*lint*
+!.yamlfmt.yaml
+!.github
+!.github/**
+!.sops.yaml
+# sops-encrypted files
+!*.sops
+
 /gh-arc*
+
+# Logs
+logs
+*.log
+
+# Environment variables
+.env
+# Editor directories and files
+.idea
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+# OS specific
+.DS_Store
+
+# AI tools
+.claude/*
+.serena
+.taskmaster/*
+
+!.claude
+!.taskmaster
+!.claude/settings.local.json
+!.taskmaster/CLAUDE.md
+!.taskmaster/config.json
+
+# Taskmaster task files
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+dev-debug.log
+# Dependency directories
+node_modules/
+
+# Task files
+# tasks.json
+# tasks/ 
