@@ -13,7 +13,15 @@
       "mcp__task-master-ai__analyze_project_complexity",
       "mcp__task-master-ai__complexity_report",
       "mcp__task-master-ai__expand_all",
-      "mcp__task-master-ai__get_tasks"
+      "mcp__task-master-ai__get_tasks",
+      "mcp__task-master-ai__next_task",
+      "mcp__task-master-ai__set_task_status",
+      "Bash(go get:*)",
+      "mcp__task-master-ai__update_subtask",
+      "Bash(go build:*)",
+      "Bash(./gh-arc --help)",
+      "Bash(go list:*)",
+      "Bash(go test:*)"
     ],
     "deny": [
       "Bash(task-master:*)"
