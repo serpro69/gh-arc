@@ -36,7 +36,7 @@
   },
   "claudeCode": {
     "customSystemPrompt": "You are an experienced Golang developer with knowledge of developing CLI applications and Github CLI extensions in Golang.",
-    "appendSystemPrompt": "Always follow go-coding best practices",
+    "appendSystemPrompt": "Always follow go-coding best practices. Use context7 MCP to lookup documentation for libraries, sdks, and APIs, whenever necessary.",
     "permissionMode": "default"
   }
 }
