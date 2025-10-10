@@ -55,67 +55,81 @@ func TestRootCommand(t *testing.T) {
 
 func TestFlagParsing(t *testing.T) {
 	tests := []struct {
-		name          string
-		args          []string
-		expectVerbose bool
-		expectQuiet   bool
-		expectJSON    bool
+		name             string
+		args             []string
+		expectVerbosity  int
+		expectQuiet      bool
+		expectJSON       bool
 	}{
 		{
-			name:          "no flags",
-			args:          []string{},
-			expectVerbose: false,
-			expectQuiet:   false,
-			expectJSON:    false,
+			name:            "no flags",
+			args:            []string{},
+			expectVerbosity: 0,
+			expectQuiet:     false,
+			expectJSON:      false,
 		},
 		{
-			name:          "verbose flag",
-			args:          []string{"--verbose"},
-			expectVerbose: true,
-			expectQuiet:   false,
-			expectJSON:    false,
+			name:            "verbose flag once",
+			args:            []string{"--verbose"},
+			expectVerbosity: 1,
+			expectQuiet:     false,
+			expectJSON:      false,
 		},
 		{
-			name:          "verbose shorthand",
-			args:          []string{"-v"},
-			expectVerbose: true,
-			expectQuiet:   false,
-			expectJSON:    false,
+			name:            "verbose shorthand once",
+			args:            []string{"-v"},
+			expectVerbosity: 1,
+			expectQuiet:     false,
+			expectJSON:      false,
 		},
 		{
-			name:          "quiet flag",
-			args:          []string{"--quiet"},
-			expectVerbose: false,
-			expectQuiet:   true,
-			expectJSON:    false,
+			name:            "verbose flag twice (-vv)",
+			args:            []string{"-vv"},
+			expectVerbosity: 2,
+			expectQuiet:     false,
+			expectJSON:      false,
 		},
 		{
-			name:          "quiet shorthand",
-			args:          []string{"-q"},
-			expectVerbose: false,
-			expectQuiet:   true,
-			expectJSON:    false,
+			name:            "verbose flag three times (-vvv)",
+			args:            []string{"-vvv"},
+			expectVerbosity: 3,
+			expectQuiet:     false,
+			expectJSON:      false,
 		},
 		{
-			name:          "json flag",
-			args:          []string{"--json"},
-			expectVerbose: false,
-			expectQuiet:   false,
-			expectJSON:    true,
+			name:            "quiet flag",
+			args:            []string{"--quiet"},
+			expectVerbosity: 0,
+			expectQuiet:     true,
+			expectJSON:      false,
 		},
 		{
-			name:          "multiple flags",
-			args:          []string{"--verbose", "--json"},
-			expectVerbose: true,
-			expectQuiet:   false,
-			expectJSON:    true,
+			name:            "quiet shorthand",
+			args:            []string{"-q"},
+			expectVerbosity: 0,
+			expectQuiet:     true,
+			expectJSON:      false,
+		},
+		{
+			name:            "json flag",
+			args:            []string{"--json"},
+			expectVerbosity: 0,
+			expectQuiet:     false,
+			expectJSON:      true,
+		},
+		{
+			name:            "multiple flags",
+			args:            []string{"-vv", "--json"},
+			expectVerbosity: 2,
+			expectQuiet:     false,
+			expectJSON:      true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Use local variables for this test
-			var testVerbose, testQuiet, testJSON bool
+			var testQuiet, testJSON bool
 
 			// Create a new command for testing to avoid state pollution
 			// We don't call cobra.OnInitialize to avoid config loading in tests
@@ -125,7 +139,7 @@ func TestFlagParsing(t *testing.T) {
 			}
 
 			// Add the same flags as root command
-			cmd.PersistentFlags().BoolVarP(&testVerbose, "verbose", "v", false, "Enable verbose output")
+			cmd.PersistentFlags().CountP("verbose", "v", "Increase verbosity level")
 			cmd.PersistentFlags().BoolVarP(&testQuiet, "quiet", "q", false, "Suppress non-error output")
 			cmd.PersistentFlags().BoolVar(&testJSON, "json", false, "Output in JSON format")
 
@@ -136,9 +150,12 @@ func TestFlagParsing(t *testing.T) {
 				t.Fatalf("Command execution failed: %v", err)
 			}
 
+			// Get verbosity count from flag
+			testVerbosity, _ := cmd.PersistentFlags().GetCount("verbose")
+
 			// Check flag values
-			if testVerbose != tt.expectVerbose {
-				t.Errorf("Expected verbose=%v, got %v", tt.expectVerbose, testVerbose)
+			if testVerbosity != tt.expectVerbosity {
+				t.Errorf("Expected verbosity=%v, got %v", tt.expectVerbosity, testVerbosity)
 			}
 			if testQuiet != tt.expectQuiet {
 				t.Errorf("Expected quiet=%v, got %v", tt.expectQuiet, testQuiet)
@@ -152,14 +169,26 @@ func TestFlagParsing(t *testing.T) {
 
 func TestHelperFunctions(t *testing.T) {
 	t.Run("GetVerbose", func(t *testing.T) {
-		verbose = true
+		verbosity = 1
 		if !GetVerbose() {
-			t.Error("Expected GetVerbose() to return true")
+			t.Error("Expected GetVerbose() to return true when verbosity >= 1")
 		}
 
-		verbose = false
+		verbosity = 0
 		if GetVerbose() {
-			t.Error("Expected GetVerbose() to return false")
+			t.Error("Expected GetVerbose() to return false when verbosity == 0")
+		}
+	})
+
+	t.Run("GetVerbosity", func(t *testing.T) {
+		verbosity = 0
+		if GetVerbosity() != 0 {
+			t.Errorf("Expected GetVerbosity() to return 0, got %d", GetVerbosity())
+		}
+
+		verbosity = 2
+		if GetVerbosity() != 2 {
+			t.Errorf("Expected GetVerbosity() to return 2, got %d", GetVerbosity())
 		}
 	})
 

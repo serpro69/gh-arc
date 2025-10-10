@@ -10,13 +10,13 @@ import (
 )
 
 func TestInit(t *testing.T) {
-	t.Run("default warn level", func(t *testing.T) {
+	t.Run("default warn level (verbosity 0)", func(t *testing.T) {
 		buf := &bytes.Buffer{}
 		Init(Config{
-			Verbose: false,
-			Quiet:   false,
-			JSON:    true,
-			Writer:  buf,
+			Verbosity: 0,
+			Quiet:     false,
+			JSON:      true,
+			Writer:    buf,
 		})
 
 		if GetLevel() != zerolog.WarnLevel {
@@ -24,13 +24,27 @@ func TestInit(t *testing.T) {
 		}
 	})
 
-	t.Run("debug level with verbose", func(t *testing.T) {
+	t.Run("info level with verbosity 1", func(t *testing.T) {
 		buf := &bytes.Buffer{}
 		Init(Config{
-			Verbose: true,
-			Quiet:   false,
-			JSON:    true,
-			Writer:  buf,
+			Verbosity: 1,
+			Quiet:     false,
+			JSON:      true,
+			Writer:    buf,
+		})
+
+		if GetLevel() != zerolog.InfoLevel {
+			t.Errorf("Expected info level, got %v", GetLevel())
+		}
+	})
+
+	t.Run("debug level with verbosity 2", func(t *testing.T) {
+		buf := &bytes.Buffer{}
+		Init(Config{
+			Verbosity: 2,
+			Quiet:     false,
+			JSON:      true,
+			Writer:    buf,
 		})
 
 		if GetLevel() != zerolog.DebugLevel {
@@ -38,13 +52,27 @@ func TestInit(t *testing.T) {
 		}
 	})
 
+	t.Run("trace level with verbosity 3", func(t *testing.T) {
+		buf := &bytes.Buffer{}
+		Init(Config{
+			Verbosity: 3,
+			Quiet:     false,
+			JSON:      true,
+			Writer:    buf,
+		})
+
+		if GetLevel() != zerolog.TraceLevel {
+			t.Errorf("Expected trace level, got %v", GetLevel())
+		}
+	})
+
 	t.Run("error level with quiet", func(t *testing.T) {
 		buf := &bytes.Buffer{}
 		Init(Config{
-			Verbose: false,
-			Quiet:   true,
-			JSON:    true,
-			Writer:  buf,
+			Verbosity: 0,
+			Quiet:     true,
+			JSON:      true,
+			Writer:    buf,
 		})
 
 		if GetLevel() != zerolog.ErrorLevel {
@@ -52,13 +80,13 @@ func TestInit(t *testing.T) {
 		}
 	})
 
-	t.Run("quiet takes precedence over verbose", func(t *testing.T) {
+	t.Run("quiet takes precedence over verbosity", func(t *testing.T) {
 		buf := &bytes.Buffer{}
 		Init(Config{
-			Verbose: true,
-			Quiet:   true,
-			JSON:    true,
-			Writer:  buf,
+			Verbosity: 3,
+			Quiet:     true,
+			JSON:      true,
+			Writer:    buf,
 		})
 
 		if GetLevel() != zerolog.ErrorLevel {
@@ -70,10 +98,10 @@ func TestInit(t *testing.T) {
 func TestJSONOutput(t *testing.T) {
 	buf := &bytes.Buffer{}
 	Init(Config{
-		Verbose: true, // Enable verbose to test info level
-		Quiet:   false,
-		JSON:    true,
-		Writer:  buf,
+		Verbosity: 1, // Info level to test info message
+		Quiet:     false,
+		JSON:      true,
+		Writer:    buf,
 	})
 
 	Info().Msg("test message")
@@ -96,10 +124,10 @@ func TestJSONOutput(t *testing.T) {
 func TestConsoleOutput(t *testing.T) {
 	buf := &bytes.Buffer{}
 	Init(Config{
-		Verbose: true, // Enable verbose to test info level
-		Quiet:   false,
-		JSON:    false,
-		Writer:  buf,
+		Verbosity: 1, // Info level to test info message
+		Quiet:     false,
+		JSON:      false,
+		Writer:    buf,
 	})
 
 	Info().Msg("test message")
@@ -123,6 +151,12 @@ func TestLogLevels(t *testing.T) {
 		level    string
 		minLevel zerolog.Level
 	}{
+		{
+			name:     "trace level",
+			logFunc:  Trace,
+			level:    "trace",
+			minLevel: zerolog.TraceLevel,
+		},
 		{
 			name:     "debug level",
 			logFunc:  Debug,
@@ -153,10 +187,10 @@ func TestLogLevels(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			buf := &bytes.Buffer{}
 			Init(Config{
-				Verbose: true, // Enable debug to test all levels
-				Quiet:   false,
-				JSON:    true,
-				Writer:  buf,
+				Verbosity: 3, // Trace level to test all levels
+				Quiet:     false,
+				JSON:      true,
+				Writer:    buf,
 			})
 
 			// Set to specific level to test filtering
@@ -173,31 +207,32 @@ func TestLogLevels(t *testing.T) {
 }
 
 func TestLogFiltering(t *testing.T) {
-	t.Run("debug and info messages filtered at warn level", func(t *testing.T) {
+	t.Run("trace, debug, and info messages filtered at warn level", func(t *testing.T) {
 		buf := &bytes.Buffer{}
 		Init(Config{
-			Verbose: false, // Warn level (default)
-			Quiet:   false,
-			JSON:    true,
-			Writer:  buf,
+			Verbosity: 0, // Warn level (default)
+			Quiet:     false,
+			JSON:      true,
+			Writer:    buf,
 		})
 
+		Trace().Msg("trace message")
 		Debug().Msg("debug message")
 		Info().Msg("info message")
 		output := buf.String()
 
 		if output != "" {
-			t.Errorf("Expected no output for debug/info at warn level, got: %s", output)
+			t.Errorf("Expected no output for trace/debug/info at warn level, got: %s", output)
 		}
 	})
 
 	t.Run("info messages filtered at error level", func(t *testing.T) {
 		buf := &bytes.Buffer{}
 		Init(Config{
-			Verbose: false,
-			Quiet:   true, // Error level
-			JSON:    true,
-			Writer:  buf,
+			Verbosity: 0,
+			Quiet:     true, // Error level
+			JSON:      true,
+			Writer:    buf,
 		})
 
 		Info().Msg("info message")
@@ -211,10 +246,10 @@ func TestLogFiltering(t *testing.T) {
 	t.Run("warnings logged at warn level (default)", func(t *testing.T) {
 		buf := &bytes.Buffer{}
 		Init(Config{
-			Verbose: false, // Warn level (default)
-			Quiet:   false,
-			JSON:    true,
-			Writer:  buf,
+			Verbosity: 0, // Warn level (default)
+			Quiet:     false,
+			JSON:      true,
+			Writer:    buf,
 		})
 
 		Warn().Msg("warning message")
@@ -228,10 +263,10 @@ func TestLogFiltering(t *testing.T) {
 	t.Run("error messages logged at error level", func(t *testing.T) {
 		buf := &bytes.Buffer{}
 		Init(Config{
-			Verbose: false,
-			Quiet:   true, // Error level
-			JSON:    true,
-			Writer:  buf,
+			Verbosity: 0,
+			Quiet:     true, // Error level
+			JSON:      true,
+			Writer:    buf,
 		})
 
 		Error().Msg("error message")
@@ -246,10 +281,10 @@ func TestLogFiltering(t *testing.T) {
 func TestWithContext(t *testing.T) {
 	buf := &bytes.Buffer{}
 	Init(Config{
-		Verbose: true, // Enable verbose to test info level
-		Quiet:   false,
-		JSON:    true,
-		Writer:  buf,
+		Verbosity: 1, // Info level to test info message
+		Quiet:     false,
+		JSON:      true,
+		Writer:    buf,
 	})
 
 	fields := map[string]interface{}{
@@ -272,10 +307,10 @@ func TestWithContext(t *testing.T) {
 func TestWithCommand(t *testing.T) {
 	buf := &bytes.Buffer{}
 	Init(Config{
-		Verbose: true, // Enable verbose to test info level
-		Quiet:   false,
-		JSON:    true,
-		Writer:  buf,
+		Verbosity: 1, // Info level to test info message
+		Quiet:     false,
+		JSON:      true,
+		Writer:    buf,
 	})
 
 	commandLogger := WithCommand("diff")
@@ -290,10 +325,10 @@ func TestWithCommand(t *testing.T) {
 func TestWithRequestID(t *testing.T) {
 	buf := &bytes.Buffer{}
 	Init(Config{
-		Verbose: true, // Enable verbose to test info level
-		Quiet:   false,
-		JSON:    true,
-		Writer:  buf,
+		Verbosity: 1, // Info level to test info message
+		Quiet:     false,
+		JSON:      true,
+		Writer:    buf,
 	})
 
 	requestLogger := WithRequestID("req-123")
@@ -308,10 +343,10 @@ func TestWithRequestID(t *testing.T) {
 func TestGet(t *testing.T) {
 	buf := &bytes.Buffer{}
 	Init(Config{
-		Verbose: true, // Enable verbose to test info level
-		Quiet:   false,
-		JSON:    true,
-		Writer:  buf,
+		Verbosity: 1, // Info level to test info message
+		Quiet:     false,
+		JSON:      true,
+		Writer:    buf,
 	})
 
 	logger := Get()
@@ -331,10 +366,10 @@ func TestGet(t *testing.T) {
 func TestSetLevel(t *testing.T) {
 	buf := &bytes.Buffer{}
 	Init(Config{
-		Verbose: true, // Start at debug
-		Quiet:   false,
-		JSON:    true,
-		Writer:  buf,
+		Verbosity: 2, // Start at debug
+		Quiet:     false,
+		JSON:      true,
+		Writer:    buf,
 	})
 
 	if GetLevel() != zerolog.DebugLevel {

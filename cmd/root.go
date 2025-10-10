@@ -11,9 +11,9 @@ import (
 
 var (
 	// Global flags
-	verbose bool
-	quiet   bool
-	jsonOut bool
+	verbosity int  // Verbosity level: 0=warn, 1=info, 2=debug, 3=trace
+	quiet     bool
+	jsonOut   bool
 
 	// cfg holds the loaded configuration
 	cfg *config.Config
@@ -35,13 +35,13 @@ external tools for code-review processes.`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		// Initialize logger after config is loaded
 		logger.Init(logger.Config{
-			Verbose: verbose,
-			Quiet:   quiet,
-			JSON:    jsonOut,
+			Verbosity: verbosity,
+			Quiet:     quiet,
+			JSON:      jsonOut,
 		})
 
-		// Log startup if verbose
-		if verbose {
+		// Log startup if verbosity >= 1
+		if verbosity >= 1 {
 			logger.Info().
 				Str("command", cmd.Name()).
 				Msg("Starting gh-arc")
@@ -64,9 +64,12 @@ func init() {
 	cobra.OnInitialize(initConfig)
 
 	// Define persistent flags that will be global for the application
-	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
+	rootCmd.PersistentFlags().CountP("verbose", "v", "Increase verbosity level (can be repeated: -v=info, -vv=debug, -vvv=trace)")
 	rootCmd.PersistentFlags().BoolVarP(&quiet, "quiet", "q", false, "Suppress non-error output")
 	rootCmd.PersistentFlags().BoolVar(&jsonOut, "json", false, "Output in JSON format")
+
+	// Bind verbosity flag to variable
+	verbosity, _ = rootCmd.PersistentFlags().GetCount("verbose")
 }
 
 // initConfig reads in config file and ENV variables if set.
@@ -86,7 +89,12 @@ func initConfig() {
 
 	// Apply config values to flags if flags weren't explicitly set
 	if !rootCmd.PersistentFlags().Changed("verbose") {
-		verbose = cfg.Output.Verbose
+		if cfg.Output.Verbose {
+			verbosity = 1 // Map old boolean verbose to level 1
+		}
+	} else {
+		// Get the count from the flag
+		verbosity, _ = rootCmd.PersistentFlags().GetCount("verbose")
 	}
 	if !rootCmd.PersistentFlags().Changed("quiet") {
 		quiet = cfg.Output.Quiet
@@ -95,15 +103,20 @@ func initConfig() {
 		jsonOut = cfg.Output.JSON
 	}
 
-	// Print config file used if verbose
-	if verbose && config.GetConfigFilePath() != "" {
+	// Print config file used if verbosity > 0
+	if verbosity > 0 && config.GetConfigFilePath() != "" {
 		fmt.Fprintln(os.Stderr, "Using config file:", config.GetConfigFilePath())
 	}
 }
 
-// GetVerbose returns the verbose flag value
+// GetVerbosity returns the verbosity level (0=warn, 1=info, 2=debug, 3=trace)
+func GetVerbosity() int {
+	return verbosity
+}
+
+// GetVerbose returns true if verbosity level is >= 1
 func GetVerbose() bool {
-	return verbose
+	return verbosity >= 1
 }
 
 // GetQuiet returns the quiet flag value
