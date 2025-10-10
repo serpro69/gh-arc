@@ -114,21 +114,20 @@ func TestFlagParsing(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Reset flags to default values
-			verbose = false
-			quiet = false
-			jsonOut = false
+			// Use local variables for this test
+			var testVerbose, testQuiet, testJSON bool
 
 			// Create a new command for testing to avoid state pollution
+			// We don't call cobra.OnInitialize to avoid config loading in tests
 			cmd := &cobra.Command{
 				Use: "test",
 				Run: func(cmd *cobra.Command, args []string) {},
 			}
 
 			// Add the same flags as root command
-			cmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
-			cmd.PersistentFlags().BoolVarP(&quiet, "quiet", "q", false, "Suppress non-error output")
-			cmd.PersistentFlags().BoolVar(&jsonOut, "json", false, "Output in JSON format")
+			cmd.PersistentFlags().BoolVarP(&testVerbose, "verbose", "v", false, "Enable verbose output")
+			cmd.PersistentFlags().BoolVarP(&testQuiet, "quiet", "q", false, "Suppress non-error output")
+			cmd.PersistentFlags().BoolVar(&testJSON, "json", false, "Output in JSON format")
 
 			// Set args and execute
 			cmd.SetArgs(tt.args)
@@ -138,14 +137,14 @@ func TestFlagParsing(t *testing.T) {
 			}
 
 			// Check flag values
-			if verbose != tt.expectVerbose {
-				t.Errorf("Expected verbose=%v, got %v", tt.expectVerbose, verbose)
+			if testVerbose != tt.expectVerbose {
+				t.Errorf("Expected verbose=%v, got %v", tt.expectVerbose, testVerbose)
 			}
-			if quiet != tt.expectQuiet {
-				t.Errorf("Expected quiet=%v, got %v", tt.expectQuiet, quiet)
+			if testQuiet != tt.expectQuiet {
+				t.Errorf("Expected quiet=%v, got %v", tt.expectQuiet, testQuiet)
 			}
-			if jsonOut != tt.expectJSON {
-				t.Errorf("Expected json=%v, got %v", tt.expectJSON, jsonOut)
+			if testJSON != tt.expectJSON {
+				t.Errorf("Expected json=%v, got %v", tt.expectJSON, testJSON)
 			}
 		})
 	}

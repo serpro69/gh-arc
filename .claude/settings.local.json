@@ -24,7 +24,8 @@
       "Bash(go test:*)",
       "Bash(./gh-arc version)",
       "Bash(./gh-arc version --json)",
-      "mcp__task-master-ai__get_task"
+      "mcp__task-master-ai__get_task",
+      "Bash(mkdir:*)"
     ],
     "deny": [
       "Bash(task-master:*)"

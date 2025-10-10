@@ -1,0 +1,72 @@
+# Default Mega-Linter configuration for gh-arc
+# This file is used when no .mega-linter.yml is found in the project root
+# For more info: https://megalinter.io/latest/configuration/
+
+# General settings
+APPLY_FIXES: none  # Don't auto-fix by default (use --fix flag)
+SHOW_ELAPSED_TIME: true
+FILEIO_REPORTER: false
+PRINT_ALPACA: false
+
+# Enable common linters
+ENABLE:
+  - GO
+  - JAVASCRIPT
+  - TYPESCRIPT
+  - PYTHON
+  - YAML
+  - JSON
+  - MARKDOWN
+  - DOCKERFILE
+  - BASH
+  - SHELL
+  - SQL
+
+# Disable some verbose or opinionated linters
+DISABLE_LINTERS:
+  - SPELL_CSPELL          # Too noisy for most projects
+  - COPYPASTE_JSCPD       # Can be too strict
+  - REPOSITORY_CHECKOV    # Security scanning can be slow
+  - REPOSITORY_TRIVY      # Security scanning can be slow
+  - REPOSITORY_TRUFFLEHOG # Secrets scanning can be slow
+
+# Go specific settings
+GO_GOLANGCI_LINT_ARGUMENTS: "--timeout=5m --fast"
+GO_GOLANGCI_LINT_CONFIG_FILE: ".golangci.yml"
+
+# JavaScript/TypeScript settings
+JAVASCRIPT_ES_ARGUMENTS: ""
+TYPESCRIPT_ES_ARGUMENTS: ""
+JAVASCRIPT_PRETTIER_ARGUMENTS: "--check"
+TYPESCRIPT_PRETTIER_ARGUMENTS: "--check"
+
+# Python settings
+PYTHON_BLACK_ARGUMENTS: "--check"
+PYTHON_ISORT_ARGUMENTS: "--check-only"
+PYTHON_PYLINT_ARGUMENTS: ""
+
+# YAML settings
+YAML_YAMLLINT_ARGUMENTS: "-d '{extends: relaxed, rules: {line-length: {max: 120}}}'"
+
+# JSON settings
+JSON_PRETTIER_ARGUMENTS: "--check"
+
+# Markdown settings
+MARKDOWN_MARKDOWNLINT_ARGUMENTS: ""
+MARKDOWN_MARKDOWN_LINK_CHECK_DISABLE_ERRORS: true
+
+# Dockerfile settings
+DOCKERFILE_HADOLINT_ARGUMENTS: ""
+
+# Shell settings
+BASH_SHELLCHECK_ARGUMENTS: ""
+SHELL_SHFMT_ARGUMENTS: "-i 2 -ci"
+
+# SQL settings
+SQL_SQLFLUFF_ARGUMENTS: "lint"
+
+# Ignore patterns
+FILTER_REGEX_EXCLUDE: "(node_modules/|vendor/|.git/|dist/|build/|coverage/|.taskmaster/)"
+
+# Fail if errors found (but not warnings)
+DISABLE_ERRORS: false

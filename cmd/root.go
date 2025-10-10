@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/serpro69/gh-arc/internal/config"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 var (
@@ -13,6 +13,9 @@ var (
 	verbose bool
 	quiet   bool
 	jsonOut bool
+
+	// cfg holds the loaded configuration
+	cfg *config.Config
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -48,33 +51,37 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
 	rootCmd.PersistentFlags().BoolVarP(&quiet, "quiet", "q", false, "Suppress non-error output")
 	rootCmd.PersistentFlags().BoolVar(&jsonOut, "json", false, "Output in JSON format")
-
-	// Bind flags to viper for configuration file support
-	viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
-	viper.BindPFlag("quiet", rootCmd.PersistentFlags().Lookup("quiet"))
-	viper.BindPFlag("json", rootCmd.PersistentFlags().Lookup("json"))
 }
 
 // initConfig reads in config file and ENV variables if set.
 func initConfig() {
-	// Set config name and type
-	viper.SetConfigName(".arc")
-	viper.SetConfigType("json")
+	// Load configuration
+	var err error
+	cfg, err = config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to load config: %v\n", err)
+		return
+	}
 
-	// Add config search paths
-	viper.AddConfigPath(".")                        // Current directory
-	viper.AddConfigPath("$HOME/.config/gh-arc")     // User config directory
-	viper.AddConfigPath("/etc/gh-arc")              // System-wide config
+	// Validate configuration
+	if err := cfg.Validate(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: invalid config: %v\n", err)
+	}
 
-	// Read in environment variables with GHARC_ prefix
-	viper.SetEnvPrefix("GHARC")
-	viper.AutomaticEnv()
+	// Apply config values to flags if flags weren't explicitly set
+	if !rootCmd.PersistentFlags().Changed("verbose") {
+		verbose = cfg.Output.Verbose
+	}
+	if !rootCmd.PersistentFlags().Changed("quiet") {
+		quiet = cfg.Output.Quiet
+	}
+	if !rootCmd.PersistentFlags().Changed("json") {
+		jsonOut = cfg.Output.JSON
+	}
 
-	// If a config file is found, read it in
-	if err := viper.ReadInConfig(); err == nil {
-		if verbose {
-			fmt.Fprintln(os.Stderr, "Using config file:", viper.ConfigFileUsed())
-		}
+	// Print config file used if verbose
+	if verbose && config.GetConfigFilePath() != "" {
+		fmt.Fprintln(os.Stderr, "Using config file:", config.GetConfigFilePath())
 	}
 }
 
@@ -91,4 +98,13 @@ func GetQuiet() bool {
 // GetJSON returns the JSON output flag value
 func GetJSON() bool {
 	return jsonOut
+}
+
+// GetConfig returns the loaded configuration
+func GetConfig() *config.Config {
+	if cfg == nil {
+		// If config hasn't been loaded, load it
+		cfg, _ = config.Load()
+	}
+	return cfg
 }
