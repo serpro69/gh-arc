@@ -1,6 +1,6 @@
 <context>
 # Overview
-gh-arc is a GitHub CLI extension implementing an opinionated trunk-based development workflow, inspired by tools like Arcanist and Phorge. It wraps GitHub (and potentially Linear) APIs to provide a simplified command-line interface for code review and revision control operations.
+gh-arc is a GitHub CLI extension implementing an opinionated trunk-based development workflow. It is a port of a famous CLI tool Arcanist (https://github.com/phorgeit/arcanist) that was originally developed as as command-line tool for interacting with Phorge (a suite of web applications which make it easier to build software; phorge is fork of Phabricator), with the main difference that gh-arc targets Github as a code-hosting and code-review platform. It wraps GitHub (and potentially Linear) to provide a simplified command-line API for code review and revision control operations.
 
 **Problem:** Modern code review workflows often involve complex Git commands, manual PR creation/updates, and context-switching between terminal and web interfaces. Developers need a streamlined CLI experience that embodies trunk-based development best practices.
 

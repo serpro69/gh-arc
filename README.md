@@ -23,6 +23,7 @@ gh arc help <command>
 In a gist, `gh arc` allows you to do things like:
 
 - get detailed help about available commands with `gh arc help`
+- create a new, short-lived, feature branch from an up-to-date `origin/HEAD` with `gh arc work`
 - send your code to Github for review with `gh arc diff`
 - show pending revision information with `gh arc list`
 - find likely reviewers for a change with `gh arc cover`
