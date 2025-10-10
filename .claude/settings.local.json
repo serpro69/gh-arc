@@ -21,7 +21,9 @@
       "Bash(go build:*)",
       "Bash(./gh-arc --help)",
       "Bash(go list:*)",
-      "Bash(go test:*)"
+      "Bash(go test:*)",
+      "Bash(./gh-arc version)",
+      "Bash(./gh-arc version --json)"
     ],
     "deny": [
       "Bash(task-master:*)"
