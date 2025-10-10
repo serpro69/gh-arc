@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/serpro69/gh-arc/internal/config"
+	"github.com/serpro69/gh-arc/internal/logger"
 	"github.com/spf13/cobra"
 )
 
@@ -31,6 +32,21 @@ during the entire development workflow without switching contexts or opening
 external tools for code-review processes.`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		// Initialize logger after config is loaded
+		logger.Init(logger.Config{
+			Verbose: verbose,
+			Quiet:   quiet,
+			JSON:    jsonOut,
+		})
+
+		// Log startup if verbose
+		if verbose {
+			logger.Info().
+				Str("command", cmd.Name()).
+				Msg("Starting gh-arc")
+		}
+	},
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
