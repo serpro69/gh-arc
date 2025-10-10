@@ -32,13 +32,10 @@ logs
 .DS_Store
 
 # AI tools
-.claude/*
 .serena
 .taskmaster/*
 
 !.claude
-!.taskmaster
-!.claude/settings.local.json
 !.taskmaster/CLAUDE.md
 !.taskmaster/config.json
 
