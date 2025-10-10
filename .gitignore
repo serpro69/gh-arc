@@ -33,11 +33,9 @@ logs
 
 # AI tools
 .serena
-.taskmaster/*
-
 !.claude
-!.taskmaster/CLAUDE.md
-!.taskmaster/config.json
+!.taskmaster
+.taskmaster/state.json
 
 # Taskmaster task files
 

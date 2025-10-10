@@ -1,0 +1,700 @@
+<context>
+# Overview
+gh-arc is a GitHub CLI extension implementing an opinionated trunk-based development workflow, inspired by tools like Arcanist and Phorge. It wraps GitHub (and potentially Linear) APIs to provide a simplified command-line interface for code review and revision control operations.
+
+**Problem:** Modern code review workflows often involve complex Git commands, manual PR creation/updates, and context-switching between terminal and web interfaces. Developers need a streamlined CLI experience that embodies trunk-based development best practices.
+
+**Solution:** gh-arc provides a unified command-line API that abstracts away complexity, making it easy to send code for review, track revisions, find reviewers, and land changes while maintaining a clean trunk-based workflow.
+
+**Target Users:** Software engineers and teams practicing trunk-based development who prefer command-line workflows and use GitHub for code hosting and review.
+
+# Core Features
+
+## Code Review Commands
+
+### gh arc work <name>
+- **What:** Create new short-lived branch with a given `<name>` from latest "default" branch
+- **Why:** To be able to diff what changes should be included in a PR with `gh arc diff`
+- **How:** Pulls latest origin HEAD, and creates a new branch from it.
+
+### gh arc diff
+- **What:** Send code changes to GitHub for review (create or update Pull Requests)
+- **Why:** Simplifies PR creation/updates without leaving the terminal. Runs optional (configured) pre-commit checks like linters, unit tests, etc.
+- **How:** Analyzes local commits, creates/updates PRs with appropriate metadata, and handles the entire review submission workflow
+
+### gh arc list
+- **What:** Display pending revisions (PRs) with status information
+- **Why:** Provides quick visibility into outstanding code reviews without opening browser
+- **How:** Queries GitHub API for user's PRs, formats output with status, reviewers, and CI states
+
+### gh arc cover
+- **What:** Find and suggest reviewers for code changes
+- **Why:** Helps identify subject matter experts based on file ownership and contribution history
+- **How:** Analyzes changed files, queries Git blame/history, suggests reviewers based on code ownership patterns and CODEOWNERS files
+
+### gh arc patch
+- **What:** Apply changes from a revision to the working copy
+- **Why:** Enables easy testing of others' changes locally
+- **How:** Downloads PR diff and applies to working directory using Git patch mechanisms. Implementation can be simplified by using native `gh pr checkout <pr_number` command, if they're available in the CLI sdk.
+
+### gh arc export
+- **What:** Download patches from GitHub PRs
+- **Why:** Allows offline review or integration with other tools
+- **How:** Exports PR changes as Git-compatible patch files
+
+### gh arc amend
+- **What:** Update Git commit messages after review feedback
+- **Why:** Incorporates reviewer feedback into commit history before landing
+- **How:** Interactive commit message editor with context from PR discussions
+
+### gh arc land
+- **What:** Push approved changes to trunk (merge PRs)
+- **Why:** Ensures consistent landing process with proper checks
+- **How:** Verifies PR approval, squashes the commits, and merges to "default" branch
+
+### gh arc branch
+- **What:** View enhanced information about Git branches
+- **Why:** Provides richer context than standard `git branch` output
+- **How:** Combines local Git data with GitHub PR information
+
+## Development Quality Commands
+
+### gh arc lint
+- **What:** Check code for syntax and style errors
+- **Why:** Catches issues before code review, maintains code quality standards
+- **How:** Integrates with configurable linters (golangci-lint, eslint, etc.) and runs them on changed files
+
+### gh arc unit
+- **What:** Run unit tests for changed code
+- **Why:** Ensures changes don't break existing functionality
+- **How:** Detects affected test files, runs them, and reports results
+
+## Integration Commands
+
+### gh arc gist
+- **What:** Create and view GitHub gists
+- **Why:** Quick sharing of code snippets during collaboration
+- **How:** Wraps GitHub Gist API with simplified CLI interface
+
+### gh arc shell-complete
+- **What:** Set up tab completion for the extension
+- **Why:** Improves CLI usability and discoverability
+- **How:** Generates shell completion scripts for bash/zsh/fish
+
+### gh arc help
+- **What:** Display help information for commands
+- **Why:** Self-documenting CLI reduces learning curve
+- **How:** Structured help system with command descriptions and examples
+
+# User Experience
+
+## User Personas
+
+**Primary Persona: Sarah (Senior Engineer)**
+- Works on a fast-paced team practicing trunk-based development
+- Reviews 5-10 PRs daily, submits 2-3 PRs
+- Prefers terminal workflows, uses Vim/Neovim
+- Values speed and consistency in development workflows
+
+**Secondary Persona: Alex (Team Lead)**
+- Manages team of 8 engineers
+- Reviews code architecture and mentors junior developers
+- Needs visibility into team's pending reviews
+- Uses Linear for issue tracking
+
+## Key User Flows
+
+### Flow 1: Submit Code for Review
+1. Developer creates a feature branch with `gh arc work my_feature` and adds commits to it
+2.1. Runs `gh arc diff` to create/update PR
+2.2. `gh arc diff` triggers `lint` and `unit` commands, if they're present in configuration, to verify quality
+2.3. Developer can run `gh arc lint` and `gh arc unit` manually, if desired
+3. Extension analyzes commits, prompts for PR details and opens a pre-configured commit message in default terminal editor
+4. PR created on GitHub with proper labels and metadata
+5. Developer continues working while waiting for review
+
+### Flow 2: Review and Land Changes
+1. Developer runs `gh arc list` to check PR status
+2. Sees PR is approved by reviewers
+3. Addresses any final feedback with `gh arc amend`
+4. Runs `gh arc land` to merge to main
+5. Extension verifies approval, squashes, and merges
+6.1. Default branch in the local copy is switched and latest changes are pulled
+6.2. Local feature branch is cleaned up automatically
+
+### Flow 3: Review Someone Else's Code
+1. Developer runs `gh arc list` to see team's pending PRs
+2. Identifies interesting PR to review
+3.1. Runs `gh arc patch <pr-number>` to apply locally
+3.2. Runs `gh arc open <pr-number>` to open the PR in default system browser
+4. Reviews code, runs tests locally
+5. Provides feedback on GitHub web interface or via comments
+
+## UI/UX Considerations
+- **Minimal Prompts:** Smart defaults reduce interactive prompts
+- **Rich Output:** Use colors, formatting for readability in terminal
+- **Progress Feedback:** Show progress for long-running operations (API calls, Git operations)
+- **Error Messages:** Clear, actionable error messages with suggested fixes
+- **Configuration:** Sensible defaults with optional `.arc` config file for customization
+</context>
+
+<PRD>
+# Technical Architecture
+
+## System Components
+
+### CLI Framework
+- **Language:** Go 1.23+
+- **Framework:** Cobra CLI framework for command structure
+- **GitHub Integration:** `github.com/cli/go-gh/v2` library for GitHub API access
+- **Authentication:** Leverages `gh` CLI's existing OAuth tokens
+
+### Core Modules
+
+1. **Command Handler Module**
+   - Parses CLI arguments and flags
+   - Routes to appropriate command implementation
+   - Handles common flags (--help, --verbose, --config)
+
+2. **GitHub Client Module**
+   - Wraps go-gh API client
+   - Implements PR operations (create, update, list, merge)
+   - Handles rate limiting and error retry logic
+   - Caches API responses where appropriate
+
+3. **Git Operations Module**
+   - Interfaces with local Git repository
+   - Analyzes commits, diffs, and branch state
+   - Applies patches and manages working directory
+   - Uses `go-git` or shells out to git CLI
+
+4. **Linter Integration Module**
+   - Plugin architecture for multiple linters
+   - Detects changed files and runs appropriate linters
+   - Parses linter output into standardized format
+   - Configurable via `.arc/lint` configuration
+
+5. **Test Runner Module**
+   - Detects test files affected by changes
+   - Runs test commands based on file type/framework
+   - Parses test output and reports results
+   - Configurable via `.arc/unit` configuration
+
+6. **Reviewer Suggestion Module**
+   - Analyzes Git blame and commit history
+   - Scores potential reviewers based on file ownership
+   - Integrates with GitHub's CODEOWNERS if present
+   - Machine learning-style scoring algorithm
+
+## Data Models
+
+### Configuration Model
+```go
+type ArcConfig struct {
+    GitHub   GitHubConfig
+    Lint     LintConfig
+    Unit     UnitConfig
+    Workflow WorkflowConfig
+}
+
+type GitHubConfig struct {
+    DefaultBranch string
+    ReviewerCount int
+    AutoLabels    []string
+}
+
+type LintConfig struct {
+    Enabled bool
+    Engines []LinterEngine
+}
+
+type UnitConfig struct {
+    Enabled      bool
+    TestPatterns []string
+    RunCommand   string
+}
+```
+
+### Revision Model
+```go
+type Revision struct {
+    ID          string
+    Title       string
+    Description string
+    Author      string
+    Status      RevisionStatus
+    Reviewers   []Reviewer
+    PRNumber    int
+    Commits     []Commit
+    CIStatus    CIStatus
+}
+
+type RevisionStatus string
+const (
+    StatusDraft      RevisionStatus = "draft"
+    StatusReview     RevisionStatus = "review"
+    StatusApproved   RevisionStatus = "approved"
+    StatusChanges    RevisionStatus = "changes_requested"
+    StatusMerged     RevisionStatus = "merged"
+)
+```
+
+### Lint/Test Result Models
+```go
+type LintResult struct {
+    FilePath string
+    Issues   []LintIssue
+}
+
+type LintIssue struct {
+    Line     int
+    Column   int
+    Severity Severity
+    Message  string
+    Rule     string
+}
+
+type UnitResult struct {
+    TestFiles []TestFile
+    Summary   TestSummary
+}
+
+type TestSummary struct {
+    Total   int
+    Passed  int
+    Failed  int
+    Skipped int
+}
+```
+
+## APIs and Integrations
+
+### GitHub REST API
+- **Pull Requests API:** Create, update, list, merge PRs
+- **Reviews API:** Request reviews, read review status
+- **Commits API:** Get commit information and status
+- **Users API:** Get user information for reviewer suggestions
+- **Gists API:** Create and manage gists
+
+### GitHub GraphQL API (Optional Enhancement)
+- More efficient queries for complex data fetching
+- Batch operations for better performance
+- Use for `gh arc list` and `gh arc cover` commands
+
+### Linear API (Future Integration)
+- Link commits and PRs to Linear issues
+- Auto-update issue status based on PR state
+- Fetch issue context for PR descriptions
+
+### Git CLI/Library Integration
+- Use `go-git` library for pure Go operations
+- Shell out to `git` CLI for complex operations
+- Ensure compatibility with Git 2.x+
+
+## Infrastructure Requirements
+
+### Development Environment
+- Go 1.23+ toolchain
+- GitHub CLI (`gh`) installed and authenticated
+- Git 2.x+ installed
+- Access to GitHub repository for testing
+
+### Build and Distribution
+- GitHub Actions for CI/CD
+- Use `cli/gh-extension-precompile` action for multi-platform builds
+- Release binaries for: Linux (amd64, arm64), macOS (amd64, arm64), Windows (amd64)
+- Versioning using Git tags (semver)
+
+### Testing Infrastructure
+- Unit tests for all core modules
+- Integration tests with mock GitHub API
+- End-to-end tests with test repository
+- Test coverage target: 80%+
+
+# Development Roadmap
+
+## Phase 1: Foundation and Core Infrastructure (MVP)
+
+### 1.1 Project Setup and CLI Framework
+- Initialize Go module structure
+- Set up Cobra CLI framework
+- Implement basic command routing
+- Add --help and --version flags
+- Create configuration file parser (.arc config)
+- Set up logging infrastructure
+
+### 1.2 GitHub Integration Foundation
+- Integrate go-gh library
+- Implement authentication check (already started in main.go)
+- Create GitHub API client wrapper
+- Add basic error handling and retry logic
+- Implement rate limit handling
+
+### 1.3 Git Operations Foundation
+- Implement Git repository detection
+- Add functions to read current branch
+- Implement commit analysis
+- Add diff generation capabilities
+- Create working directory state checker
+
+## Phase 2: Core Review Workflow Commands (MVP)
+
+### 2.1 gh arc diff - Submit for Review
+- Parse local commits on current branch
+- Generate PR title and description from commits
+- Create new PR via GitHub API
+- Update existing PR if it exists
+- Handle draft vs ready-for-review state
+- Display PR URL after creation
+
+### 2.2 gh arc list - Show Pending Revisions
+- Query GitHub API for user's PRs
+- Fetch PR status (draft, review, approved, changes requested)
+- Display CI/check status
+- Format output in readable table
+- Add filtering options (--author, --status)
+
+### 2.3 gh arc land - Merge Changes
+- Verify PR is approved
+- Check CI status
+- Offer rebase option if needed
+- Merge PR via GitHub API
+- Delete remote branch after merge
+- Clean up local branch
+
+## Phase 3: Enhanced Review Features
+
+### 3.1 gh arc cover - Reviewer Suggestions
+- Implement Git blame analysis for changed files
+- Score contributors based on file ownership
+- Query GitHub for valid reviewers
+- Integrate with CODEOWNERS file if present
+- Display suggested reviewers with reasoning
+
+### 3.2 gh arc patch - Apply Changes Locally
+- Parse PR number or URL
+- Fetch PR diff from GitHub
+- Apply patch to working directory
+- Handle merge conflicts gracefully
+- Provide undo mechanism
+
+### 3.3 gh arc export - Export Patches
+- Fetch PR as Git patch format
+- Save to file or stdout
+- Support multiple formats (patch, diff)
+- Include commit metadata
+
+### 3.4 gh arc amend - Update Commits
+- Interactive commit message editor
+- Fetch PR discussion context
+- Update commit messages
+- Push updated commits to PR
+
+### 3.5 gh arc branch - Enhanced Branch Info
+- Show local branches with PR associations
+- Display PR status for each branch
+- Show CI status
+- Indicate which branches are safe to delete
+
+## Phase 4: Code Quality Integration
+
+### 4.1 gh arc lint - Linter Integration
+- Design plugin architecture for linters
+- Implement Go linter integration (golangci-lint)
+- Add configuration file support (.arc/lint)
+- Parse and display lint errors
+- Return appropriate exit codes
+- Support multiple linters simultaneously
+
+### 4.2 gh arc unit - Test Runner
+- Detect test files affected by changes
+- Implement Go test runner integration
+- Add configuration support (.arc/unit)
+- Parse and display test results
+- Show coverage information
+- Support multiple test frameworks
+
+## Phase 5: Additional Features and Polish
+
+### 5.1 gh arc gist - Gist Management
+- Create gists from files or stdin
+- List user's gists
+- Update existing gists
+- Delete gists
+- Support public/private gists
+
+### 5.2 gh arc shell-complete - Tab Completion
+- Generate bash completion script
+- Generate zsh completion script
+- Generate fish completion script
+- Add installation instructions
+- Support dynamic completion for PR numbers
+
+### 5.3 Configuration and Customization
+- Create `.arc` config file format
+- Support project-level and user-level config
+- Add `gh arc config` command for interactive setup
+- Document all configuration options
+- Provide sensible defaults
+
+### 5.4 Enhanced UX and Output
+- Add color-coded output
+- Implement progress indicators for API calls
+- Add --verbose flag for debugging
+- Improve error messages with suggestions
+- Add --json flag for machine-readable output
+
+## Phase 6: Advanced Features (Post-MVP)
+
+### 6.1 Linear Integration
+- Authenticate with Linear API
+- Link commits to Linear issues
+- Update issue status based on PR state
+- Show issue context in PR descriptions
+- Add `gh arc issue` command
+
+### 6.2 Stack/Chain PR Support
+- Support dependent PR chains
+- Show PR stack visualization
+- Land entire stacks atomically
+- Handle rebasing in stacks
+
+### 6.3 GitHub GraphQL Optimization
+- Migrate expensive queries to GraphQL
+- Implement batched operations
+- Reduce API call count for `gh arc list`
+
+### 6.4 Extensibility Framework
+- Plugin system for custom commands
+- Hook system for workflow customization
+- External linter/test runner plugins
+
+# Logical Dependency Chain
+
+## Layer 1: Foundation (Build First)
+1. Project setup and CLI framework (1.1) - Required by everything
+2. GitHub integration foundation (1.2) - Required for all GitHub operations
+3. Git operations foundation (1.3) - Required for all Git operations
+
+**Why First:** These are foundational components that every other feature depends on. Nothing can work without CLI framework, GitHub API access, and Git repository interactions.
+
+## Layer 2: Core Review Workflow (Build Second - MVP Completion)
+4. `gh arc diff` (2.1) - Create/update PRs
+5. `gh arc list` (2.2) - View PRs
+6. `gh arc land` (2.3) - Merge PRs
+
+**Why Second:** These three commands form the minimum viable workflow: submit code → check status → land changes. Once these work, users can perform basic trunk-based development. This is the fastest path to a usable product.
+
+**Dependencies:** Requires Layer 1 (foundation) to be complete.
+
+## Layer 3: Enhanced Review Features (Build Third)
+7. `gh arc cover` (3.1) - Find reviewers
+8. `gh arc patch` (3.2) - Apply others' changes
+9. `gh arc export` (3.3) - Export patches
+10. `gh arc amend` (3.4) - Update commit messages
+11. `gh arc branch` (3.5) - Enhanced branch info
+
+**Why Third:** These enhance the review workflow but aren't critical for MVP. They can be built in parallel since they're mostly independent. Users can start using the tool while these are being developed.
+
+**Dependencies:** Requires Layer 1 and Layer 2. Can be built in any order within this layer.
+
+## Layer 4: Code Quality Tools (Build Fourth)
+12. `gh arc lint` (4.1) - Linter integration
+13. `gh arc unit` (4.2) - Test runner
+
+**Why Fourth:** Quality tools are important but not blocking for basic workflow. They can be added after the review workflow is solid. These are somewhat independent and can be built in parallel.
+
+**Dependencies:** Requires Layer 1 (especially Git operations for detecting changed files).
+
+## Layer 5: Nice-to-Have Features (Build Fifth)
+14. `gh arc gist` (5.1) - Gist management
+15. `gh arc shell-complete` (5.2) - Tab completion
+16. Configuration and customization (5.3)
+17. Enhanced UX and output (5.4)
+
+**Why Fifth:** These improve usability but aren't essential for functionality. They can be sprinkled in throughout development or saved for polish phase.
+
+**Dependencies:** Minimal dependencies, mostly independent features.
+
+## Layer 6: Advanced Features (Build Last - Post-MVP)
+18. Linear integration (6.1)
+19. Stack/Chain PR support (6.2)
+20. GitHub GraphQL optimization (6.3)
+21. Extensibility framework (6.4)
+
+**Why Last:** These are enhancements for power users or optimizations. Save for after MVP is proven with users.
+
+**Dependencies:** Requires stable foundation and core features. Linear integration is independent. Stack support builds on `diff` and `land`. GraphQL optimization refactors `list` and other query-heavy commands.
+
+# Risks and Mitigations
+
+## Technical Challenges
+
+### Risk: GitHub API Rate Limiting
+- **Impact:** High - Could block users from using commands
+- **Mitigation:**
+  - Implement intelligent caching of API responses
+  - Use conditional requests (ETags) where possible
+  - Add --offline mode for commands that can work with cached data
+  - Consider GraphQL for batch operations to reduce call count
+
+### Risk: Git Repository State Complexity
+- **Impact:** High - Unusual Git states could break commands
+- **Mitigation:**
+  - Defensive checks before operations (dirty working dir, detached HEAD, etc.)
+  - Comprehensive error messages explaining state issues
+  - Add --force flags for advanced users who know what they're doing
+  - Extensive integration testing with various Git states
+
+### Risk: Cross-Platform Compatibility (Linux, macOS, Windows)
+- **Impact:** Medium - Windows Git behavior can differ
+- **Mitigation:**
+  - Use Go's standard library for file operations (cross-platform)
+  - Test on all three platforms in CI
+  - Use go-git library instead of shelling out where possible
+  - Provide platform-specific installation instructions
+
+### Risk: Complex PR Update Logic
+- **Impact:** Medium - Updating existing PRs requires complex diffing logic
+- **Mitigation:**
+  - Start simple: detect if branch already has PR, update it
+  - Store PR metadata in Git notes or local config
+  - Clearly document expected workflow and limitations
+  - Add --force-new flag to always create new PR
+
+## MVP Scope Definition
+
+### Risk: Feature Creep Delaying Usable Product
+- **Impact:** High - Could delay getting to usable product
+- **Mitigation:**
+  - **Strict MVP:** Layer 1 + Layer 2 only (foundation + diff/list/land)
+  - Everything else is post-MVP enhancement
+  - Set clear acceptance criteria: "Can I submit and land a PR using only gh-arc?"
+  - Release early alpha to get feedback quickly
+
+### Risk: Competing with GitHub CLI's Built-in Features
+- **Impact:** Medium - GitHub CLI already has `gh pr` commands
+- **Mitigation:**
+  - Focus on opinionated workflow, not feature parity
+  - Emphasize trunk-based development best practices
+  - Provide better defaults and less verbosity than `gh pr`
+  - Target users already familiar with Arcanist-style workflows
+
+### Risk: Configuration Complexity
+- **Impact:** Medium - Too many config options confuse users
+- **Mitigation:**
+  - Sensible defaults that work for 80% of users
+  - Configuration optional, not required
+  - Progressive disclosure: basic usage needs no config
+  - Clear documentation with examples for common scenarios
+
+## Resource Constraints
+
+### Risk: Single Developer Maintaining Extension
+- **Impact:** Medium - Slow feature development, bug fixes
+- **Mitigation:**
+  - Focus on code quality and tests to reduce maintenance burden
+  - Comprehensive documentation to enable community contributions
+  - Clear CONTRIBUTING.md with development setup instructions
+  - Use GitHub Discussions for community support
+
+### Risk: Dependency on GitHub CLI Library Updates
+- **Impact:** Low - Breaking changes in go-gh library
+- **Mitigation:**
+  - Pin specific go-gh versions, update deliberately
+  - Subscribe to go-gh release notifications
+  - Maintain compatibility layer if needed
+  - Contribute back to go-gh if features needed
+
+# Appendix
+
+## Research Findings
+
+### Arcanist/Phorge Command Reference
+- **arc diff:** Creates/updates differential revisions
+- **arc land:** Lands approved revisions to master
+- **arc list:** Shows pending revisions
+- **arc cover:** Suggests reviewers based on code ownership
+- **arc lint/unit:** Runs quality checks
+
+### GitHub CLI Extension Ecosystem
+- Extensions can be written in any language
+- Distributed as binaries via GitHub releases
+- `gh extension install user/repo` for installation
+- Extensions run in subprocess, output goes to stdout
+
+### Trunk-Based Development Best Practices
+- Short-lived feature branches (< 2 days)
+- Frequent integration to trunk/main
+- Small, reviewable changes
+- Feature flags for incomplete features
+- Emphasis on CI/CD and automated testing
+
+## Technical Specifications
+
+### Minimum GitHub CLI Version
+- Requires `gh` CLI v2.0.0+
+- Uses `go-gh` library v2.x
+
+### Configuration File Format (.arc)
+```json
+{
+  "github": {
+    "default_branch": "main",
+    "reviewer_count": 2,
+    "auto_labels": ["needs-review"]
+  },
+  "lint": {
+    "enabled": true,
+    "engines": ["golangci-lint", "gofmt"]
+  },
+  "unit": {
+    "enabled": true,
+    "test_patterns": ["*_test.go"],
+    "run_command": "go test -v"
+  },
+  "workflow": {
+    "auto_delete_branch": true,
+    "require_ci_pass": true
+  }
+}
+```
+
+### Command Exit Codes
+- 0: Success
+- 1: General error
+- 2: Configuration error
+- 3: Git repository error
+- 4: GitHub API error
+- 5: Lint/test failures
+
+### Output Format Standards
+- Use color for emphasis (green=success, red=error, yellow=warning)
+- Table format for list commands
+- Progress indicators for long operations
+- --json flag for machine-readable output
+- --quiet flag for minimal output
+
+## Related Tools and Inspiration
+
+### Phorge Arcanist
+- https://github.com/phorgeit/arcanist
+- PHP-based, workflow-oriented
+- Supports multiple platforms (Phabricator, GitHub)
+
+### GitHub CLI
+- https://github.com/cli/cli
+- Official GitHub CLI tool
+- Provides `gh pr`, `gh issue`, etc.
+- Our extension builds on this foundation
+
+### Linear CLI
+- https://github.com/linearapp/linear
+- Issue management CLI
+- Potential integration target for future
+
+### Git Town
+- https://github.com/git-town/git-town
+- Git workflow CLI tool
+- Similar philosophy, different implementation
+</PRD>
