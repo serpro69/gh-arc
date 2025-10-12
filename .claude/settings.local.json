@@ -25,9 +25,12 @@
       "Bash(./gh-arc version)",
       "Bash(./gh-arc version --json)",
       "Bash(./gh-arc version --verbose)",
-      "Bash(./gh-arc version --quiet)"
+      "Bash(./gh-arc version --quiet)",
+      "mcp__serena__get_symbols_overview"
     ],
-    "deny": ["Bash(task-master:*)"],
+    "deny": [
+      "Bash(task-master:*)"
+    ],
     "ask": []
   },
   "enabledMcpjsonServers": []
