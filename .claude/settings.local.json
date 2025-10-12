@@ -26,7 +26,9 @@
       "Bash(./gh-arc version --json)",
       "Bash(./gh-arc version --verbose)",
       "Bash(./gh-arc version --quiet)",
-      "mcp__serena__get_symbols_overview"
+      "mcp__serena__get_symbols_overview",
+      "Bash(go tool cover:*)",
+      "Bash(sort:*)"
     ],
     "deny": [
       "Bash(task-master:*)"

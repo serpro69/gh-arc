@@ -299,3 +299,133 @@ func TestRepositoryString(t *testing.T) {
 func TestClientImplementsGitHubClient(t *testing.T) {
 	var _ GitHubClient = (*Client)(nil)
 }
+
+func TestClientAccessorMethods(t *testing.T) {
+	client, err := NewClient()
+	if err != nil {
+		t.Fatalf("Failed to create client: %v", err)
+	}
+	defer client.Close()
+
+	t.Run("REST returns REST client", func(t *testing.T) {
+		restClient := client.REST()
+		if restClient == nil {
+			t.Error("REST() returned nil")
+		}
+	})
+
+	t.Run("GraphQL returns GraphQL client", func(t *testing.T) {
+		graphqlClient := client.GraphQL()
+		if graphqlClient == nil {
+			t.Error("GraphQL() returned nil")
+		}
+	})
+
+	t.Run("Repository returns repository context", func(t *testing.T) {
+		// May be nil if not in a repo
+		_ = client.Repository()
+	})
+}
+
+func TestClientCacheManagement(t *testing.T) {
+	t.Run("CacheStats returns stats", func(t *testing.T) {
+		client, err := NewClient()
+		if err != nil {
+			t.Fatalf("Failed to create client: %v", err)
+		}
+		defer client.Close()
+
+		stats := client.CacheStats()
+		if stats.Hits < 0 || stats.Misses < 0 {
+			t.Error("CacheStats returned negative values")
+		}
+	})
+
+	t.Run("ClearCache clears the cache", func(t *testing.T) {
+		client, err := NewClient()
+		if err != nil {
+			t.Fatalf("Failed to create client: %v", err)
+		}
+		defer client.Close()
+
+		// Add something to cache
+		client.cache.Set("test", "value", 1*time.Minute)
+
+		// Clear cache
+		client.ClearCache()
+
+		// Verify it's cleared
+		_, found := client.cache.Get("test")
+		if found {
+			t.Error("ClearCache did not clear the cache")
+		}
+	})
+
+	t.Run("InvalidateCacheKey removes specific key", func(t *testing.T) {
+		client, err := NewClient()
+		if err != nil {
+			t.Fatalf("Failed to create client: %v", err)
+		}
+		defer client.Close()
+
+		// Add something to cache
+		client.cache.Set("test", "value", 1*time.Minute)
+
+		// Invalidate specific key
+		client.InvalidateCacheKey("test")
+
+		// Verify it's removed
+		_, found := client.cache.Get("test")
+		if found {
+			t.Error("InvalidateCacheKey did not remove the key")
+		}
+	})
+
+	t.Run("Close stops cache cleanup", func(t *testing.T) {
+		client, err := NewClient()
+		if err != nil {
+			t.Fatalf("Failed to create client: %v", err)
+		}
+
+		// Should not panic
+		err = client.Close()
+		if err != nil {
+			t.Errorf("Close returned error: %v", err)
+		}
+
+		// Multiple closes should not panic
+		err = client.Close()
+		if err != nil {
+			t.Errorf("Second Close returned error: %v", err)
+		}
+	})
+
+	t.Run("Close with NoOpCache does not panic", func(t *testing.T) {
+		client, err := NewClient(WithoutCache())
+		if err != nil {
+			t.Fatalf("Failed to create client: %v", err)
+		}
+
+		// Should not panic even with NoOpCache
+		err = client.Close()
+		if err != nil {
+			t.Errorf("Close with NoOpCache returned error: %v", err)
+		}
+	})
+}
+
+func TestClientDoGraphQL(t *testing.T) {
+	t.Run("Do placeholder returns nil", func(t *testing.T) {
+		client, err := NewClient()
+		if err != nil {
+			t.Fatalf("Failed to create client: %v", err)
+		}
+		defer client.Close()
+
+		// Do is a placeholder that returns nil
+		err = client.Do(nil, "GET", "/test", nil, nil)
+		if err != nil {
+			t.Errorf("Do() returned error: %v", err)
+		}
+	})
+}
