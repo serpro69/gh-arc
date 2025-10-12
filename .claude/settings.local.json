@@ -28,7 +28,9 @@
       "Bash(./gh-arc version --quiet)",
       "mcp__serena__get_symbols_overview",
       "Bash(go tool cover:*)",
-      "Bash(sort:*)"
+      "Bash(sort:*)",
+      "mcp__task-master-ai__add_task",
+      "mcp__task-master-ai__expand_task"
     ],
     "deny": [
       "Bash(task-master:*)"

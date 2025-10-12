@@ -692,11 +692,78 @@
             "testStrategy": "Test spinner and progress bar rendering without blocking. Verify dry-run mode prevents all side effects while showing intended actions. Test error message suggestions are relevant and helpful. Measure performance impact of UI components."
           }
         ]
+      },
+      {
+        "id": 11,
+        "title": "Implement persistent caching system with TieredCache architecture",
+        "description": "Build a multi-tier caching system that persists GitHub API responses across command invocations to reduce latency, mitigate rate limits, and improve user experience through a layered cache architecture.",
+        "details": "1. **FileCache Implementation** (internal/cache/file_cache.go):\n   - Create FileCache struct implementing the Cache interface from Task 2\n   - Use os.UserCacheDir() to determine cache location (~/.cache/gh-arc on Unix, ~/Library/Caches/gh-arc on macOS)\n   - Store cache entries as individual JSON files: {hash}.json containing response body, headers, ETag, and metadata\n   - Implement file locking using github.com/gofrs/flock for concurrent access safety\n   - Set file permissions to 0600 for user-only access\n   - Cache key generation: SHA256 hash of method+URL+params\n   - Entry structure:\n```go\ntype CacheEntry struct {\n    Key        string            `json:\"key\"`\n    Value      json.RawMessage   `json:\"value\"`\n    Headers    map[string]string `json:\"headers\"`\n    ETag       string            `json:\"etag\"`\n    Timestamp  time.Time         `json:\"timestamp\"`\n    TTL        time.Duration     `json:\"ttl\"`\n    Version    int               `json:\"version\"`\n}\n```\n\n2. **TieredCache Wrapper** (internal/cache/tiered_cache.go):\n   - Implement Cache interface with three-tier lookup strategy\n   - L1: Check existing MemoryCache (from Task 2)\n   - L2: Check FileCache if L1 miss\n   - L3: Make network request if L2 miss\n   - Propagate hits upward: L2 hit → populate L1, L3 response → populate L1 & L2\n   - Implement write-through strategy for cache updates\n   - Add metrics collection for hit rates per tier\n\n3. **Cache Control Integration**:\n   - Add --no-cache global flag to cmd/root.go using Cobra persistent flags\n   - Create cmd/cache.go with subcommands:\n     - `gh arc cache clear [--all|--expired]`: Remove cache entries\n     - `gh arc cache stats`: Display cache statistics (size, entries, hit rates)\n     - `gh arc cache list`: Show cached endpoints with age/size\n   - Integrate cache bypass logic into github.Client wrapper\n\n4. **Cache Management Features**:\n   - Implement background pruning goroutine with configurable limits:\n     - Max cache size: 100MB default (configurable via .arc/config)\n     - Max entry age: 7 days for refs, 1 hour for PR data\n     - LRU eviction when size limit reached\n   - Add cache format versioning (start with v1) for future compatibility\n   - Implement graceful degradation: if cache corrupted, log warning and proceed without cache\n   - Create cache migration logic for version upgrades\n\n5. **Security & Privacy**:\n   - Document cached data types in README: PR metadata, user info, repository data\n   - Never cache: tokens, secrets, private repository data (unless explicitly allowed)\n   - Add cache encryption option for sensitive environments\n   - Implement cache key namespacing by authenticated user\n\n6. **Configuration** (.arc/config.yaml):\n```yaml\ncache:\n  enabled: true\n  location: \"~/.cache/gh-arc\"  # or use XDG_CACHE_HOME\n  max_size_mb: 100\n  ttl:\n    default: 3600  # 1 hour\n    refs: 604800   # 7 days\n    users: 86400   # 1 day\n  compression: true  # gzip cache entries\n```\n\n7. **Integration Points**:\n   - Modify internal/github/client.go to use TieredCache\n   - Update all command implementations to respect --no-cache flag\n   - Add cache warming for frequently used endpoints\n   - Implement cache invalidation on write operations (PR create/update)",
+        "testStrategy": "1. **Unit Tests** (internal/cache/*_test.go):\n   - Test FileCache CRUD operations with concurrent access\n   - Verify file locking prevents corruption under parallel writes\n   - Test cache key generation consistency\n   - Verify TTL expiration and entry validation\n   - Test JSON serialization/deserialization with various response types\n   - Verify file permission settings (0600)\n\n2. **Integration Tests** (internal/cache/integration_test.go):\n   - Test three-tier cache coordination with mock responses\n   - Verify cache hit propagation (L2→L1, L3→L2→L1)\n   - Test cache bypass with --no-cache flag\n   - Verify ETag-based conditional requests\n   - Test cache performance vs direct API calls\n\n3. **Concurrent Access Tests**:\n   - Launch multiple gh-arc instances simultaneously\n   - Verify no cache corruption or deadlocks\n   - Test file lock timeout and retry logic\n   - Measure lock contention impact on performance\n\n4. **Cache Management Tests**:\n   - Test automatic pruning at size limits\n   - Verify LRU eviction algorithm\n   - Test cache migration between versions\n   - Verify graceful degradation with corrupted cache\n\n5. **Performance Benchmarks**:\n   - Measure latency: memory (μs) vs file (ms) vs network (100ms+)\n   - Test cache with 10K+ entries for scalability\n   - Profile memory usage with large cache\n   - Benchmark concurrent read performance\n\n6. **Security Tests**:\n   - Verify file permissions on different OS platforms\n   - Test cache isolation between users\n   - Verify sensitive data is not cached\n   - Test cache encryption/decryption if enabled\n\n7. **End-to-End Tests**:\n   - Run common workflows (diff, list, land) with cache enabled\n   - Verify cache improves performance for repeated operations\n   - Test cache behavior across gh-arc version upgrades\n   - Verify cache statistics accuracy",
+        "status": "pending",
+        "dependencies": [
+          2
+        ],
+        "priority": "medium",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create FileCache struct implementing Cache interface with file-based persistence",
+            "description": "Implement FileCache in internal/cache/file_cache.go that persists cache entries to individual JSON files in the user's cache directory with proper file locking and permissions",
+            "dependencies": [],
+            "details": "Create internal/cache directory and implement FileCache struct that implements the existing Cache interface from internal/github/cache.go. Use os.UserCacheDir() to determine cache location (~/.cache/gh-arc on Unix, ~/Library/Caches/gh-arc on macOS). Implement all Cache interface methods: Get, Set, Delete, Clear, GetETag, SetWithETag, and Stats. Store each cache entry as an individual JSON file named {hash}.json where hash is SHA256 of the cache key. Implement CacheEntry struct with fields: Key, Value (json.RawMessage), Headers (map[string]string), ETag, Timestamp, TTL, Version. Use github.com/gofrs/flock for file locking to prevent concurrent access corruption. Set file permissions to 0600 for user-only access. Handle file I/O errors gracefully and ensure directory creation if it doesn't exist. Add metadata tracking for cache statistics (hits, misses, size).",
+            "status": "pending",
+            "testStrategy": "Create unit tests in internal/cache/file_cache_test.go covering: file creation and JSON serialization, concurrent read/write operations with file locking, TTL expiration checking, cache key generation consistency, directory creation and permissions, error handling for corrupted files, stats tracking accuracy"
+          },
+          {
+            "id": 2,
+            "title": "Implement TieredCache wrapper with multi-level cache architecture",
+            "description": "Create TieredCache in internal/cache/tiered_cache.go that implements three-tier lookup strategy with L1 memory cache, L2 file cache, and L3 network fallback",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement TieredCache struct that wraps both MemoryCache (L1) and FileCache (L2) implementing the Cache interface. Create three-tier lookup strategy: first check MemoryCache for fastest access, then FileCache if L1 miss, finally make network request if L2 miss. Implement cache propagation: when L2 hit occurs, populate L1 with the data; when L3 response received, populate both L1 and L2. Use write-through strategy where updates go to all cache levels simultaneously. Add per-tier metrics collection tracking hit rates, latency, and cache effectiveness for each level. Implement cache coherence logic to ensure consistency across tiers. Add configuration for tier-specific TTLs where L1 can have shorter TTL than L2. Handle failures gracefully - if one tier fails, continue with others. Integrate with existing github.Client to replace current MemoryCache usage.",
+            "status": "pending",
+            "testStrategy": "Test three-tier lookup behavior with mock network responses, verify cache propagation from L2 to L1 and L3 to L1/L2, test write-through updates across all tiers, verify metrics collection for each tier, test graceful degradation when tiers fail"
+          },
+          {
+            "id": 3,
+            "title": "Add cache management commands and global --no-cache flag integration",
+            "description": "Create cmd/cache.go with cache management subcommands and integrate --no-cache flag into cmd/root.go for cache bypass functionality",
+            "dependencies": [
+              2
+            ],
+            "details": "Add --no-cache persistent flag to cmd/root.go using Cobra's PersistentFlags that disables all caching when set. Create cmd/cache.go implementing cache management commands: 'gh arc cache clear' with --all flag to remove all entries or --expired to remove only expired entries, 'gh arc cache stats' to display cache statistics including size, entry count, hit rates per tier, 'gh arc cache list' to show cached endpoints with age and size information. Integrate cache bypass logic into github.Client by checking the flag before cache operations. Add support for selective cache clearing by pattern matching (e.g., clear all PR-related cache). Implement human-readable formatting for cache stats output with size units (KB, MB) and time durations. Add JSON output support for cache commands when --json flag is used. Update help text and command descriptions for all cache-related functionality.",
+            "status": "pending",
+            "testStrategy": "Test --no-cache flag bypasses all cache operations, verify cache clear command removes correct entries, test stats command output formatting, verify list command shows accurate cache contents, test JSON output mode for all cache commands"
+          },
+          {
+            "id": 4,
+            "title": "Implement cache pruning, versioning, and configuration system",
+            "description": "Add background cache pruning with LRU eviction, implement cache format versioning, and integrate cache configuration into existing config system",
+            "dependencies": [
+              3
+            ],
+            "details": "Implement background pruning goroutine in FileCache that monitors cache size and age. Configure limits: 100MB default max size (configurable), 7 days max age for refs, 1 hour for PR data. Implement LRU eviction algorithm tracking last access time when cache size exceeds limit. Add cache format versioning starting with v1 in CacheEntry struct to enable future migrations. Create migration logic that can upgrade cache entries from older formats to newer ones. Implement graceful degradation where corrupted cache entries are logged as warnings and skipped rather than failing. Add cache configuration section to internal/config/config.go with CacheConfig struct containing: enabled bool, location string, max_size_mb int, TTL map for different resource types, compression bool flag. Update config validation to check cache settings. Implement gzip compression for cache entries when compression is enabled to reduce disk usage.",
+            "status": "pending",
+            "testStrategy": "Test LRU eviction when size limit exceeded, verify background pruning removes old entries, test cache format migration between versions, test graceful handling of corrupted entries, verify configuration loading and validation, test gzip compression reduces file sizes"
+          },
+          {
+            "id": 5,
+            "title": "Add security features and cache invalidation for write operations",
+            "description": "Implement cache security with user namespacing, sensitive data filtering, and automatic cache invalidation on PR create/update operations",
+            "dependencies": [
+              4
+            ],
+            "details": "Implement cache key namespacing by authenticated user to prevent cache poisoning between different GitHub accounts. Add user identification to cache keys using GitHub username from authentication. Create sensitive data filter that prevents caching of tokens, secrets, and private repository data unless explicitly allowed via configuration. Add optional cache encryption using AES-256 for sensitive environments with key derived from user credentials. Implement cache invalidation logic in github.Client that automatically clears relevant cache entries on write operations like PR create, update, or merge. Add cache warming functionality for frequently used endpoints like repository info and user data that pre-populates cache on startup. Document all cached data types in README including what is cached, TTL for each type, and privacy considerations. Add cache integrity checks using checksums to detect corruption. Implement audit logging for cache operations in debug mode to track cache behavior.",
+            "status": "pending",
+            "testStrategy": "Test user namespacing prevents cache sharing between accounts, verify sensitive data is not cached, test cache invalidation on write operations, verify encryption/decryption works correctly, test cache warming pre-populates expected data, verify integrity checks detect corruption"
+          }
+        ]
       }
     ],
     "metadata": {
       "created": "2025-10-10T16:18:54.137Z",
-      "updated": "2025-10-12T13:07:41.935Z",
+      "updated": "2025-10-12T13:30:34.878Z",
       "description": "Tasks for master context"
     }
   }
