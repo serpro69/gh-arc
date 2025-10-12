@@ -155,13 +155,21 @@ func NewClient(opts ...ClientOption) (*Client, error) {
 		return nil, NewAuthenticationError("failed to create GraphQL client", err)
 	}
 
+	// Initialize default config
+	config := DefaultConfig()
+
 	// Initialize client with defaults
 	client := &Client{
 		restClient:     restClient,
 		graphqlClient:  graphqlClient,
-		config:         DefaultConfig(),
-		cache:          &NoOpCache{}, // Default to no cache, will be replaced if caching is enabled
+		config:         config,
+		cache:          &NoOpCache{}, // Will be replaced below if caching is enabled
 		circuitBreaker: NewCircuitBreaker(5, 1*time.Minute), // 5 failures, 1 minute reset
+	}
+
+	// Enable caching if configured
+	if config.EnableCache {
+		client.cache = NewMemoryCache(1 * time.Minute) // Cleanup interval
 	}
 
 	// Try to detect current repository context (may fail if not in a repo)
@@ -403,4 +411,31 @@ func WithRepository(owner, name string) ClientOption {
 		}
 		return nil
 	}
+}
+
+// Cache management methods
+
+// CacheStats returns statistics about the cache
+func (c *Client) CacheStats() CacheStats {
+	return c.cache.Stats()
+}
+
+// ClearCache clears all cached entries
+func (c *Client) ClearCache() {
+	c.cache.Clear()
+}
+
+// InvalidateCacheKey removes a specific key from the cache
+func (c *Client) InvalidateCacheKey(key string) {
+	c.cache.Delete(key)
+}
+
+// Close stops the client and cleans up resources
+// Should be called when the client is no longer needed
+func (c *Client) Close() error {
+	// Stop the cache cleanup goroutine if using MemoryCache
+	if memCache, ok := c.cache.(*MemoryCache); ok {
+		memCache.Stop()
+	}
+	return nil
 }
