@@ -81,6 +81,9 @@ type Client struct {
 
 	// repo holds the current repository context
 	repo *Repository
+
+	// circuitBreaker prevents excessive retries
+	circuitBreaker *CircuitBreaker
 }
 
 // Repository represents a GitHub repository context
@@ -154,10 +157,11 @@ func NewClient(opts ...ClientOption) (*Client, error) {
 
 	// Initialize client with defaults
 	client := &Client{
-		restClient:    restClient,
-		graphqlClient: graphqlClient,
-		config:        DefaultConfig(),
-		cache:         &NoOpCache{}, // Default to no cache, will be replaced if caching is enabled
+		restClient:     restClient,
+		graphqlClient:  graphqlClient,
+		config:         DefaultConfig(),
+		cache:          &NoOpCache{}, // Default to no cache, will be replaced if caching is enabled
+		circuitBreaker: NewCircuitBreaker(5, 1*time.Minute), // 5 failures, 1 minute reset
 	}
 
 	// Try to detect current repository context (may fail if not in a repo)
@@ -234,11 +238,68 @@ func (c *Client) Do(ctx context.Context, method, path string, body interface{}, 
 	return nil
 }
 
-// DoGraphQL executes a GraphQL query
-// This is a placeholder that will be implemented in later subtasks
+// DoGraphQL executes a GraphQL query with retry logic
 func (c *Client) DoGraphQL(ctx context.Context, query string, variables map[string]interface{}, response interface{}) error {
-	// TODO: Implement in subtask 2.3 (retry logic)
-	return c.graphqlClient.Do(query, variables, response)
+	// Check circuit breaker
+	if !c.circuitBreaker.Allow() {
+		return fmt.Errorf("circuit breaker is open, requests are temporarily blocked")
+	}
+
+	// Create retry policy from config
+	policy := &RetryPolicy{
+		MaxRetries: c.config.MaxRetries,
+		BaseDelay:  c.config.BaseDelay,
+		MaxDelay:   c.config.MaxDelay,
+	}
+
+	// Track attempts for circuit breaker
+	var lastErr error
+
+	// Execute with retry
+	for attempt := 0; attempt <= policy.MaxRetries; attempt++ {
+		// Execute the GraphQL query
+		err := c.graphqlClient.DoWithContext(ctx, query, variables, response)
+
+		// If successful, record success and return
+		if err == nil {
+			c.circuitBreaker.RecordSuccess()
+			return nil
+		}
+
+		lastErr = err
+
+		// Check if error is retryable
+		if !IsRetryableError(err) {
+			// Non-retryable error, fail fast
+			c.circuitBreaker.RecordFailure()
+			return err
+		}
+
+		// If this was the last attempt, don't wait
+		if attempt == policy.MaxRetries {
+			break
+		}
+
+		// Calculate backoff delay
+		backoff := policy.calculateBackoff(attempt)
+
+		// Wait before retrying, respecting context cancellation
+		select {
+		case <-ctx.Done():
+			c.circuitBreaker.RecordFailure()
+			return fmt.Errorf("request canceled: %w", ctx.Err())
+		case <-time.After(backoff):
+			// Continue to next attempt
+		}
+	}
+
+	// All retries exhausted
+	c.circuitBreaker.RecordFailure()
+	if lastErr != nil {
+		return fmt.Errorf("max retries exceeded: %w", lastErr)
+	}
+
+	return fmt.Errorf("max retries exceeded with no error")
 }
 
 // ClientOption implementations
