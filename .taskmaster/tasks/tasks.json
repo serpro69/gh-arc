@@ -276,6 +276,17 @@
             "details": "Implement detailed error messages for common failures like no commits to diff, unauthorized access, PR already exists in different state. Add colored output using termenv for success/error states. Display PR URL prominently after creation/update with instructions for next steps. Create integration tests that exercise full workflow with mock GitHub API server. Add --verbose flag for debugging API calls. Implement --dry-run mode to preview actions without making API calls. Handle edge cases like archived repositories, disabled PRs, and branch protection rules. Add progress indicators for long-running operations.",
             "status": "pending",
             "testStrategy": "Integration tests with httptest mock server simulating full GitHub API. Test error scenarios and recovery paths. Verify output formatting and color codes. Manual testing with real GitHub repository."
+          },
+          {
+            "id": 6,
+            "title": "Implement REST client Do method with retry, caching, and ETag support",
+            "description": "Implement the full REST client Do method in internal/github/client.go that integrates retry logic, circuit breaker, caching, and ETag conditional requests for efficient GitHub API interactions needed by diff command",
+            "details": "Implement the complete client.Do method in internal/github/client.go with:\n\n1. Request body buffering for retries (bytes.Buffer to allow multiple reads)\n2. Cache key generation using GenerateCacheKey(method, path, params)\n3. Check cache for existing response and ETag\n4. Add If-None-Match header if cached ETag exists\n5. Circuit breaker check before request (c.circuitBreaker.Allow())\n6. Retry logic using RetryWithBackoff pattern from DoGraphQL\n7. Handle 304 Not Modified responses by returning cached data\n8. Store new responses with ETag in cache on 200 OK\n9. Record circuit breaker success/failure appropriately\n10. Context cancellation support throughout\n11. Proper HTTP header handling and JSON body serialization/deserialization\n\nImplementation should mirror DoGraphQL pattern but adapted for REST API calls. This is required before PR creation/update operations can be implemented.",
+            "status": "pending",
+            "dependencies": [
+              1
+            ],
+            "parentTaskId": 4
           }
         ]
       },
