@@ -99,7 +99,7 @@
               1
             ],
             "details": "Implement NewClient constructor that initializes gh.RESTClient and gh.GraphQLClient with proper authentication. Use gh.CurrentRepository() to detect and store current repo context. Add methods to check authentication status and retrieve authenticated user information. Implement fallback mechanisms for non-repository contexts. Create AuthError custom error type for authentication failures. Add methods to refresh authentication tokens when needed. Store repo owner/name for easy access in API calls.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Mock gh.CurrentRepository responses for different scenarios. Test authentication with valid and invalid tokens. Verify behavior in non-repository directories. Test token refresh logic with expired tokens."
           },
           {
@@ -685,7 +685,7 @@
     ],
     "metadata": {
       "created": "2025-10-10T16:18:54.137Z",
-      "updated": "2025-10-12T12:15:03.248Z",
+      "updated": "2025-10-12T12:18:39.266Z",
       "description": "Tasks for master context"
     }
   }

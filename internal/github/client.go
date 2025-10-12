@@ -2,10 +2,12 @@ package github
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/cli/go-gh/v2/pkg/api"
+	"github.com/cli/go-gh/v2/pkg/repository"
 )
 
 // Default configuration values
@@ -66,7 +68,7 @@ func DefaultConfig() *Config {
 // Client is a wrapper around go-gh's REST and GraphQL clients with enhanced features
 type Client struct {
 	// restClient is the underlying REST API client
-	restClient api.RESTClient
+	restClient *api.RESTClient
 
 	// graphqlClient is the underlying GraphQL client
 	graphqlClient *api.GraphQLClient
@@ -99,7 +101,7 @@ func (r *Repository) String() string {
 // This interface allows for easy mocking in tests
 type GitHubClient interface {
 	// REST returns the underlying REST client
-	REST() api.RESTClient
+	REST() *api.RESTClient
 
 	// GraphQL returns the underlying GraphQL client
 	GraphQL() *api.GraphQLClient
@@ -121,7 +123,7 @@ type ClientOption func(*Client) error
 var _ GitHubClient = (*Client)(nil)
 
 // REST returns the underlying REST client
-func (c *Client) REST() api.RESTClient {
+func (c *Client) REST() *api.RESTClient {
 	return c.restClient
 }
 
@@ -133,6 +135,94 @@ func (c *Client) GraphQL() *api.GraphQLClient {
 // Repository returns the current repository context
 func (c *Client) Repository() *Repository {
 	return c.repo
+}
+
+// NewClient creates a new GitHub client with the specified options
+// It automatically detects the current repository context and sets up authentication
+func NewClient(opts ...ClientOption) (*Client, error) {
+	// Create default REST client
+	restClient, err := api.DefaultRESTClient()
+	if err != nil {
+		return nil, NewAuthenticationError("failed to create REST client", err)
+	}
+
+	// Create default GraphQL client
+	graphqlClient, err := api.DefaultGraphQLClient()
+	if err != nil {
+		return nil, NewAuthenticationError("failed to create GraphQL client", err)
+	}
+
+	// Initialize client with defaults
+	client := &Client{
+		restClient:    restClient,
+		graphqlClient: graphqlClient,
+		config:        DefaultConfig(),
+		cache:         &NoOpCache{}, // Default to no cache, will be replaced if caching is enabled
+	}
+
+	// Try to detect current repository context (may fail if not in a repo)
+	if repo, err := repository.Current(); err == nil {
+		client.repo = &Repository{
+			Owner: repo.Owner,
+			Name:  repo.Name,
+		}
+	}
+
+	// Apply options
+	for _, opt := range opts {
+		if err := opt(client); err != nil {
+			return nil, fmt.Errorf("failed to apply client option: %w", err)
+		}
+	}
+
+	return client, nil
+}
+
+// User represents a GitHub user
+type User struct {
+	Login string
+	Name  string
+	Email string
+}
+
+// CurrentUser retrieves information about the authenticated user
+func (c *Client) CurrentUser(ctx context.Context) (*User, error) {
+	var response struct {
+		Viewer struct {
+			Login string
+			Name  string
+			Email string
+		}
+	}
+
+	query := `query {
+		viewer {
+			login
+			name
+			email
+		}
+	}`
+
+	err := c.graphqlClient.DoWithContext(ctx, query, nil, &response)
+	if err != nil {
+		return nil, NewAuthenticationError("failed to get current user", err)
+	}
+
+	return &User{
+		Login: response.Viewer.Login,
+		Name:  response.Viewer.Name,
+		Email: response.Viewer.Email,
+	}, nil
+}
+
+// VerifyAuthentication checks if the client is properly authenticated
+// by attempting to retrieve the current user's information
+func (c *Client) VerifyAuthentication(ctx context.Context) error {
+	_, err := c.CurrentUser(ctx)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // Do executes an HTTP request with retry logic and caching
