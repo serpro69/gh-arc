@@ -34,7 +34,9 @@
       "Bash(go mod:*)",
       "Bash(./gh-arc list --help)",
       "Bash(./gh-arc list:*)",
-      "Bash(./gh-arc auth --help)"
+      "Bash(./gh-arc auth --help)",
+      "mcp__serena__find_file",
+      "WebSearch"
     ],
     "deny": [
       "Bash(task-master:*)"

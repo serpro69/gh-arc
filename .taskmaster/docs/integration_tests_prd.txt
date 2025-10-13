@@ -1,0 +1,510 @@
+# Integration Testing Strategy for gh-arc
+
+## Executive Summary
+
+**YES, you can create entire test data programmatically** using the GitHub API for both setup (before) and cleanup (after). This is a viable and recommended approach for integration testing.
+
+**Recommended Approach:** Use testify suite with GitHub API for ephemeral test repositories, marked with build tags, with proper cleanup mechanisms.
+
+---
+
+## Current State Analysis
+
+**Existing Test Infrastructure:**
+- Standard Go testing with table-driven tests
+- testify/assert for assertions
+- Tests skip when gh CLI not authenticated
+- No integration tests yet
+- No build tags for test isolation
+
+**Dependencies:**
+- `github.com/cli/go-gh/v2` (already in use)
+- `github.com/stretchr/testify` (already in use)
+- Potential: `google/go-github` (for more comprehensive API access)
+
+---
+
+## Evaluation of Approaches
+
+### Option 1: GitHub API with Ephemeral Repositories (RECOMMENDED)
+**How:** Use GitHub API to create real test repos, PRs, branches before tests, delete after.
+
+**Pros:**
+- Tests real GitHub behavior (API rate limits, permissions, edge cases)
+- No mocking means tests catch actual API changes
+- Uses same authentication as the tool (gh CLI credentials)
+- Can test complex workflows end-to-end
+- Programmatic setup/teardown is fully supported
+
+**Cons:**
+- Requires GitHub token with expanded scopes (repo, delete_repo, admin:org for org repos)
+- Slower than unit tests (network calls)
+- Consumes GitHub API rate limits
+- Requires cleanup discipline to avoid orphaned repos
+- May need organization for isolated testing (personal account cluttered)
+
+**Implementation approach:**
+```go
+// Using testify suite
+type IntegrationTestSuite struct {
+    suite.Suite
+    client *github.Client
+    testRepos []string // track for cleanup
+}
+
+func (s *IntegrationTestSuite) SetupTest() {
+    // Create test repository
+    repo := s.createTestRepo()
+    s.testRepos = append(s.testRepos, repo)
+}
+
+func (s *IntegrationTestSuite) TearDownTest() {
+    // Clean up test repositories
+    for _, repo := range s.testRepos {
+        s.deleteTestRepo(repo)
+    }
+}
+```
+
+---
+
+### Option 2: Mocked GitHub API
+**How:** Mock all GitHub API responses using interfaces and test doubles.
+
+**Pros:**
+- Fast execution
+- No rate limits
+- No authentication needed
+- Deterministic behavior
+
+**Cons:**
+- Doesn't test real GitHub behavior
+- Mocks can become stale when GitHub API changes
+- Complex to maintain comprehensive mocks
+- May miss edge cases that only happen in production
+- Defeats purpose of "integration" testing
+
+**Verdict:** Good for **unit tests**, not suitable for **integration tests**.
+
+---
+
+### Option 3: Hybrid Approach
+**How:** Unit tests with mocks + Integration tests with real API (marked with build tags).
+
+**Pros:**
+- Fast feedback loop (unit tests)
+- Real-world validation (integration tests)
+- Can run unit tests in CI always, integration tests on-demand
+- Best of both worlds
+
+**Cons:**
+- Maintaining two test approaches
+- More test infrastructure code
+
+**Verdict:** **This is the optimal approach** - combines Option 1 and Option 2.
+
+---
+
+## Recommended Implementation Plan
+
+### 1. Test Organization Structure
+```
+gh-arc/
+├── internal/
+│   └── github/
+│       ├── client_test.go              # Unit tests (existing)
+│       ├── client_integration_test.go  # Integration tests (new)
+│       └── testutil/                   # Shared test utilities (new)
+│           ├── github_fixtures.go      # Test data setup
+│           └── test_repos.go           # Repo lifecycle management
+```
+
+### 2. Build Tags for Test Isolation
+```go
+//go:build integration
+// +build integration
+
+package github_test
+
+// Integration tests run only with: go test -tags=integration
+```
+
+### 3. Test Suite Pattern (Using Testify)
+```go
+type GitHubIntegrationSuite struct {
+    suite.Suite
+    client      *github.Client
+    testOrg     string
+    testRepos   []*TestRepository
+    authToken   string
+}
+
+func (s *GitHubIntegrationSuite) SetupSuite() {
+    // One-time setup for entire suite
+    s.authToken = os.Getenv("GITHUB_INTEGRATION_TOKEN")
+    s.testOrg = os.Getenv("GITHUB_TEST_ORG") // recommended: use test org
+    s.client = createAuthenticatedClient(s.authToken)
+}
+
+func (s *GitHubIntegrationSuite) SetupTest() {
+    // Setup before each test
+    // Create test repository with unique name
+    repo := s.createTestRepo(generateUniqueName())
+    s.testRepos = append(s.testRepos, repo)
+}
+
+func (s *GitHubIntegrationSuite) TearDownTest() {
+    // Cleanup after each test (runs even if test fails)
+    for _, repo := range s.testRepos {
+        s.deleteTestRepo(repo)
+    }
+    s.testRepos = nil
+}
+
+func (s *GitHubIntegrationSuite) TearDownSuite() {
+    // Final cleanup (safety net for orphaned repos)
+    s.cleanupOrphanedTestRepos()
+}
+```
+
+### 4. Enhanced Cleanup with t.Cleanup()
+```go
+func (s *GitHubIntegrationSuite) TestPullRequestWorkflow() {
+    repo := s.createTestRepo("test-pr-workflow")
+
+    // Register cleanup that runs even on panic/failure
+    s.T().Cleanup(func() {
+        s.deleteTestRepo(repo)
+    })
+
+    // Test implementation...
+}
+```
+
+### 5. Test Data Factory Pattern
+```go
+type TestRepository struct {
+    Owner      string
+    Name       string
+    FullName   string
+    PRs        []*TestPullRequest
+    Branches   []string
+}
+
+func (s *GitHubIntegrationSuite) createTestRepo(name string) *TestRepository {
+    // Create repo via GitHub API
+    // Set up initial structure (main branch, etc.)
+    // Return tracking object
+}
+
+func (s *GitHubIntegrationSuite) createTestPR(repo *TestRepository, opts PROptions) *TestPullRequest {
+    // Create branch
+    // Make commit
+    // Open PR
+    // Return PR metadata
+}
+```
+
+### 6. Rate Limit Handling
+```go
+func (s *GitHubIntegrationSuite) waitForRateLimit(resp *github.Response) {
+    if resp.Rate.Remaining < 10 {
+        resetTime := resp.Rate.Reset.Time
+        waitDuration := time.Until(resetTime)
+        s.T().Logf("Rate limit low, waiting %v", waitDuration)
+        time.Sleep(waitDuration)
+    }
+}
+```
+
+---
+
+## Required Authentication Scopes
+
+**Current scopes:** `user:email`, `read:user`
+
+**Additional scopes needed for integration tests:**
+- `repo` - Full control of private repositories
+- `delete_repo` - Delete repositories
+- `admin:org` (if using organization) - Full control of orgs
+
+**Setup for developers:**
+```bash
+# Create separate token for integration tests
+gh auth login --scopes "repo,delete_repo,user:email,read:user"
+
+# Or for organization testing
+gh auth login --scopes "repo,delete_repo,admin:org,user:email,read:user"
+
+# Export for tests
+export GITHUB_INTEGRATION_TOKEN=$(gh auth token)
+export GITHUB_TEST_ORG="your-test-org"  # optional
+```
+
+---
+
+## Running Integration Tests
+
+### Local Development
+```bash
+# Run only unit tests (fast, default)
+go test ./...
+
+# Run integration tests
+go test -tags=integration -v ./...
+
+# Run specific integration test
+go test -tags=integration -v -run=TestListPullRequests ./internal/github
+```
+
+### CI/CD Configuration
+```yaml
+# .github/workflows/test.yml
+name: Tests
+
+on: [push, pull_request]
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+      - run: go test -v ./...
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+      - name: Run integration tests
+        env:
+          GITHUB_INTEGRATION_TOKEN: ${{ secrets.INTEGRATION_TOKEN }}
+          GITHUB_TEST_ORG: ${{ secrets.TEST_ORG }}
+        run: go test -tags=integration -v ./...
+```
+
+---
+
+## Key Implementation Files
+
+**1. `internal/github/testutil/test_repos.go`**
+- Repository creation with unique names (timestamp + random)
+- Repository deletion with retry logic
+- Orphaned repo cleanup (find by naming pattern, age)
+- Initial repo structure setup (README, main branch)
+
+**2. `internal/github/testutil/test_prs.go`**
+- Pull request creation helper
+- Branch creation with commits
+- Review addition (approve, request changes, comment)
+- Check run creation (CI status simulation)
+
+**3. `internal/github/client_integration_test.go`**
+- Integration test suite setup
+- Real workflow tests (list PRs, filter, enrich with metadata)
+- Error handling tests (rate limits, permissions)
+
+**4. `Makefile` targets**
+```makefile
+.PHONY: test test-unit test-integration
+
+test: test-unit
+
+test-unit:
+	go test -v ./...
+
+test-integration:
+	go test -tags=integration -v ./...
+```
+
+---
+
+## Considerations & Trade-offs
+
+### Safety Mechanisms
+1. **Unique naming:** Use timestamp + random suffix (`gh-arc-test-1736723423-a8f3d9`)
+2. **Tag test repos:** Add topic tag `gh-arc-integration-test` for easy identification
+3. **Age-based cleanup:** Periodic job to delete test repos older than 24h
+4. **Separate org recommended:** Avoids cluttering personal account
+
+### Performance Optimization
+1. **Parallel tests:** Use `t.Parallel()` where safe (different repos)
+2. **Repository pooling:** Pre-create repos, reuse across tests (advanced)
+3. **Conditional runs:** Skip integration tests in draft PRs
+4. **Rate limit awareness:** Monitor and wait when needed
+
+### Cost Considerations
+- Free tier: 5,000 API requests/hour per token
+- Integration test suite might use 20-50 requests per test
+- Estimate: Can run ~100 integration tests/hour safely
+- Organization accounts have higher limits
+
+### Edge Cases to Handle
+- Network failures (retry with exponential backoff)
+- Partial cleanup (repo created but test fails before deletion)
+- Rate limit exhaustion (wait or skip remaining tests)
+- Authentication expiry (detect and fail fast with clear message)
+- Concurrent test runs (unique names prevent collision)
+
+---
+
+## Migration Path
+
+**Phase 1: Foundation (Week 1)**
+- Add build tags to existing tests (mark as unit tests)
+- Create testutil package with helpers
+- Implement basic repo create/delete
+
+**Phase 2: First Integration Test (Week 2)**
+- Migrate one simple test to integration (e.g., TestCurrentUser)
+- Validate cleanup works correctly
+- Document for team
+
+**Phase 3: Expand Coverage (Week 3-4)**
+- Add integration tests for list command
+- Add PR enrichment tests
+- Add filter tests with real data
+
+**Phase 4: CI Integration (Week 5)**
+- Set up GitHub Actions workflow
+- Configure secrets
+- Add test org if needed
+
+---
+
+## Example: Complete Integration Test
+
+```go
+//go:build integration
+// +build integration
+
+package github_test
+
+import (
+    "context"
+    "testing"
+    "github.com/stretchr/testify/suite"
+    "github.com/serpro69/gh-arc/internal/github"
+    "github.com/serpro69/gh-arc/internal/github/testutil"
+)
+
+type ListIntegrationSuite struct {
+    suite.Suite
+    client    *github.Client
+    testRepo  *testutil.TestRepository
+}
+
+func (s *ListIntegrationSuite) SetupTest() {
+    // Create test repository with PRs
+    s.testRepo = testutil.CreateTestRepo(s.T(), "test-list")
+    s.T().Cleanup(func() {
+        testutil.DeleteTestRepo(s.T(), s.testRepo)
+    })
+
+    // Create test PRs
+    testutil.CreateTestPR(s.T(), s.testRepo, testutil.PROptions{
+        Title:  "Test PR 1",
+        State:  "open",
+        Draft:  false,
+        Author: "testuser",
+    })
+
+    testutil.CreateTestPR(s.T(), s.testRepo, testutil.PROptions{
+        Title:  "Test PR 2",
+        State:  "open",
+        Draft:  true,
+        Author: "testuser",
+    })
+}
+
+func (s *ListIntegrationSuite) TestListPullRequests() {
+    ctx := context.Background()
+
+    // Set repository context
+    s.client.WithRepository(s.testRepo.Owner, s.testRepo.Name)
+
+    // List PRs
+    prs, err := s.client.GetCurrentRepositoryPullRequests(ctx, nil)
+    s.Require().NoError(err)
+
+    // Assertions
+    s.Assert().Len(prs, 2)
+    s.Assert().Equal("Test PR 1", prs[0].Title)
+    s.Assert().Equal("open", prs[0].State)
+}
+
+func TestListIntegrationSuite(t *testing.T) {
+    if testing.Short() {
+        t.Skip("Skipping integration tests in short mode")
+    }
+    suite.Run(t, new(ListIntegrationSuite))
+}
+```
+
+---
+
+## Recommended Decision
+
+**✅ Proceed with Option 3 (Hybrid Approach):**
+
+1. **Keep existing unit tests** with mocks for fast feedback
+2. **Add integration tests** with real GitHub API for validation
+3. **Use testify suite** for clean setup/teardown
+4. **Use build tags** for test isolation (`-tags=integration`)
+5. **Implement robust cleanup** with t.Cleanup() and orphan detection
+6. **Create dedicated test organization** (recommended) or use personal account with prefixed repos
+7. **Document clearly** for contributors
+
+This approach gives you:
+- ✅ Real-world validation
+- ✅ Confidence in GitHub API integration
+- ✅ Ability to test complex workflows
+- ✅ Fast unit test feedback loop
+- ✅ Controlled integration test execution
+- ✅ Manageable API rate limit usage
+
+The programmatic setup/teardown using GitHub API is not only feasible but is the **recommended best practice** for this type of CLI tool that deeply integrates with GitHub.
+
+---
+
+Task #13: Implement Integration Testing Infrastructure
+
+Status: PendingPriority: MediumDependencies: Tasks 2, 3 (GitHub client foundation)
+
+Key Components:
+
+1. Test Infrastructure (10 Implementation Phases):
+- Testutil package with repository lifecycle management
+- Per-suite repository pattern (one repo for all tests)
+- Build tags for test isolation
+- Automated cleanup with garbage collection
+
+2. Code Examples Included:
+- Integration test suite structure
+- Repository creation/cleanup patterns
+- GitHub Actions workflows for cleanup
+- Makefile targets
+
+3. Authentication & Environment:
+- GITHUB_INTEGRATION_TOKEN setup
+- Required scopes: repo, delete_repo, admin:org
+- Test org configuration (optional)
+
+4. Comprehensive Test Strategy:
+- Manual verification steps
+- Unit test coverage for helpers
+- Integration test validation
+- CI/CD verification
+- Performance testing targets (< 5 minutes)
+
+5. Documentation Requirements:
+- INTEGRATION_TESTING.md guide
+- CLAUDE.md updates
+- Example test templates
+- Troubleshooting guide
+
+Critical Design Decisions Captured:
+
+✅ Per-suite pattern (not per-test) to minimize API calls✅ Unique naming with topic tags for easy cleanup✅ Automated garbage collection every 6 hours✅ Rate limit
+monitoring and handling✅ Phased implementation (start small, iterate)
