@@ -623,6 +623,62 @@ func TestGetGitConfig(t *testing.T) {
 	})
 }
 
+// TestParseConfigKey tests parsing git config keys
+func TestParseConfigKey(t *testing.T) {
+	testCases := []struct {
+		name           string
+		key            string
+		expSection     string
+		expSubsection  string
+		expOption      string
+	}{
+		{
+			name:           "two parts - simple key",
+			key:            "user.name",
+			expSection:     "user",
+			expSubsection:  "",
+			expOption:      "name",
+		},
+		{
+			name:           "three parts - subsection key",
+			key:            "remote.origin.url",
+			expSection:     "remote",
+			expSubsection:  "origin",
+			expOption:      "url",
+		},
+		{
+			name:           "four parts - subsection with dot",
+			key:            "url.https://example.com/.insteadOf",
+			expSection:     "url",
+			expSubsection:  "https://example.com/",
+			expOption:      "insteadOf",
+		},
+		{
+			name:           "five parts - subsection with multiple dots",
+			key:            "http.https://weak.example.com.sslVerify",
+			expSection:     "http",
+			expSubsection:  "https://weak.example.com",
+			expOption:      "sslVerify",
+		},
+		{
+			name:           "one part - invalid key",
+			key:            "invalid",
+			expSection:     "",
+			expSubsection:  "",
+			expOption:      "",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			section, subsection, option := parseConfigKey(tc.key)
+			assert.Equal(t, tc.expSection, section)
+			assert.Equal(t, tc.expSubsection, subsection)
+			assert.Equal(t, tc.expOption, option)
+		})
+	}
+}
+
 // TestGetCommitRange tests getting commits between two branches
 func TestGetCommitRange(t *testing.T) {
 	t.Run("commits between branches", func(t *testing.T) {

@@ -459,8 +459,9 @@ func (r *Repository) getConfigViaCLI(key string) (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
-// parseConfigKey parses a git config key like "user.name" or "remote.origin.url"
-// into section, subsection, and option components.
+// parseConfigKey parses a git config key like "user.name", "remote.origin.url",
+// or "url.https://example.com/.insteadOf" into section, subsection, and option components.
+// Handles keys with 4+ parts where subsections contain dots.
 func parseConfigKey(key string) (section, subsection, option string) {
 	parts := strings.Split(key, ".")
 	if len(parts) < 2 {
@@ -470,8 +471,9 @@ func parseConfigKey(key string) (section, subsection, option string) {
 	section = parts[0]
 	option = parts[len(parts)-1]
 
-	if len(parts) == 3 {
-		subsection = parts[1]
+	// Join all middle parts as subsection (handles subsections with dots)
+	if len(parts) >= 3 {
+		subsection = strings.Join(parts[1:len(parts)-1], ".")
 	}
 
 	return section, subsection, option
@@ -540,7 +542,12 @@ func (r *Repository) getCommitsExclusiveTo(base, head plumbing.Hash) ([]CommitIn
 	}
 	defer logIter.Close()
 
-	// Build set of commits reachable from base
+	// Build set of commits reachable from base for O(1) membership checking.
+	// NOTE: This loads all base commits into memory (each hash is 20 bytes + map overhead).
+	// For repositories with very long histories (e.g., 100k+ commits), this could consume
+	// significant memory (~2-4MB per 10k commits). This is generally acceptable for most
+	// repositories and provides fast lookup. An alternative streaming approach would trade
+	// memory efficiency for slower O(n*m) time complexity.
 	baseCommits := make(map[plumbing.Hash]bool)
 	if base != plumbing.ZeroHash {
 		baseIter, err := r.repo.Log(&git.LogOptions{
