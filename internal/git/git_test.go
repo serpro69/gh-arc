@@ -367,3 +367,258 @@ func TestGetRepositoryState(t *testing.T) {
 		assert.Contains(t, state.WorkingDir.UntrackedFiles, "untracked.txt")
 	})
 }
+
+// TestGetCurrentBranch tests getting the current branch name
+func TestGetCurrentBranch(t *testing.T) {
+	t.Run("current branch in real repo", func(t *testing.T) {
+		repo, err := OpenRepository("../..")
+		require.NoError(t, err)
+
+		branch, err := repo.GetCurrentBranch()
+		require.NoError(t, err)
+		assert.NotEmpty(t, branch)
+	})
+
+	t.Run("current branch in new repo", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create initial commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("test"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("initial commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		branch, err := repo.GetCurrentBranch()
+		require.NoError(t, err)
+		assert.NotEmpty(t, branch)
+		// Default branch is usually "master" in go-git
+		assert.Contains(t, branch, "master")
+	})
+}
+
+// TestGetDefaultBranch tests detecting the default branch
+func TestGetDefaultBranch(t *testing.T) {
+	t.Run("default branch detection", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create initial commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("test"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("initial commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		defaultBranch, err := repo.GetDefaultBranch()
+		require.NoError(t, err)
+		assert.NotEmpty(t, defaultBranch)
+	})
+}
+
+// TestCreateBranch tests branch creation
+func TestCreateBranch(t *testing.T) {
+	t.Run("create branch from HEAD", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create initial commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("test"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("initial commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Create new branch from HEAD
+		err = repo.CreateBranch("feature-branch", "")
+		require.NoError(t, err)
+
+		// Verify branch exists
+		branches, err := repo.ListBranches(false)
+		require.NoError(t, err)
+
+		found := false
+		for _, b := range branches {
+			if b.Name == "feature-branch" {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "feature-branch should exist")
+	})
+
+	t.Run("create branch from base branch", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create initial commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("test"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("initial commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		currentBranch, err := repo.GetCurrentBranch()
+		require.NoError(t, err)
+
+		// Create new branch from current branch
+		err = repo.CreateBranch("feature-branch", currentBranch)
+		require.NoError(t, err)
+
+		// Verify branch exists
+		branches, err := repo.ListBranches(false)
+		require.NoError(t, err)
+
+		found := false
+		for _, b := range branches {
+			if b.Name == "feature-branch" {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found)
+	})
+}
+
+// TestListBranches tests listing branches
+func TestListBranches(t *testing.T) {
+	t.Run("list local branches", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create initial commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("test"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("initial commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Create a second branch
+		err = repo.CreateBranch("dev", "")
+		require.NoError(t, err)
+
+		// List branches
+		branches, err := repo.ListBranches(false)
+		require.NoError(t, err)
+		assert.GreaterOrEqual(t, len(branches), 2)
+
+		// All listed branches should be local
+		for _, b := range branches {
+			assert.False(t, b.IsRemote)
+		}
+	})
+}
+
+// TestGetGitConfig tests reading git configuration
+func TestGetGitConfig(t *testing.T) {
+	t.Run("get user config via go-git", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		// Set config
+		cfg, err := gitRepo.Config()
+		require.NoError(t, err)
+		cfg.User.Name = "Test User"
+		cfg.User.Email = "test@example.com"
+		err = gitRepo.SetConfig(cfg)
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		name, err := repo.GetGitConfig("user.name")
+		require.NoError(t, err)
+		assert.Equal(t, "Test User", name)
+
+		email, err := repo.GetGitConfig("user.email")
+		require.NoError(t, err)
+		assert.Equal(t, "test@example.com", email)
+	})
+}

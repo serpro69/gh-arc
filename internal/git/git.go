@@ -6,9 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 )
 
 var (
@@ -211,4 +214,262 @@ func (r *Repository) GetRepositoryState() (*RepositoryState, error) {
 	state.WorkingDir = *wdStatus
 
 	return state, nil
+}
+
+// GetCurrentBranch returns the current branch name.
+// If the repository is in a detached HEAD state, it returns the HEAD commit SHA.
+func (r *Repository) GetCurrentBranch() (string, error) {
+	head, err := r.repo.Head()
+	if err != nil {
+		return "", fmt.Errorf("failed to get HEAD: %w", err)
+	}
+
+	// Check if HEAD is detached
+	if !head.Name().IsBranch() {
+		// Return the commit SHA for detached HEAD
+		return head.Hash().String(), nil
+	}
+
+	// Return the branch name
+	return head.Name().Short(), nil
+}
+
+// GetDefaultBranch attempts to detect the default branch (main, master, or custom).
+// It checks remote HEAD first, then falls back to common branch names.
+func (r *Repository) GetDefaultBranch() (string, error) {
+	// First, try to get the default branch from remote HEAD
+	remotes, err := r.repo.Remotes()
+	if err == nil && len(remotes) > 0 {
+		// Try origin first
+		for _, remote := range remotes {
+			if remote.Config().Name == "origin" {
+				refs, err := remote.List(&git.ListOptions{})
+				if err == nil {
+					for _, ref := range refs {
+						if ref.Name() == plumbing.HEAD {
+							// Extract branch name from symbolic ref
+							if ref.Type() == plumbing.SymbolicReference {
+								target := ref.Target()
+								if target.IsBranch() {
+									return target.Short(), nil
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Fallback: check for common default branch names
+	branches, err := r.repo.Branches()
+	if err != nil {
+		return "", fmt.Errorf("failed to list branches: %w", err)
+	}
+
+	commonDefaults := []string{"main", "master", "trunk", "development"}
+	existingBranches := make(map[string]bool)
+
+	err = branches.ForEach(func(ref *plumbing.Reference) error {
+		existingBranches[ref.Name().Short()] = true
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to iterate branches: %w", err)
+	}
+
+	// Check common default branch names in order
+	for _, defaultName := range commonDefaults {
+		if existingBranches[defaultName] {
+			return defaultName, nil
+		}
+	}
+
+	// If no common default found, return the first branch
+	var firstBranch string
+	branches, _ = r.repo.Branches()
+	_ = branches.ForEach(func(ref *plumbing.Reference) error {
+		if firstBranch == "" {
+			firstBranch = ref.Name().Short()
+		}
+		return nil
+	})
+
+	if firstBranch != "" {
+		return firstBranch, nil
+	}
+
+	return "", fmt.Errorf("no branches found in repository")
+}
+
+// CreateBranch creates a new branch from the specified base branch.
+// If baseBranch is empty, it creates from the current HEAD.
+func (r *Repository) CreateBranch(name string, baseBranch string) error {
+	if name == "" {
+		return fmt.Errorf("branch name cannot be empty")
+	}
+
+	// Get the base commit
+	var baseHash plumbing.Hash
+	if baseBranch == "" {
+		// Use current HEAD
+		head, err := r.repo.Head()
+		if err != nil {
+			return fmt.Errorf("failed to get HEAD: %w", err)
+		}
+		baseHash = head.Hash()
+	} else {
+		// Resolve the base branch reference
+		ref, err := r.repo.Reference(plumbing.NewBranchReferenceName(baseBranch), true)
+		if err != nil {
+			return fmt.Errorf("failed to resolve base branch %s: %w", baseBranch, err)
+		}
+		baseHash = ref.Hash()
+	}
+
+	// Create the new branch reference
+	refName := plumbing.NewBranchReferenceName(name)
+	ref := plumbing.NewHashReference(refName, baseHash)
+	err := r.repo.Storer.SetReference(ref)
+	if err != nil {
+		return fmt.Errorf("failed to create branch %s: %w", name, err)
+	}
+
+	return nil
+}
+
+// BranchInfo represents information about a branch.
+type BranchInfo struct {
+	Name     string // Branch name
+	IsRemote bool   // True if this is a remote branch
+	Hash     string // Commit SHA
+}
+
+// ListBranches returns a list of all branches (local and optionally remote).
+func (r *Repository) ListBranches(includeRemote bool) ([]BranchInfo, error) {
+	var branches []BranchInfo
+
+	// Get local branches
+	branchIter, err := r.repo.Branches()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get branches: %w", err)
+	}
+
+	err = branchIter.ForEach(func(ref *plumbing.Reference) error {
+		branches = append(branches, BranchInfo{
+			Name:     ref.Name().Short(),
+			IsRemote: false,
+			Hash:     ref.Hash().String(),
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to iterate branches: %w", err)
+	}
+
+	// Get remote branches if requested
+	if includeRemote {
+		refs, err := r.repo.References()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get references: %w", err)
+		}
+
+		err = refs.ForEach(func(ref *plumbing.Reference) error {
+			if ref.Name().IsRemote() {
+				branches = append(branches, BranchInfo{
+					Name:     ref.Name().Short(),
+					IsRemote: true,
+					Hash:     ref.Hash().String(),
+				})
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to iterate remote branches: %w", err)
+		}
+	}
+
+	return branches, nil
+}
+
+// GetGitConfig reads a git configuration value.
+// It uses go-git's config first, then falls back to git CLI if not found.
+func (r *Repository) GetGitConfig(key string) (string, error) {
+	if key == "" {
+		return "", fmt.Errorf("config key cannot be empty")
+	}
+
+	// Try go-git config first
+	cfg, err := r.repo.Config()
+	if err == nil {
+		// Handle common config keys
+		switch key {
+		case "user.name":
+			if cfg.User.Name != "" {
+				return cfg.User.Name, nil
+			}
+		case "user.email":
+			if cfg.User.Email != "" {
+				return cfg.User.Email, nil
+			}
+		}
+
+		// For other keys, try raw config
+		if cfg.Raw != nil {
+			section, subsection, option := parseConfigKey(key)
+			if section != "" && option != "" {
+				if subsection != "" {
+					if sec := cfg.Raw.Section(section).Subsection(subsection); sec != nil {
+						if val := sec.Option(option); val != "" {
+							return val, nil
+						}
+					}
+				} else {
+					if val := cfg.Raw.Section(section).Option(option); val != "" {
+						return val, nil
+					}
+				}
+			}
+		}
+	}
+
+	// Fallback to git CLI
+	return r.getConfigViaCLI(key)
+}
+
+// getConfigViaCLI uses git CLI to get config value.
+func (r *Repository) getConfigViaCLI(key string) (string, error) {
+	cmd := exec.Command("git", "config", "--get", key)
+	cmd.Dir = r.path
+
+	output, err := cmd.Output()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			// Exit code 1 means key not found
+			if exitErr.ExitCode() == 1 {
+				return "", fmt.Errorf("config key %s not found", key)
+			}
+		}
+		return "", fmt.Errorf("failed to get config via CLI: %w", err)
+	}
+
+	return strings.TrimSpace(string(output)), nil
+}
+
+// parseConfigKey parses a git config key like "user.name" or "remote.origin.url"
+// into section, subsection, and option components.
+func parseConfigKey(key string) (section, subsection, option string) {
+	parts := strings.Split(key, ".")
+	if len(parts) < 2 {
+		return "", "", ""
+	}
+
+	section = parts[0]
+	option = parts[len(parts)-1]
+
+	if len(parts) == 3 {
+		subsection = parts[1]
+	}
+
+	return section, subsection, option
 }
