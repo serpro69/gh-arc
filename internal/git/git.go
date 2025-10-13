@@ -29,6 +29,11 @@ var (
 )
 
 // Repository represents a Git repository and provides methods for Git operations.
+//
+// Repository is not safe for concurrent use by multiple goroutines without
+// external synchronization. If you need to access a repository from multiple
+// goroutines, you must coordinate access using a mutex or other synchronization
+// mechanism.
 type Repository struct {
 	repo *git.Repository
 	path string
