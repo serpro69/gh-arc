@@ -5,6 +5,7 @@ package git
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -545,12 +546,16 @@ func (r *Repository) getCommitsExclusiveTo(base, head plumbing.Hash) ([]CommitIn
 		baseIter, err := r.repo.Log(&git.LogOptions{
 			From: base,
 		})
-		if err == nil {
-			_ = baseIter.ForEach(func(c *object.Commit) error {
-				baseCommits[c.Hash] = true
-				return nil
-			})
-			baseIter.Close()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get log for base: %w", err)
+		}
+		err = baseIter.ForEach(func(c *object.Commit) error {
+			baseCommits[c.Hash] = true
+			return nil
+		})
+		baseIter.Close()
+		if err != nil {
+			return nil, fmt.Errorf("failed to iterate base commits: %w", err)
 		}
 	}
 
@@ -847,25 +852,29 @@ func (r *Repository) getDiffViaCLI(args ...string) (string, error) {
 }
 
 // isBinaryFile checks if a file is binary based on its content.
+// It streams only the first 8000 bytes to avoid loading large files into memory.
 func isBinaryFile(file *object.File) bool {
 	if file == nil {
 		return false
 	}
 
-	// Check if the file is binary by reading first chunk
-	contents, err := file.Contents()
+	// Use streaming reader to avoid loading entire file into memory
+	reader, err := file.Reader()
 	if err != nil {
 		return false
 	}
+	defer reader.Close()
 
-	// Check first 8000 bytes for null bytes (common indicator of binary)
-	maxCheck := 8000
-	if len(contents) < maxCheck {
-		maxCheck = len(contents)
+	// Read only first 8000 bytes (or less if file is smaller)
+	buf := make([]byte, 8000)
+	n, err := reader.Read(buf)
+	if err != nil && err != io.EOF {
+		return false
 	}
 
-	for i := 0; i < maxCheck; i++ {
-		if contents[i] == 0 {
+	// Check for null bytes (common indicator of binary files)
+	for i := 0; i < n; i++ {
+		if buf[i] == 0 {
 			return true
 		}
 	}
