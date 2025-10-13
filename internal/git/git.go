@@ -28,6 +28,23 @@ type Repository struct {
 	path string
 }
 
+// WorkingDirectoryStatus represents the status of the working directory.
+type WorkingDirectoryStatus struct {
+	IsClean        bool     // True if no changes in working directory
+	StagedFiles    []string // Files in staging area
+	UnstagedFiles  []string // Modified files not staged
+	UntrackedFiles []string // Files not tracked by git
+}
+
+// RepositoryState represents the complete state of a repository.
+type RepositoryState struct {
+	IsValid       bool                   // True if this is a valid repository
+	IsDetached    bool                   // True if HEAD is detached
+	CurrentBranch string                 // Current branch name (empty if detached)
+	HeadCommit    string                 // SHA of HEAD commit
+	WorkingDir    WorkingDirectoryStatus // Working directory status
+}
+
 // OpenRepository opens a Git repository at the given path.
 // If path is empty, it attempts to find the repository in the current directory.
 func OpenRepository(path string) (*Repository, error) {
@@ -105,4 +122,93 @@ func (r *Repository) Path() string {
 // This is useful for advanced operations not covered by this package.
 func (r *Repository) Repo() *git.Repository {
 	return r.repo
+}
+
+// IsDetachedHead checks if the repository is in a detached HEAD state.
+func (r *Repository) IsDetachedHead() (bool, error) {
+	head, err := r.repo.Head()
+	if err != nil {
+		return false, fmt.Errorf("failed to get HEAD: %w", err)
+	}
+
+	// If HEAD reference name is not a branch reference, it's detached
+	return !head.Name().IsBranch(), nil
+}
+
+// GetWorkingDirectoryStatus returns the status of the working directory.
+func (r *Repository) GetWorkingDirectoryStatus() (*WorkingDirectoryStatus, error) {
+	worktree, err := r.repo.Worktree()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get worktree: %w", err)
+	}
+
+	status, err := worktree.Status()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get status: %w", err)
+	}
+
+	wdStatus := &WorkingDirectoryStatus{
+		IsClean:        status.IsClean(),
+		StagedFiles:    make([]string, 0),
+		UnstagedFiles:  make([]string, 0),
+		UntrackedFiles: make([]string, 0),
+	}
+
+	// Iterate through file statuses
+	for filePath, fileStatus := range status {
+		// Check staging area status
+		if fileStatus.Staging != git.Unmodified && fileStatus.Staging != git.Untracked {
+			wdStatus.StagedFiles = append(wdStatus.StagedFiles, filePath)
+		}
+
+		// Check worktree status
+		if fileStatus.Worktree == git.Modified || fileStatus.Worktree == git.Deleted {
+			wdStatus.UnstagedFiles = append(wdStatus.UnstagedFiles, filePath)
+		}
+
+		// Check untracked files
+		if fileStatus.Staging == git.Untracked {
+			wdStatus.UntrackedFiles = append(wdStatus.UntrackedFiles, filePath)
+		}
+	}
+
+	return wdStatus, nil
+}
+
+// GetRepositoryState returns the complete state of the repository,
+// combining all state checks into a single status struct.
+func (r *Repository) GetRepositoryState() (*RepositoryState, error) {
+	state := &RepositoryState{
+		IsValid: true,
+	}
+
+	// Check if HEAD is detached
+	isDetached, err := r.IsDetachedHead()
+	if err != nil {
+		return nil, fmt.Errorf("failed to check detached HEAD: %w", err)
+	}
+	state.IsDetached = isDetached
+
+	// Get HEAD reference
+	head, err := r.repo.Head()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get HEAD: %w", err)
+	}
+
+	// Get current branch name (if not detached)
+	if !isDetached {
+		state.CurrentBranch = head.Name().Short()
+	}
+
+	// Get HEAD commit SHA
+	state.HeadCommit = head.Hash().String()
+
+	// Get working directory status
+	wdStatus, err := r.GetWorkingDirectoryStatus()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get working directory status: %w", err)
+	}
+	state.WorkingDir = *wdStatus
+
+	return state, nil
 }
