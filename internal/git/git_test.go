@@ -622,3 +622,446 @@ func TestGetGitConfig(t *testing.T) {
 		assert.Equal(t, "test@example.com", email)
 	})
 }
+
+// TestGetCommitRange tests getting commits between two branches
+func TestGetCommitRange(t *testing.T) {
+	t.Run("commits between branches", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create initial commit on master
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("initial"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("initial commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		// Create feature branch
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		err = repo.CreateBranch("feature", "master")
+		require.NoError(t, err)
+
+		// Checkout feature branch
+		err = worktree.Checkout(&git.CheckoutOptions{
+			Branch: "refs/heads/feature",
+		})
+		require.NoError(t, err)
+
+		// Add commits to feature branch
+		for i := 1; i <= 3; i++ {
+			testFile := filepath.Join(tmpDir, "feature.txt")
+			err = os.WriteFile(testFile, []byte("feature "+string(rune(i))), 0644)
+			require.NoError(t, err)
+
+			_, err = worktree.Add("feature.txt")
+			require.NoError(t, err)
+
+			_, err = worktree.Commit("feature commit "+string(rune(i)), &git.CommitOptions{
+				Author: &object.Signature{
+					Name:  "Test User",
+					Email: "test@example.com",
+					When:  time.Now().Add(time.Duration(i) * time.Minute),
+				},
+			})
+			require.NoError(t, err)
+		}
+
+		// Get commits between master and feature
+		commits, err := repo.GetCommitRange("master", "feature")
+		require.NoError(t, err)
+		assert.Equal(t, 3, len(commits))
+
+		// Verify commits are in correct order (newest first)
+		for i, commit := range commits {
+			assert.NotEmpty(t, commit.SHA)
+			assert.Equal(t, "Test User", commit.Author)
+			assert.Equal(t, "test@example.com", commit.Email)
+			assert.Contains(t, commit.Message, "feature commit")
+			// Commits should be in reverse chronological order
+			if i > 0 {
+				assert.True(t, commits[i].Date.Before(commits[i-1].Date) || commits[i].Date.Equal(commits[i-1].Date))
+			}
+		}
+	})
+
+	t.Run("no commits between branches", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create initial commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("test"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("initial commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Create branch at same point
+		err = repo.CreateBranch("feature", "master")
+		require.NoError(t, err)
+
+		// Get commits - should be empty
+		commits, err := repo.GetCommitRange("master", "feature")
+		require.NoError(t, err)
+		assert.Empty(t, commits)
+	})
+}
+
+// TestGetCommitsBetween tests getting commits between any refs
+func TestGetCommitsBetween(t *testing.T) {
+	t.Run("commits between refs", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create base commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("base"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		baseCommit, err := worktree.Commit("base commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		// Create feature commits
+		for i := 1; i <= 2; i++ {
+			err = os.WriteFile(testFile, []byte("feature "+string(rune(i))), 0644)
+			require.NoError(t, err)
+
+			_, err = worktree.Add("test.txt")
+			require.NoError(t, err)
+
+			_, err = worktree.Commit("feature commit "+string(rune(i)), &git.CommitOptions{
+				Author: &object.Signature{
+					Name:  "Test User",
+					Email: "test@example.com",
+					When:  time.Now().Add(time.Duration(i) * time.Minute),
+				},
+			})
+			require.NoError(t, err)
+		}
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Get commits using commit SHAs
+		currentBranch, err := repo.GetCurrentBranch()
+		require.NoError(t, err)
+
+		commits, err := repo.GetCommitsBetween(baseCommit.String(), currentBranch)
+		require.NoError(t, err)
+		assert.Equal(t, 2, len(commits))
+	})
+}
+
+// TestParseCommitMessage tests parsing commit messages
+func TestParseCommitMessage(t *testing.T) {
+	testCases := []struct {
+		name     string
+		message  string
+		expTitle string
+		expBody  string
+	}{
+		{
+			name:     "simple commit",
+			message:  "Add feature",
+			expTitle: "Add feature",
+			expBody:  "",
+		},
+		{
+			name:     "commit with body",
+			message:  "Add feature\n\nThis adds a new feature",
+			expTitle: "Add feature",
+			expBody:  "This adds a new feature",
+		},
+		{
+			name:     "commit with multiple body paragraphs",
+			message:  "Fix bug\n\nFirst paragraph\n\nSecond paragraph",
+			expTitle: "Fix bug",
+			expBody:  "First paragraph\n\nSecond paragraph",
+		},
+		{
+			name:     "commit with trailing newlines",
+			message:  "Update docs\n\n\n",
+			expTitle: "Update docs",
+			expBody:  "",
+		},
+		{
+			name:     "empty message",
+			message:  "",
+			expTitle: "",
+			expBody:  "",
+		},
+		{
+			name:     "multiline title",
+			message:  "First line\nSecond line without blank\nThird line",
+			expTitle: "First line",
+			expBody:  "Second line without blank\nThird line",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			parsed := ParseCommitMessage(tc.message)
+			assert.Equal(t, tc.expTitle, parsed.Title)
+			assert.Equal(t, tc.expBody, parsed.Body)
+		})
+	}
+}
+
+// TestGetFirstCommitMessage tests getting the first commit message
+func TestGetFirstCommitMessage(t *testing.T) {
+	t.Run("get first commit message", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create base commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("base"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("base commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		// Create branch
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		err = repo.CreateBranch("feature", "master")
+		require.NoError(t, err)
+
+		// Checkout feature
+		err = worktree.Checkout(&git.CheckoutOptions{
+			Branch: "refs/heads/feature",
+		})
+		require.NoError(t, err)
+
+		// Add commits
+		messages := []string{"First commit", "Second commit", "Third commit"}
+		for _, msg := range messages {
+			err = os.WriteFile(testFile, []byte(msg), 0644)
+			require.NoError(t, err)
+
+			_, err = worktree.Add("test.txt")
+			require.NoError(t, err)
+
+			_, err = worktree.Commit(msg, &git.CommitOptions{
+				Author: &object.Signature{
+					Name:  "Test User",
+					Email: "test@example.com",
+					When:  time.Now(),
+				},
+			})
+			require.NoError(t, err)
+		}
+
+		// Get first commit message
+		firstMsg, err := repo.GetFirstCommitMessage("master", "feature")
+		require.NoError(t, err)
+		assert.Equal(t, "First commit", firstMsg)
+	})
+
+	t.Run("no commits between branches", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("test"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Create branch at same point
+		err = repo.CreateBranch("feature", "master")
+		require.NoError(t, err)
+
+		// Should return empty string
+		msg, err := repo.GetFirstCommitMessage("master", "feature")
+		require.NoError(t, err)
+		assert.Empty(t, msg)
+	})
+}
+
+// TestGetAllCommitMessages tests getting all commit messages
+func TestGetAllCommitMessages(t *testing.T) {
+	t.Run("get all commit messages", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create base commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("base"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("base commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		// Create branch
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		err = repo.CreateBranch("feature", "master")
+		require.NoError(t, err)
+
+		// Checkout feature
+		err = worktree.Checkout(&git.CheckoutOptions{
+			Branch: "refs/heads/feature",
+		})
+		require.NoError(t, err)
+
+		// Add commits
+		expectedMessages := []string{"First commit", "Second commit", "Third commit"}
+		for _, msg := range expectedMessages {
+			err = os.WriteFile(testFile, []byte(msg), 0644)
+			require.NoError(t, err)
+
+			_, err = worktree.Add("test.txt")
+			require.NoError(t, err)
+
+			_, err = worktree.Commit(msg, &git.CommitOptions{
+				Author: &object.Signature{
+					Name:  "Test User",
+					Email: "test@example.com",
+					When:  time.Now(),
+				},
+			})
+			require.NoError(t, err)
+		}
+
+		// Get all commit messages
+		messages, err := repo.GetAllCommitMessages("master", "feature")
+		require.NoError(t, err)
+		assert.Equal(t, 3, len(messages))
+
+		// Messages are returned in reverse chronological order (newest first)
+		// So we need to reverse our expected list
+		for i := 0; i < len(expectedMessages); i++ {
+			assert.Equal(t, expectedMessages[len(expectedMessages)-1-i], messages[i])
+		}
+	})
+
+	t.Run("no commits between branches", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("test"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Create branch at same point
+		err = repo.CreateBranch("feature", "master")
+		require.NoError(t, err)
+
+		// Should return empty list
+		messages, err := repo.GetAllCommitMessages("master", "feature")
+		require.NoError(t, err)
+		assert.Empty(t, messages)
+	})
+}

@@ -9,9 +9,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
 var (
@@ -472,4 +474,170 @@ func parseConfigKey(key string) (section, subsection, option string) {
 	}
 
 	return section, subsection, option
+}
+
+// CommitInfo represents information about a commit.
+type CommitInfo struct {
+	SHA     string    // Commit SHA
+	Author  string    // Author name
+	Email   string    // Author email
+	Date    time.Time // Commit date
+	Message string    // Full commit message
+}
+
+// CommitMessage represents a parsed commit message.
+type CommitMessage struct {
+	Title string // First line of commit message
+	Body  string // Rest of commit message (after title)
+}
+
+// GetCommitRange returns commits between two branches.
+// It returns commits that are in headBranch but not in baseBranch.
+func (r *Repository) GetCommitRange(baseBranch, headBranch string) ([]CommitInfo, error) {
+	// Resolve base branch reference
+	baseRef, err := r.repo.Reference(plumbing.NewBranchReferenceName(baseBranch), true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve base branch %s: %w", baseBranch, err)
+	}
+
+	// Resolve head branch reference
+	headRef, err := r.repo.Reference(plumbing.NewBranchReferenceName(headBranch), true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve head branch %s: %w", headBranch, err)
+	}
+
+	// Get commits exclusive to head branch
+	return r.getCommitsExclusiveTo(baseRef.Hash(), headRef.Hash())
+}
+
+// GetCommitsBetween returns commits between two branch/commit references.
+// This is similar to GetCommitRange but accepts any ref (branch, tag, commit SHA).
+func (r *Repository) GetCommitsBetween(base, head string) ([]CommitInfo, error) {
+	// Resolve base reference
+	baseHash, err := r.repo.ResolveRevision(plumbing.Revision(base))
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve base ref %s: %w", base, err)
+	}
+
+	// Resolve head reference
+	headHash, err := r.repo.ResolveRevision(plumbing.Revision(head))
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve head ref %s: %w", head, err)
+	}
+
+	return r.getCommitsExclusiveTo(*baseHash, *headHash)
+}
+
+// getCommitsExclusiveTo is a helper that returns commits reachable from head but not from base.
+func (r *Repository) getCommitsExclusiveTo(base, head plumbing.Hash) ([]CommitInfo, error) {
+	// Get commit iterator from head
+	logIter, err := r.repo.Log(&git.LogOptions{
+		From: head,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get log: %w", err)
+	}
+	defer logIter.Close()
+
+	// Build set of commits reachable from base
+	baseCommits := make(map[plumbing.Hash]bool)
+	if base != plumbing.ZeroHash {
+		baseIter, err := r.repo.Log(&git.LogOptions{
+			From: base,
+		})
+		if err == nil {
+			_ = baseIter.ForEach(func(c *object.Commit) error {
+				baseCommits[c.Hash] = true
+				return nil
+			})
+			baseIter.Close()
+		}
+	}
+
+	// Collect commits exclusive to head
+	var commits []CommitInfo
+	err = logIter.ForEach(func(c *object.Commit) error {
+		// Stop if we've reached a commit that's in base
+		if baseCommits[c.Hash] {
+			return nil
+		}
+
+		commits = append(commits, CommitInfo{
+			SHA:     c.Hash.String(),
+			Author:  c.Author.Name,
+			Email:   c.Author.Email,
+			Date:    c.Author.When,
+			Message: c.Message,
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to iterate commits: %w", err)
+	}
+
+	return commits, nil
+}
+
+// ParseCommitMessage parses a commit message into title and body.
+func ParseCommitMessage(message string) CommitMessage {
+	lines := strings.Split(message, "\n")
+	if len(lines) == 0 {
+		return CommitMessage{}
+	}
+
+	title := strings.TrimSpace(lines[0])
+
+	// Find the start of the body (skip empty lines after title)
+	bodyStart := 1
+	for bodyStart < len(lines) && strings.TrimSpace(lines[bodyStart]) == "" {
+		bodyStart++
+	}
+
+	var body string
+	if bodyStart < len(lines) {
+		body = strings.TrimSpace(strings.Join(lines[bodyStart:], "\n"))
+	}
+
+	return CommitMessage{
+		Title: title,
+		Body:  body,
+	}
+}
+
+// GetFirstCommitMessage returns the message of the first commit in the range.
+// Useful for generating PR descriptions from a single commit.
+// Returns empty string if there are no commits between the branches.
+func (r *Repository) GetFirstCommitMessage(baseBranch, headBranch string) (string, error) {
+	commits, err := r.GetCommitRange(baseBranch, headBranch)
+	if err != nil {
+		return "", err
+	}
+
+	if len(commits) == 0 {
+		return "", nil
+	}
+
+	// Return the last commit (commits are in reverse chronological order)
+	return commits[len(commits)-1].Message, nil
+}
+
+// GetAllCommitMessages returns all commit messages in the range.
+// Useful for generating PR descriptions from multiple commits.
+// Returns empty slice if there are no commits between the branches.
+func (r *Repository) GetAllCommitMessages(baseBranch, headBranch string) ([]string, error) {
+	commits, err := r.GetCommitRange(baseBranch, headBranch)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(commits) == 0 {
+		return []string{}, nil
+	}
+
+	messages := make([]string, len(commits))
+	for i, commit := range commits {
+		messages[i] = commit.Message
+	}
+
+	return messages, nil
 }

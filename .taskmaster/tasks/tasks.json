@@ -192,7 +192,7 @@
               3
             ],
             "details": "Implement GetCommitRange(baseBranch, headBranch) to get commits between branches using go-git's Log() with revision ranges. Create ParseCommitMessage(commit) to extract title, body, and metadata from commits. Add GetCommitsBetween() for finding commits exclusive to a branch. Implement GetFirstCommitMessage() and GetAllCommitMessages() for PR description generation. Create CommitInfo struct with SHA, author, date, and message fields.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Create test repositories with known commit histories. Test commit range calculation between branches. Verify commit message parsing with various formats including conventional commits."
           },
           {
@@ -763,7 +763,7 @@
     ],
     "metadata": {
       "created": "2025-10-10T16:18:54.137Z",
-      "updated": "2025-10-13T12:17:52.887Z",
+      "updated": "2025-10-13T12:22:25.959Z",
       "description": "Tasks for master context"
     }
   }
