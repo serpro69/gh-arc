@@ -448,3 +448,311 @@ func TestGetCurrentRepositoryPullRequestsWithPaginationError(t *testing.T) {
 		t.Errorf("Error message = %q, expected %q", err.Error(), expectedMsg)
 	}
 }
+
+func TestDeterminePRStatus(t *testing.T) {
+	tests := []struct {
+		name               string
+		reviews            []PRReview
+		checks             []PRCheck
+		expectedReviewStat string
+		expectedCheckStat  string
+	}{
+		{
+			name:               "no reviews or checks",
+			reviews:            []PRReview{},
+			checks:             []PRCheck{},
+			expectedReviewStat: "review_required",
+			expectedCheckStat:  "pending",
+		},
+		{
+			name: "approved review",
+			reviews: []PRReview{
+				{State: "APPROVED"},
+			},
+			checks:             []PRCheck{},
+			expectedReviewStat: "approved",
+			expectedCheckStat:  "pending",
+		},
+		{
+			name: "changes requested takes priority",
+			reviews: []PRReview{
+				{State: "APPROVED"},
+				{State: "CHANGES_REQUESTED"},
+			},
+			checks:             []PRCheck{},
+			expectedReviewStat: "changes_requested",
+			expectedCheckStat:  "pending",
+		},
+		{
+			name: "commented review",
+			reviews: []PRReview{
+				{State: "COMMENTED"},
+			},
+			checks:             []PRCheck{},
+			expectedReviewStat: "commented",
+			expectedCheckStat:  "pending",
+		},
+		{
+			name: "pending review",
+			reviews: []PRReview{
+				{State: "PENDING"},
+			},
+			checks:             []PRCheck{},
+			expectedReviewStat: "pending",
+			expectedCheckStat:  "pending",
+		},
+		{
+			name:    "all checks success",
+			reviews: []PRReview{},
+			checks: []PRCheck{
+				{Status: "completed", Conclusion: "success"},
+				{Status: "completed", Conclusion: "success"},
+			},
+			expectedReviewStat: "review_required",
+			expectedCheckStat:  "success",
+		},
+		{
+			name:    "one check failure",
+			reviews: []PRReview{},
+			checks: []PRCheck{
+				{Status: "completed", Conclusion: "success"},
+				{Status: "completed", Conclusion: "failure"},
+			},
+			expectedReviewStat: "review_required",
+			expectedCheckStat:  "failure",
+		},
+		{
+			name:    "checks in progress",
+			reviews: []PRReview{},
+			checks: []PRCheck{
+				{Status: "in_progress"},
+				{Status: "completed", Conclusion: "success"},
+			},
+			expectedReviewStat: "review_required",
+			expectedCheckStat:  "in_progress",
+		},
+		{
+			name:    "neutral check result",
+			reviews: []PRReview{},
+			checks: []PRCheck{
+				{Status: "completed", Conclusion: "neutral"},
+			},
+			expectedReviewStat: "review_required",
+			expectedCheckStat:  "neutral",
+		},
+		{
+			name: "approved with successful checks",
+			reviews: []PRReview{
+				{State: "APPROVED"},
+			},
+			checks: []PRCheck{
+				{Status: "completed", Conclusion: "success"},
+			},
+			expectedReviewStat: "approved",
+			expectedCheckStat:  "success",
+		},
+		{
+			name: "changes requested with failed checks",
+			reviews: []PRReview{
+				{State: "CHANGES_REQUESTED"},
+			},
+			checks: []PRCheck{
+				{Status: "completed", Conclusion: "failure"},
+			},
+			expectedReviewStat: "changes_requested",
+			expectedCheckStat:  "failure",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			status := DeterminePRStatus(tt.reviews, tt.checks)
+
+			if status.ReviewStatus != tt.expectedReviewStat {
+				t.Errorf("ReviewStatus = %s, expected %s", status.ReviewStatus, tt.expectedReviewStat)
+			}
+
+			if status.CheckStatus != tt.expectedCheckStat {
+				t.Errorf("CheckStatus = %s, expected %s", status.CheckStatus, tt.expectedCheckStat)
+			}
+		})
+	}
+}
+
+func TestPRStatusStruct(t *testing.T) {
+	status := PRStatus{
+		ReviewStatus: "approved",
+		CheckStatus:  "success",
+	}
+
+	if status.ReviewStatus != "approved" {
+		t.Errorf("ReviewStatus = %s, expected approved", status.ReviewStatus)
+	}
+
+	if status.CheckStatus != "success" {
+		t.Errorf("CheckStatus = %s, expected success", status.CheckStatus)
+	}
+}
+
+func TestEnrichPullRequestNilPR(t *testing.T) {
+	client := &Client{
+		config:         DefaultConfig(),
+		cache:          &NoOpCache{},
+		circuitBreaker: NewCircuitBreaker(5, 1*time.Minute),
+	}
+
+	err := client.EnrichPullRequest(nil, "owner", "repo", nil)
+	if err == nil {
+		t.Error("Expected error when PR is nil")
+	}
+
+	expectedMsg := "pull request is nil"
+	if err.Error() != expectedMsg {
+		t.Errorf("Error message = %q, expected %q", err.Error(), expectedMsg)
+	}
+}
+
+func TestEnrichPullRequestsEmptyList(t *testing.T) {
+	client := &Client{
+		config:         DefaultConfig(),
+		cache:          &NoOpCache{},
+		circuitBreaker: NewCircuitBreaker(5, 1*time.Minute),
+	}
+
+	err := client.EnrichPullRequests(nil, "owner", "repo", []*PullRequest{})
+	if err != nil {
+		t.Errorf("EnrichPullRequests with empty list should not error, got: %v", err)
+	}
+}
+
+func TestReviewStatusPriority(t *testing.T) {
+	// Test that CHANGES_REQUESTED takes priority over APPROVED
+	reviews := []PRReview{
+		{ID: 1, State: "APPROVED", User: PRUser{Login: "user1"}},
+		{ID: 2, State: "APPROVED", User: PRUser{Login: "user2"}},
+		{ID: 3, State: "CHANGES_REQUESTED", User: PRUser{Login: "user3"}},
+		{ID: 4, State: "COMMENTED", User: PRUser{Login: "user4"}},
+	}
+
+	status := DeterminePRStatus(reviews, []PRCheck{})
+
+	if status.ReviewStatus != "changes_requested" {
+		t.Errorf("Expected CHANGES_REQUESTED to take priority, got %s", status.ReviewStatus)
+	}
+}
+
+func TestCheckStatusPriority(t *testing.T) {
+	// Test that failure takes priority over success
+	checks := []PRCheck{
+		{ID: 1, Status: "completed", Conclusion: "success", Name: "test1"},
+		{ID: 2, Status: "completed", Conclusion: "success", Name: "test2"},
+		{ID: 3, Status: "completed", Conclusion: "failure", Name: "test3"},
+	}
+
+	status := DeterminePRStatus([]PRReview{}, checks)
+
+	if status.CheckStatus != "failure" {
+		t.Errorf("Expected failure to take priority, got %s", status.CheckStatus)
+	}
+}
+
+func TestCheckStatusInProgressPriority(t *testing.T) {
+	// Test that in_progress takes priority over neutral
+	checks := []PRCheck{
+		{ID: 1, Status: "completed", Conclusion: "neutral", Name: "test1"},
+		{ID: 2, Status: "in_progress", Name: "test2"},
+	}
+
+	status := DeterminePRStatus([]PRReview{}, checks)
+
+	if status.CheckStatus != "in_progress" {
+		t.Errorf("Expected in_progress status, got %s", status.CheckStatus)
+	}
+}
+
+func TestCheckConclusionEdgeCases(t *testing.T) {
+	tests := []struct {
+		name           string
+		conclusion     string
+		expectedStatus string
+	}{
+		{"timed_out is failure", "timed_out", "failure"},
+		{"action_required is failure", "action_required", "failure"},
+		{"cancelled is neutral", "cancelled", "neutral"},
+		{"skipped is neutral", "skipped", "neutral"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			checks := []PRCheck{
+				{Status: "completed", Conclusion: tt.conclusion},
+			}
+
+			status := DeterminePRStatus([]PRReview{}, checks)
+
+			if status.CheckStatus != tt.expectedStatus {
+				t.Errorf("For conclusion %s, expected status %s, got %s",
+					tt.conclusion, tt.expectedStatus, status.CheckStatus)
+			}
+		})
+	}
+}
+
+func TestMultipleReviewStates(t *testing.T) {
+	// Test various combinations of review states
+	tests := []struct {
+		name     string
+		states   []string
+		expected string
+	}{
+		{
+			name:     "multiple approvals",
+			states:   []string{"APPROVED", "APPROVED", "APPROVED"},
+			expected: "approved",
+		},
+		{
+			name:     "multiple comments",
+			states:   []string{"COMMENTED", "COMMENTED"},
+			expected: "commented",
+		},
+		{
+			name:     "multiple pending",
+			states:   []string{"PENDING", "PENDING"},
+			expected: "pending",
+		},
+		{
+			name:     "mixed with changes requested",
+			states:   []string{"APPROVED", "COMMENTED", "CHANGES_REQUESTED"},
+			expected: "changes_requested",
+		},
+		{
+			name:     "approved and commented",
+			states:   []string{"APPROVED", "COMMENTED"},
+			expected: "approved",
+		},
+		{
+			name:     "commented and pending",
+			states:   []string{"COMMENTED", "PENDING"},
+			expected: "commented",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var reviews []PRReview
+			for i, state := range tt.states {
+				reviews = append(reviews, PRReview{
+					ID:    i + 1,
+					State: state,
+				})
+			}
+
+			status := DeterminePRStatus(reviews, []PRCheck{})
+
+			if status.ReviewStatus != tt.expected {
+				t.Errorf("For states %v, expected %s, got %s",
+					tt.states, tt.expected, status.ReviewStatus)
+			}
+		})
+	}
+}

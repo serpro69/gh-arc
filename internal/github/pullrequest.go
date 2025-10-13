@@ -295,3 +295,363 @@ func (c *Client) GetCurrentRepositoryPullRequestsWithPagination(ctx context.Cont
 
 	return c.GetPullRequestsWithPagination(ctx, c.repo.Owner, c.repo.Name, opts)
 }
+
+// GetPullRequestReviews fetches reviews for a specific pull request
+func (c *Client) GetPullRequestReviews(ctx context.Context, owner, repo string, number int) ([]PRReview, error) {
+	path := fmt.Sprintf("repos/%s/%s/pulls/%d/reviews", owner, repo, number)
+
+	logger.Debug().
+		Str("owner", owner).
+		Str("repo", repo).
+		Int("pr", number).
+		Msg("Fetching PR reviews")
+
+	var reviews []PRReview
+	err := c.restClient.Get(path, &reviews)
+	if err != nil {
+		logger.Error().
+			Err(err).
+			Int("pr", number).
+			Msg("Failed to fetch PR reviews")
+		return nil, fmt.Errorf("failed to fetch reviews for PR #%d: %w", number, err)
+	}
+
+	logger.Debug().
+		Int("pr", number).
+		Int("count", len(reviews)).
+		Msg("Successfully fetched PR reviews")
+
+	return reviews, nil
+}
+
+// GetPullRequestChecks fetches check runs for a specific pull request's head commit
+func (c *Client) GetPullRequestChecks(ctx context.Context, owner, repo, sha string) ([]PRCheck, error) {
+	path := fmt.Sprintf("repos/%s/%s/commits/%s/check-runs", owner, repo, sha)
+
+	logger.Debug().
+		Str("owner", owner).
+		Str("repo", repo).
+		Str("sha", sha).
+		Msg("Fetching PR check runs")
+
+	var response struct {
+		TotalCount int       `json:"total_count"`
+		CheckRuns  []PRCheck `json:"check_runs"`
+	}
+
+	err := c.restClient.Get(path, &response)
+	if err != nil {
+		logger.Error().
+			Err(err).
+			Str("sha", sha).
+			Msg("Failed to fetch PR check runs")
+		return nil, fmt.Errorf("failed to fetch check runs for SHA %s: %w", sha, err)
+	}
+
+	logger.Debug().
+		Str("sha", sha).
+		Int("count", response.TotalCount).
+		Msg("Successfully fetched PR check runs")
+
+	return response.CheckRuns, nil
+}
+
+// GetPullRequestRequestedReviewers fetches requested reviewers for a specific pull request
+func (c *Client) GetPullRequestRequestedReviewers(ctx context.Context, owner, repo string, number int) ([]PRReviewer, error) {
+	path := fmt.Sprintf("repos/%s/%s/pulls/%d/requested_reviewers", owner, repo, number)
+
+	logger.Debug().
+		Str("owner", owner).
+		Str("repo", repo).
+		Int("pr", number).
+		Msg("Fetching PR requested reviewers")
+
+	var response struct {
+		Users []struct {
+			Login string `json:"login"`
+		} `json:"users"`
+		Teams []struct {
+			Name string `json:"name"`
+			Slug string `json:"slug"`
+		} `json:"teams"`
+	}
+
+	err := c.restClient.Get(path, &response)
+	if err != nil {
+		logger.Error().
+			Err(err).
+			Int("pr", number).
+			Msg("Failed to fetch PR requested reviewers")
+		return nil, fmt.Errorf("failed to fetch requested reviewers for PR #%d: %w", number, err)
+	}
+
+	// Combine users and teams into a single list
+	var reviewers []PRReviewer
+	for _, user := range response.Users {
+		reviewers = append(reviewers, PRReviewer{
+			Login: user.Login,
+			Type:  "User",
+		})
+	}
+	for _, team := range response.Teams {
+		reviewers = append(reviewers, PRReviewer{
+			Login: team.Slug,
+			Type:  "Team",
+		})
+	}
+
+	logger.Debug().
+		Int("pr", number).
+		Int("count", len(reviewers)).
+		Msg("Successfully fetched PR requested reviewers")
+
+	return reviewers, nil
+}
+
+// PRStatus represents the aggregated status of a pull request
+type PRStatus struct {
+	ReviewStatus string // approved, changes_requested, review_required, commented, pending
+	CheckStatus  string // success, failure, pending, in_progress, neutral
+}
+
+// DeterminePRStatus analyzes reviews and checks to determine overall PR status
+func DeterminePRStatus(reviews []PRReview, checks []PRCheck) PRStatus {
+	status := PRStatus{
+		ReviewStatus: "pending",
+		CheckStatus:  "pending",
+	}
+
+	// Determine review status
+	// Priority: CHANGES_REQUESTED > APPROVED > COMMENTED > PENDING
+	hasApproval := false
+	hasChangesRequested := false
+	hasCommented := false
+
+	for _, review := range reviews {
+		switch review.State {
+		case "CHANGES_REQUESTED":
+			hasChangesRequested = true
+		case "APPROVED":
+			hasApproval = true
+		case "COMMENTED":
+			hasCommented = true
+		}
+	}
+
+	if hasChangesRequested {
+		status.ReviewStatus = "changes_requested"
+	} else if hasApproval {
+		status.ReviewStatus = "approved"
+	} else if hasCommented {
+		status.ReviewStatus = "commented"
+	} else if len(reviews) > 0 {
+		status.ReviewStatus = "pending"
+	} else {
+		status.ReviewStatus = "review_required"
+	}
+
+	// Determine check status
+	if len(checks) == 0 {
+		status.CheckStatus = "pending"
+		return status
+	}
+
+	hasFailure := false
+	hasInProgress := false
+	allSuccess := true
+
+	for _, check := range checks {
+		if check.Status != "completed" {
+			hasInProgress = true
+			allSuccess = false
+			continue
+		}
+
+		switch check.Conclusion {
+		case "failure", "timed_out", "action_required":
+			hasFailure = true
+			allSuccess = false
+		case "success":
+			// Keep tracking
+		case "neutral", "cancelled", "skipped":
+			allSuccess = false
+		}
+	}
+
+	if hasFailure {
+		status.CheckStatus = "failure"
+	} else if hasInProgress {
+		status.CheckStatus = "in_progress"
+	} else if allSuccess {
+		status.CheckStatus = "success"
+	} else {
+		status.CheckStatus = "neutral"
+	}
+
+	return status
+}
+
+// EnrichPullRequest fetches and adds additional metadata to a pull request
+// This includes reviews, checks, and requested reviewers
+func (c *Client) EnrichPullRequest(ctx context.Context, owner, repo string, pr *PullRequest) error {
+	if pr == nil {
+		return fmt.Errorf("pull request is nil")
+	}
+
+	// Use error group pattern for parallel API calls
+	type result struct {
+		reviews   []PRReview
+		checks    []PRCheck
+		reviewers []PRReviewer
+		err       error
+	}
+
+	resultChan := make(chan result, 1)
+
+	go func() {
+		res := result{}
+
+		// Create a channel for each API call
+		reviewsChan := make(chan []PRReview, 1)
+		checksChan := make(chan []PRCheck, 1)
+		reviewersChan := make(chan []PRReviewer, 1)
+		errChan := make(chan error, 3)
+
+		// Fetch reviews in parallel
+		go func() {
+			reviews, err := c.GetPullRequestReviews(ctx, owner, repo, pr.Number)
+			if err != nil {
+				errChan <- err
+				return
+			}
+			reviewsChan <- reviews
+		}()
+
+		// Fetch checks in parallel
+		go func() {
+			checks, err := c.GetPullRequestChecks(ctx, owner, repo, pr.Head.SHA)
+			if err != nil {
+				errChan <- err
+				return
+			}
+			checksChan <- checks
+		}()
+
+		// Fetch requested reviewers in parallel
+		go func() {
+			reviewers, err := c.GetPullRequestRequestedReviewers(ctx, owner, repo, pr.Number)
+			if err != nil {
+				errChan <- err
+				return
+			}
+			reviewersChan <- reviewers
+		}()
+
+		// Collect results
+		for i := 0; i < 3; i++ {
+			select {
+			case reviews := <-reviewsChan:
+				res.reviews = reviews
+			case checks := <-checksChan:
+				res.checks = checks
+			case reviewers := <-reviewersChan:
+				res.reviewers = reviewers
+			case err := <-errChan:
+				// Log error but don't fail the entire operation
+				logger.Warn().
+					Err(err).
+					Int("pr", pr.Number).
+					Msg("Failed to fetch some PR metadata")
+			case <-ctx.Done():
+				res.err = ctx.Err()
+				resultChan <- res
+				return
+			}
+		}
+
+		resultChan <- res
+	}()
+
+	// Wait for results
+	res := <-resultChan
+	if res.err != nil {
+		return res.err
+	}
+
+	// Update PR with fetched metadata
+	pr.Reviews = res.reviews
+	pr.Checks = res.checks
+	pr.Reviewers = res.reviewers
+
+	logger.Debug().
+		Int("pr", pr.Number).
+		Int("reviews", len(pr.Reviews)).
+		Int("checks", len(pr.Checks)).
+		Int("reviewers", len(pr.Reviewers)).
+		Msg("Successfully enriched PR with metadata")
+
+	return nil
+}
+
+// EnrichPullRequests enriches multiple pull requests with metadata in parallel
+func (c *Client) EnrichPullRequests(ctx context.Context, owner, repo string, prs []*PullRequest) error {
+	if len(prs) == 0 {
+		return nil
+	}
+
+	// Use a semaphore to limit concurrent API calls
+	// GitHub API has rate limits, so we don't want to overwhelm it
+	maxConcurrent := 5
+	semaphore := make(chan struct{}, maxConcurrent)
+	errChan := make(chan error, len(prs))
+	doneChan := make(chan struct{})
+
+	// Track active goroutines
+	activeCount := 0
+
+	for _, pr := range prs {
+		activeCount++
+		go func(pr *PullRequest) {
+			semaphore <- struct{}{} // Acquire
+			defer func() {
+				<-semaphore // Release
+				doneChan <- struct{}{}
+			}()
+
+			if err := c.EnrichPullRequest(ctx, owner, repo, pr); err != nil {
+				errChan <- fmt.Errorf("failed to enrich PR #%d: %w", pr.Number, err)
+			}
+		}(pr)
+	}
+
+	// Wait for all goroutines to complete
+	for i := 0; i < activeCount; i++ {
+		select {
+		case <-doneChan:
+			// One more completed
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	// Check for errors
+	close(errChan)
+	var errors []error
+	for err := range errChan {
+		errors = append(errors, err)
+	}
+
+	if len(errors) > 0 {
+		// Log all errors but return the first one
+		for _, err := range errors {
+			logger.Error().Err(err).Msg("Error enriching PR")
+		}
+		return errors[0]
+	}
+
+	logger.Debug().
+		Int("count", len(prs)).
+		Msg("Successfully enriched all PRs with metadata")
+
+	return nil
+}
