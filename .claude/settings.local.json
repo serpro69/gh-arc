@@ -30,7 +30,8 @@
       "Bash(go tool cover:*)",
       "Bash(sort:*)",
       "mcp__task-master-ai__add_task",
-      "mcp__task-master-ai__expand_task"
+      "mcp__task-master-ai__expand_task",
+      "Bash(go mod:*)"
     ],
     "deny": [
       "Bash(task-master:*)"
