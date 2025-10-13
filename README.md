@@ -12,14 +12,16 @@ Install the extension using the GitHub CLI:
 gh extension install serpro69/gh-arc
 ```
 
-## Authentication
+## Usage
+
+### Authentication
 
 `gh-arc` requires GitHub CLI authentication with specific OAuth scopes to access user information and repository data. The required _additional_ scopes are:
 
 - `user:email` - Access to user email addresses
 - `read:user` - Read user profile data
 
-### Setting up authentication
+#### Setting up authentication
 
 **If you're already logged in to GitHub CLI**, refresh your token with the additional required scopes:
 
@@ -47,7 +49,7 @@ To verify your authentication and scopes:
 gh arc auth
 ```
 
-## Overview
+### Commands Overview
 
 `gh-arc` is a "wrapper" that sits on top of other tools: Github (naturally, being a github-cli extension) and Linear (if you use it for issue management instead of Github), but also linters, formatters, unit test frameworks and others. It provides a simple command-line API to manage code review and some related revision control operations.
 
@@ -89,3 +91,28 @@ It has some advanced features as well, you can:
 
 - activate tab completion with `gh arc completion`
 - ...or extend the extension and add new commands
+
+### Shell Completion
+
+Github CLI does not currently support completion out of the box for extensions (See [#5309](https://github.com/cli/cli/issues/5309)), but even if it did, who wants to type `gh arc <TAB> <TAB> <TAB>`... that's just too much work if you ask me 🤷
+
+So we've come up with a solution to both of the above problems:
+
+- Find out where github cli installs extensions on your machine. On Linux (and maybe on Mac), it's usually under `~/.local/share/gh/extensions`. 
+
+- Create a simple `arc` shell script file with the following contents:
+
+    ```bash
+    #!/usr/bin/env bash
+    # Simple wrapper to enable completions for 'gh-arc' extension
+
+    gh arc "$@"
+    ```
+
+- Make it executable and place it on your `PATH`
+
+- Get the completion script for your shell from the [releases](https://github.com/serpro69/gh-arc/releases/latest) page.
+
+- Reload your shell, and try typing `arc <TAB>`. You should see the command completion for the extension, and you've shortened the overall gh command as well... 🤯
+
+- Profit ⏱️
