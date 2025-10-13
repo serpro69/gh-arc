@@ -1065,3 +1065,570 @@ func TestGetAllCommitMessages(t *testing.T) {
 		assert.Empty(t, messages)
 	})
 }
+
+// TestGetDiffBetween tests generating unified diffs between refs
+func TestGetDiffBetween(t *testing.T) {
+	t.Run("diff between branches with file changes", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create initial commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("initial content\n"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("initial commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Create feature branch
+		err = repo.CreateBranch("feature", "master")
+		require.NoError(t, err)
+
+		// Checkout feature
+		err = worktree.Checkout(&git.CheckoutOptions{
+			Branch: "refs/heads/feature",
+		})
+		require.NoError(t, err)
+
+		// Modify file
+		err = os.WriteFile(testFile, []byte("initial content\nmodified line\n"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("modify file", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		// Get diff
+		diff, err := repo.GetDiffBetween("master", "feature")
+		require.NoError(t, err)
+		assert.NotEmpty(t, diff)
+		assert.Contains(t, diff, "test.txt")
+		assert.Contains(t, diff, "+modified line")
+	})
+
+	t.Run("no diff between same refs", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("content"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Get diff between same ref
+		diff, err := repo.GetDiffBetween("master", "master")
+		require.NoError(t, err)
+		assert.Empty(t, diff)
+	})
+}
+
+// TestGetFilesChanged tests listing changed files between refs
+func TestGetFilesChanged(t *testing.T) {
+	t.Run("new file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create initial commit
+		initialFile := filepath.Join(tmpDir, "initial.txt")
+		err = os.WriteFile(initialFile, []byte("initial"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("initial.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("initial commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Create feature branch
+		err = repo.CreateBranch("feature", "master")
+		require.NoError(t, err)
+
+		// Checkout feature
+		err = worktree.Checkout(&git.CheckoutOptions{
+			Branch: "refs/heads/feature",
+		})
+		require.NoError(t, err)
+
+		// Add new file
+		newFile := filepath.Join(tmpDir, "new.txt")
+		err = os.WriteFile(newFile, []byte("new content"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("new.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("add new file", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		// Get files changed
+		files, err := repo.GetFilesChanged("master", "feature")
+		require.NoError(t, err)
+		assert.Equal(t, 1, len(files))
+		assert.Equal(t, "new.txt", files[0].Path)
+		assert.True(t, files[0].IsNew)
+		assert.False(t, files[0].IsDeleted)
+		assert.False(t, files[0].IsRenamed)
+		assert.False(t, files[0].IsBinary)
+	})
+
+	t.Run("modified file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create initial commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("line 1\nline 2\nline 3\n"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("initial commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Create feature branch
+		err = repo.CreateBranch("feature", "master")
+		require.NoError(t, err)
+
+		// Checkout feature
+		err = worktree.Checkout(&git.CheckoutOptions{
+			Branch: "refs/heads/feature",
+		})
+		require.NoError(t, err)
+
+		// Modify file
+		err = os.WriteFile(testFile, []byte("line 1\nline 2 modified\nline 3\nline 4\n"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("modify file", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		// Get files changed
+		files, err := repo.GetFilesChanged("master", "feature")
+		require.NoError(t, err)
+		assert.Equal(t, 1, len(files))
+		assert.Equal(t, "test.txt", files[0].Path)
+		assert.False(t, files[0].IsNew)
+		assert.False(t, files[0].IsDeleted)
+		assert.False(t, files[0].IsRenamed)
+		assert.Greater(t, files[0].Additions, 0)
+		assert.Greater(t, files[0].Deletions, 0)
+	})
+
+	t.Run("deleted file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create initial commit with two files
+		testFile1 := filepath.Join(tmpDir, "file1.txt")
+		testFile2 := filepath.Join(tmpDir, "file2.txt")
+		err = os.WriteFile(testFile1, []byte("content 1"), 0644)
+		require.NoError(t, err)
+		err = os.WriteFile(testFile2, []byte("content 2"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("file1.txt")
+		require.NoError(t, err)
+		_, err = worktree.Add("file2.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("initial commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Create feature branch
+		err = repo.CreateBranch("feature", "master")
+		require.NoError(t, err)
+
+		// Checkout feature
+		err = worktree.Checkout(&git.CheckoutOptions{
+			Branch: "refs/heads/feature",
+		})
+		require.NoError(t, err)
+
+		// Delete file
+		_, err = worktree.Remove("file2.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("delete file", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		// Get files changed
+		files, err := repo.GetFilesChanged("master", "feature")
+		require.NoError(t, err)
+		assert.Equal(t, 1, len(files))
+		assert.Equal(t, "file2.txt", files[0].Path)
+		assert.False(t, files[0].IsNew)
+		assert.True(t, files[0].IsDeleted)
+		assert.False(t, files[0].IsRenamed)
+	})
+}
+
+// TestGetDiffStats tests diff statistics calculation
+func TestGetDiffStats(t *testing.T) {
+	t.Run("calculate stats for multiple file changes", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create initial commit with two files
+		file1 := filepath.Join(tmpDir, "file1.txt")
+		file2 := filepath.Join(tmpDir, "file2.txt")
+		err = os.WriteFile(file1, []byte("line 1\nline 2\n"), 0644)
+		require.NoError(t, err)
+		err = os.WriteFile(file2, []byte("content\n"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("file1.txt")
+		require.NoError(t, err)
+		_, err = worktree.Add("file2.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("initial commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Create feature branch
+		err = repo.CreateBranch("feature", "master")
+		require.NoError(t, err)
+
+		// Checkout feature
+		err = worktree.Checkout(&git.CheckoutOptions{
+			Branch: "refs/heads/feature",
+		})
+		require.NoError(t, err)
+
+		// Modify files
+		err = os.WriteFile(file1, []byte("line 1 modified\nline 2\nline 3\n"), 0644)
+		require.NoError(t, err)
+		err = os.WriteFile(file2, []byte("content updated\n"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("file1.txt")
+		require.NoError(t, err)
+		_, err = worktree.Add("file2.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("modify files", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		// Get diff stats
+		stats, err := repo.GetDiffStats("master", "feature")
+		require.NoError(t, err)
+		assert.Equal(t, 2, stats.FilesChanged)
+		assert.Greater(t, stats.Additions, 0)
+		assert.Greater(t, stats.Deletions, 0)
+	})
+
+	t.Run("no stats for same refs", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("content"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Get stats for same ref
+		stats, err := repo.GetDiffStats("master", "master")
+		require.NoError(t, err)
+		assert.Equal(t, 0, stats.FilesChanged)
+		assert.Equal(t, 0, stats.Additions)
+		assert.Equal(t, 0, stats.Deletions)
+	})
+}
+
+// TestGetWorkingDiff tests getting unstaged changes diff
+func TestGetWorkingDiff(t *testing.T) {
+	t.Run("working diff with modifications", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create initial commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("initial content\n"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("initial commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		// Modify file without staging
+		err = os.WriteFile(testFile, []byte("initial content\nmodified\n"), 0644)
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Get working diff
+		diff, err := repo.GetWorkingDiff()
+		require.NoError(t, err)
+		assert.NotEmpty(t, diff)
+		assert.Contains(t, diff, "test.txt")
+		assert.Contains(t, diff, "+modified")
+	})
+
+	t.Run("no working diff when clean", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create initial commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("content"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Get working diff (should be empty)
+		diff, err := repo.GetWorkingDiff()
+		require.NoError(t, err)
+		assert.Empty(t, diff)
+	})
+}
+
+// TestGetStagedDiff tests getting staged changes diff
+func TestGetStagedDiff(t *testing.T) {
+	t.Run("staged diff with modifications", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create initial commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("initial content\n"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("initial commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		// Modify and stage file
+		err = os.WriteFile(testFile, []byte("initial content\nstaged modification\n"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Get staged diff
+		diff, err := repo.GetStagedDiff()
+		require.NoError(t, err)
+		assert.NotEmpty(t, diff)
+		assert.Contains(t, diff, "test.txt")
+		assert.Contains(t, diff, "+staged modification")
+	})
+
+	t.Run("no staged diff when nothing staged", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create initial commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("content"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Get staged diff (should be empty)
+		diff, err := repo.GetStagedDiff()
+		require.NoError(t, err)
+		assert.Empty(t, diff)
+	})
+}

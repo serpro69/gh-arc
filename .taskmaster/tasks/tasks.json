@@ -150,7 +150,7 @@
         "dependencies": [
           1
         ],
-        "status": "pending",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -205,7 +205,7 @@
               4
             ],
             "details": "Implement GetDiffBetween(base, head) using go-git's Patch() method to generate unified diffs. Create GetWorkingDiff() for unstaged changes and GetStagedDiff() for staged changes. Add GetFilesChanged(base, head) to list modified files between refs. Implement diff statistics calculation with additions/deletions count. Add support for binary file detection and handling. Create fallback to 'git diff' CLI command for complex diff scenarios that go-git doesn't handle well.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Test diff generation with various file changes including additions, deletions, modifications. Verify binary file handling. Test diff statistics accuracy. Compare go-git output with git CLI output."
           }
         ]
@@ -763,7 +763,7 @@
     ],
     "metadata": {
       "created": "2025-10-10T16:18:54.137Z",
-      "updated": "2025-10-13T12:22:25.959Z",
+      "updated": "2025-10-13T12:26:15.798Z",
       "description": "Tasks for master context"
     }
   }

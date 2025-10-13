@@ -641,3 +641,234 @@ func (r *Repository) GetAllCommitMessages(baseBranch, headBranch string) ([]stri
 
 	return messages, nil
 }
+
+// DiffStats represents statistics about a diff.
+type DiffStats struct {
+	FilesChanged int // Number of files changed
+	Additions    int // Number of lines added
+	Deletions    int // Number of lines deleted
+}
+
+// FileChange represents a change to a file in a diff.
+type FileChange struct {
+	Path      string // File path
+	OldPath   string // Old path (for renames)
+	IsNew     bool   // True if file is newly created
+	IsDeleted bool   // True if file is deleted
+	IsRenamed bool   // True if file is renamed
+	IsBinary  bool   // True if file is binary
+	Additions int    // Lines added
+	Deletions int    // Lines deleted
+}
+
+// GetDiffBetween generates a unified diff between two refs (branches, tags, or commits).
+// Returns the diff as a string in unified diff format.
+func (r *Repository) GetDiffBetween(base, head string) (string, error) {
+	// Resolve base reference
+	baseHash, err := r.repo.ResolveRevision(plumbing.Revision(base))
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve base ref %s: %w", base, err)
+	}
+
+	// Resolve head reference
+	headHash, err := r.repo.ResolveRevision(plumbing.Revision(head))
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve head ref %s: %w", head, err)
+	}
+
+	// Get commit objects
+	baseCommit, err := r.repo.CommitObject(*baseHash)
+	if err != nil {
+		return "", fmt.Errorf("failed to get base commit: %w", err)
+	}
+
+	headCommit, err := r.repo.CommitObject(*headHash)
+	if err != nil {
+		return "", fmt.Errorf("failed to get head commit: %w", err)
+	}
+
+	// Get trees
+	baseTree, err := baseCommit.Tree()
+	if err != nil {
+		return "", fmt.Errorf("failed to get base tree: %w", err)
+	}
+
+	headTree, err := headCommit.Tree()
+	if err != nil {
+		return "", fmt.Errorf("failed to get head tree: %w", err)
+	}
+
+	// Generate patch
+	patch, err := baseTree.Patch(headTree)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate patch: %w", err)
+	}
+
+	return patch.String(), nil
+}
+
+// GetWorkingDiff returns the diff for unstaged changes in the working directory.
+func (r *Repository) GetWorkingDiff() (string, error) {
+	// Use git CLI for working diff as go-git doesn't handle this well
+	return r.getDiffViaCLI("HEAD", "--")
+}
+
+// GetStagedDiff returns the diff for staged changes (in the index).
+func (r *Repository) GetStagedDiff() (string, error) {
+	// Use git CLI for staged diff as it's more reliable
+	return r.getDiffViaCLI("--cached", "HEAD")
+}
+
+// GetFilesChanged returns a list of files changed between two refs.
+func (r *Repository) GetFilesChanged(base, head string) ([]FileChange, error) {
+	// Resolve base reference
+	baseHash, err := r.repo.ResolveRevision(plumbing.Revision(base))
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve base ref %s: %w", base, err)
+	}
+
+	// Resolve head reference
+	headHash, err := r.repo.ResolveRevision(plumbing.Revision(head))
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve head ref %s: %w", head, err)
+	}
+
+	// Get commit objects
+	baseCommit, err := r.repo.CommitObject(*baseHash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get base commit: %w", err)
+	}
+
+	headCommit, err := r.repo.CommitObject(*headHash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get head commit: %w", err)
+	}
+
+	// Get trees
+	baseTree, err := baseCommit.Tree()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get base tree: %w", err)
+	}
+
+	headTree, err := headCommit.Tree()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get head tree: %w", err)
+	}
+
+	// Get changes
+	changes, err := baseTree.Diff(headTree)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get diff: %w", err)
+	}
+
+	// Convert to FileChange structs
+	var fileChanges []FileChange
+	for _, change := range changes {
+		from, to, err := change.Files()
+		if err != nil {
+			continue
+		}
+
+		fc := FileChange{}
+
+		// Determine change type
+		if from == nil && to != nil {
+			// New file
+			fc.Path = to.Name
+			fc.IsNew = true
+			fc.IsBinary = isBinaryFile(to)
+		} else if from != nil && to == nil {
+			// Deleted file
+			fc.Path = from.Name
+			fc.IsDeleted = true
+			fc.IsBinary = isBinaryFile(from)
+		} else if from != nil && to != nil {
+			// Modified or renamed file
+			fc.Path = to.Name
+			fc.OldPath = from.Name
+			if from.Name != to.Name {
+				fc.IsRenamed = true
+			}
+			fc.IsBinary = isBinaryFile(to) || isBinaryFile(from)
+		}
+
+		// Get line statistics (if not binary)
+		if !fc.IsBinary {
+			patch, err := change.Patch()
+			if err == nil {
+				stats := patch.Stats()
+				for _, fileStat := range stats {
+					fc.Additions += fileStat.Addition
+					fc.Deletions += fileStat.Deletion
+				}
+			}
+		}
+
+		fileChanges = append(fileChanges, fc)
+	}
+
+	return fileChanges, nil
+}
+
+// GetDiffStats calculates statistics for changes between two refs.
+func (r *Repository) GetDiffStats(base, head string) (*DiffStats, error) {
+	files, err := r.GetFilesChanged(base, head)
+	if err != nil {
+		return nil, err
+	}
+
+	stats := &DiffStats{}
+	for _, file := range files {
+		stats.FilesChanged++
+		stats.Additions += file.Additions
+		stats.Deletions += file.Deletions
+	}
+
+	return stats, nil
+}
+
+// getDiffViaCLI uses git CLI to get diff output.
+// This is used for working directory and staged diffs where go-git has limitations.
+func (r *Repository) getDiffViaCLI(args ...string) (string, error) {
+	cmdArgs := append([]string{"diff"}, args...)
+	cmd := exec.Command("git", cmdArgs...)
+	cmd.Dir = r.path
+
+	output, err := cmd.Output()
+	if err != nil {
+		// Empty diff is not an error
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			return string(output), nil
+		}
+		return "", fmt.Errorf("failed to get diff via CLI: %w", err)
+	}
+
+	return string(output), nil
+}
+
+// isBinaryFile checks if a file is binary based on its content.
+func isBinaryFile(file *object.File) bool {
+	if file == nil {
+		return false
+	}
+
+	// Check if the file is binary by reading first chunk
+	contents, err := file.Contents()
+	if err != nil {
+		return false
+	}
+
+	// Check first 8000 bytes for null bytes (common indicator of binary)
+	maxCheck := 8000
+	if len(contents) < maxCheck {
+		maxCheck = len(contents)
+	}
+
+	for i := 0; i < maxCheck; i++ {
+		if contents[i] == 0 {
+			return true
+		}
+	}
+
+	return false
+}
