@@ -272,9 +272,15 @@ func (r *Repository) GetDefaultBranch() (string, error) {
 
 	commonDefaults := []string{"main", "master", "trunk", "development"}
 	existingBranches := make(map[string]bool)
+	var firstBranch string
 
+	// Single iteration: build map and capture first branch
 	err = branches.ForEach(func(ref *plumbing.Reference) error {
-		existingBranches[ref.Name().Short()] = true
+		branchName := ref.Name().Short()
+		existingBranches[branchName] = true
+		if firstBranch == "" {
+			firstBranch = branchName
+		}
 		return nil
 	})
 	if err != nil {
@@ -289,15 +295,6 @@ func (r *Repository) GetDefaultBranch() (string, error) {
 	}
 
 	// If no common default found, return the first branch
-	var firstBranch string
-	branches, _ = r.repo.Branches()
-	_ = branches.ForEach(func(ref *plumbing.Reference) error {
-		if firstBranch == "" {
-			firstBranch = ref.Name().Short()
-		}
-		return nil
-	})
-
 	if firstBranch != "" {
 		return firstBranch, nil
 	}
