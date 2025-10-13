@@ -31,7 +31,9 @@
       "Bash(sort:*)",
       "mcp__task-master-ai__add_task",
       "mcp__task-master-ai__expand_task",
-      "Bash(go mod:*)"
+      "Bash(go mod:*)",
+      "Bash(./gh-arc list --help)",
+      "Bash(./gh-arc list:*)"
     ],
     "deny": [
       "Bash(task-master:*)"
