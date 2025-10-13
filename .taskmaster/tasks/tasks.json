@@ -772,7 +772,65 @@
           5
         ],
         "priority": "medium",
-        "subtasks": []
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Refactor authCmd to parent command structure",
+            "description": "Convert authCmd from a leaf command to a parent command by removing RunE field, updating descriptions to reflect subcommand structure, and implementing backward compatibility to default to 'status' subcommand when no arguments are provided",
+            "dependencies": [],
+            "details": "Remove the RunE field from authCmd definition in cmd/auth.go. Update the Short and Long descriptions to indicate that auth is now a parent command with 'status' and 'refresh' subcommands. Implement Run field instead of RunE to handle the default behavior when no subcommand is specified - this should execute the status subcommand. Ensure the command structure properly supports adding child commands. Update any references in tests to reflect the new parent command structure.",
+            "status": "pending",
+            "testStrategy": "Test that authCmd no longer has RunE field set. Verify that authCmd.Run is set and defaults to executing status subcommand when called with no arguments. Test that the command descriptions accurately reflect the new subcommand structure. Verify backward compatibility by ensuring 'gh arc auth' with no args behaves like 'gh arc auth status'."
+          },
+          {
+            "id": 2,
+            "title": "Create auth status subcommand",
+            "description": "Implement statusCmd as a new cobra.Command that combines gh-arc API verification with gh CLI status output, supporting flag pass-through and JSON output formatting",
+            "dependencies": [
+              1
+            ],
+            "details": "Define statusCmd as a new cobra.Command in cmd/auth.go. Move the existing RunE logic from authCmd to statusCmd.RunE. Enhance the command to also execute 'gh auth status' using exec.Command and capture its output. Support --hostname and --show-token flags with pass-through to gh CLI. For JSON output, create an enhanced AuthStatus struct that combines both gh-arc API verification results and gh CLI status in a structured format. Use exec.LookPath to check if gh CLI is available before attempting to run it. Handle both stdout and stderr from gh CLI execution properly.",
+            "status": "pending",
+            "testStrategy": "Mock exec.Command calls to test gh CLI integration without requiring actual gh installation. Test flag pass-through by verifying correct arguments are passed to exec.Command. Test JSON output structure combines both API results correctly. Verify error handling when gh CLI is not installed or returns errors. Test that moved authentication logic still works correctly."
+          },
+          {
+            "id": 3,
+            "title": "Create auth refresh subcommand",
+            "description": "Implement refreshCmd to wrap 'gh auth refresh' with automatic inclusion of required OAuth scopes, supporting all gh CLI flags and providing warnings for destructive operations",
+            "dependencies": [
+              1
+            ],
+            "details": "Define refreshCmd as a new cobra.Command in cmd/auth.go. Implement RunE to wrap 'gh auth refresh' execution. Create mergeScopes function to combine required scopes (user:email, read:user) with user-provided scopes, ensuring deduplication. Support flags: --hostname, --insecure-storage, --remove-scopes, --reset-scopes, --scopes. When --reset-scopes is used, display a warning about losing required scopes. Stream output directly using cmd.Stdout = os.Stdout and cmd.Stderr = os.Stderr for real-time feedback. Use exec.Command to execute gh CLI with constructed arguments array.",
+            "status": "pending",
+            "testStrategy": "Test scope merging logic with various input combinations including overlapping scopes, empty user scopes, and unique scopes. Mock exec.Command to verify correct arguments are passed to gh CLI. Test warning message appears when --reset-scopes flag is used. Verify flag pass-through for all supported flags. Test deduplication of scopes works correctly."
+          },
+          {
+            "id": 4,
+            "title": "Add shared utility functions for gh CLI interaction",
+            "description": "Create common utility functions for checking gh CLI availability, executing gh commands with error handling, and parsing gh CLI output that will be shared between status and refresh subcommands",
+            "dependencies": [
+              2,
+              3
+            ],
+            "details": "Implement checkGhCLI() function using exec.LookPath to verify gh is installed and provide installation instructions if not found. Create executeGhCommand() function that wraps exec.Command with proper error handling, exit code checking, and timeout support. Implement parseGhOutput() to handle both stdout and stderr from gh CLI execution. Add mergeScopes() utility function for combining and deduplicating OAuth scope lists. Create formatGhError() to provide user-friendly error messages when gh CLI commands fail. Place all utility functions at the bottom of cmd/auth.go file for use by both subcommands.",
+            "status": "pending",
+            "testStrategy": "Unit test checkGhCLI with mocked exec.LookPath for both found and not found scenarios. Test executeGhCommand with various exit codes and error conditions. Test parseGhOutput with different output formats including JSON and plain text. Verify mergeScopes correctly deduplicates and combines scope lists. Test formatGhError produces helpful error messages for common failure scenarios."
+          },
+          {
+            "id": 5,
+            "title": "Update tests and documentation for refactored auth command",
+            "description": "Comprehensive update of auth_test.go to cover the new parent/subcommand structure, add tests for new functionality, and update help text and documentation to reflect the changes",
+            "dependencies": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "details": "Update TestAuthCommand in auth_test.go to verify authCmd is now a parent command without RunE. Add TestAuthStatusSubcommand to test status subcommand registration and functionality. Add TestAuthRefreshSubcommand to test refresh subcommand registration and scope handling. Create TestBackwardCompatibility to verify 'gh arc auth' defaults to status. Add TestGhCLIIntegration using testify/mock to mock exec.Command calls. Update TestOutputAuthStatus to work with new enhanced AuthStatus struct for combined output. Add integration tests that can be skipped if gh CLI is not available in test environment. Update command help text and long descriptions to document all new flags and behavior.",
+            "status": "pending",
+            "testStrategy": "Run all existing tests to ensure no regression. Add new test cases for parent command structure, subcommand registration, and backward compatibility. Mock exec.Command using testify/mock for gh CLI interaction tests. Test JSON output structure with combined results from both APIs. Use build tags or skip conditions for integration tests that require actual gh CLI. Verify help text accurately describes all subcommands and flags."
+          }
+        ]
       },
       {
         "id": 13,
@@ -786,7 +844,64 @@
           3
         ],
         "priority": "medium",
-        "subtasks": []
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create testutil package structure and base test infrastructure",
+            "description": "Set up the foundational testutil package with core test structures, repository lifecycle management, and testify/suite integration for structured test execution",
+            "dependencies": [],
+            "details": "Create internal/github/testutil/ directory with test_repos.go containing TestRepository struct with Create(), Delete(), and Cleanup() methods. Implement IntegrationTestSuite base struct extending suite.Suite with client, testRepo, and repoName fields. Add repository naming convention with timestamp and random suffix. Implement topic tagging with 'gh-arc-integration-test' for orphan detection. Create github_fixtures.go with helper methods for common test data. Add retry logic wrapper for repository operations with 3 retries and exponential backoff separate from client.Do(). All files must include //go:build integration tag.",
+            "status": "pending",
+            "testStrategy": "Manual verification of package structure creation, compile-time checks for build tags, unit tests for retry logic and helper functions"
+          },
+          {
+            "id": 2,
+            "title": "Implement authentication validation and environment setup helpers",
+            "description": "Create environment validation helpers that check for required GitHub tokens, validate scopes, and handle optional organization testing configuration",
+            "dependencies": [
+              1
+            ],
+            "details": "In testutil package, implement ValidateTestEnvironment() function that reads GITHUB_INTEGRATION_TOKEN from environment and validates it's present. Check token scopes using GitHub API to ensure repo, delete_repo, and conditionally admin:org permissions. Read GITHUB_TEST_ORG for optional organization testing with fallback to user repositories. Create helper function to validate token permissions and return detailed error messages about missing scopes. Add environment setup documentation generation that outputs required token scopes and setup instructions. Implement token validation caching to avoid repeated API calls during test runs.",
+            "status": "pending",
+            "testStrategy": "Test with various token configurations including missing tokens, insufficient scopes, and valid tokens. Mock API responses for scope validation. Verify org vs user repository fallback logic."
+          },
+          {
+            "id": 3,
+            "title": "Create cleanup mechanisms and orphan detection system",
+            "description": "Implement automated cleanup systems including t.Cleanup() hooks, orphan repository detection, and scheduled GitHub Actions workflow for garbage collection",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Add cleanup hooks in IntegrationTestSuite.TearDownSuite() to delete test repositories after suite completion. Implement orphan detection by searching for repositories with 'gh-arc-integration-test' topic tag. Create FindOrphanedTestRepos() function that lists repos older than 24 hours with the test topic. Add immediate cleanup using t.Cleanup() in individual test functions. Create .github/workflows/cleanup-test-repos.yml with cron schedule running every 6 hours. Workflow should use gh CLI to find and delete orphaned repositories based on topic and age. Add safety checks to prevent deletion of non-test repositories. Implement cleanup logging and metrics collection.",
+            "status": "pending",
+            "testStrategy": "Test orphan detection logic with mock repositories of various ages. Verify cleanup hooks are called in correct order. Test GitHub Actions workflow in dry-run mode. Verify topic-based filtering works correctly."
+          },
+          {
+            "id": 4,
+            "title": "Implement Phase 1 integration tests for core API operations",
+            "description": "Create initial integration test suite for pull request operations including list, create, and update functionality with real GitHub API interactions",
+            "dependencies": [
+              1,
+              2,
+              3
+            ],
+            "details": "Create internal/github/client_integration_test.go with //go:build integration tag. Implement PullRequestTestSuite extending IntegrationTestSuite with shared repository setup. Add TestListPullRequests that creates test PR, lists PRs, and verifies results. Implement TestCreatePullRequest with branch creation, PR submission, and validation. Add TestUpdatePullRequest that modifies existing PR title and body. Include testing.Short() checks to skip in short mode. Implement helper methods CreateTestBranch(), CreateTestCommit(), and CreateTestPullRequest() in testutil. Add rate limit monitoring with X-RateLimit-Remaining header checks. Wrap API calls with error categorization for NetworkError, RateLimitError, and AuthError. Log metrics for API calls per test and execution time.",
+            "status": "pending",
+            "testStrategy": "Run tests against real GitHub API with test repository. Verify PR creation, listing, and updates work correctly. Monitor API rate limits during test execution. Test error handling for various failure scenarios."
+          },
+          {
+            "id": 5,
+            "title": "Setup CI/CD pipeline and documentation for integration testing",
+            "description": "Configure GitHub Actions workflows, Makefile targets, and comprehensive documentation for running and maintaining the integration test infrastructure",
+            "dependencies": [
+              4
+            ],
+            "details": "Update Makefile with test-unit target using 'go test ./... -short', test-integration target with 'go test ./... -tags=integration -timeout=10m', and test-all combining both. Create .github/workflows/integration-tests.yml triggered on pull_request and push to main branch. Configure workflow with GITHUB_INTEGRATION_TOKEN secret and GITHUB_TEST_ORG variable. Add step to run make test-integration with proper environment setup. Create INTEGRATION_TESTING.md documenting token generation with required scopes, local vs CI execution differences, per-suite pattern explanation, and troubleshooting guide. Update CLAUDE.md with integration testing section. Add test execution time monitoring and reporting. Document API rate limit considerations and mitigation strategies.",
+            "status": "pending",
+            "testStrategy": "Test CI workflow in fork with test token. Verify Makefile targets work correctly. Review documentation for completeness and accuracy. Test workflow triggers on PR and merge events."
+          }
+        ]
       }
     ],
     "metadata": {
