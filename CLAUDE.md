@@ -20,29 +20,36 @@ The `gh-arc` extension is written in Go and uses the `github.com/cli/go-gh/v2` l
 
 ## Development Processes
 
-!!! THIS SECTION IS VERY IMPORTANT AND MUST BE FOLLOWED DURING ALL DEVELOPMENT WORK !!!
+!!! THIS SECTION IS **VERY IMPORTANT** AND **MUST BE FOLLOWED DURING ALL DEVELOPMENT WORK** !!!
 
-### Looking up dependencies
+### Working with Dependencies
 
-Always try to use latest versions for dependencies. To find dependencnes, run:
+- Always try to use latest versions for dependencies. To find dependencnes, run:
 
 ```bash
 go list -m -versions <module>
 ```
 
-### Looking up documentation
+- Before trying alternative methods, always try to use context7 MCP to lookup documentation for dependencies, libraries, SDKs, APIs and other external frameworks and tools. 
+    - **IMPORTANT! Always make sure that documentation version is the same as declared dependency version itself.**
+    - Only revert to web-search or other alternative methods if you can't find documentation in context7.
 
-Before trying alternative methods, always try to use context7 MCP to find documentation for dependencies, libraries, SDKs, APIs, and so on.
-
-**IMPORTANT! Always make sure that documentation version is the same as declared dependency version.**
-
-### Testing the code
+### Testing & Quality Assurance
 
 - Always try to add tests for any new functionality, and make sure to cover all cases and code branches, according to requirements.
-
 - Always try to add tests for any bug-fixes, if the discovered bug is not already covered by tests. If the bug was already covered by tests, fix the existing tests.
-
 - Always run all tests after you are done with a given implementation
+
+Use the following guidelines when working with tests:
+
+- Comprehensive testing with testing package and testify
+- Table-driven tests and test generation
+- Benchmark tests and performance regression detection
+- Integration testing with test containers
+- Mock generation with mockery and gomock
+- Property-based testing with gopter
+- End-to-end testing strategies
+- Code coverage analysis and reporting
 
 ## Development Commands
 
@@ -95,7 +102,8 @@ The project is in early development. Currently only contains:
 
 ### Planned Features
 
-Based on README.md, the extension will implement commands for:
+Based on @./README.md, the extension will implement commands for:
+
 - `gh arc work`: Create a new, short-lived, feature branch from an up-to-date origin/HEAD
 - `gh arc diff`: Send code to GitHub for review
 - `gh arc list`: Show pending revisions
