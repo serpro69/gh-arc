@@ -1,9 +1,18 @@
 package cmd
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 
+	"github.com/cli/go-gh/v2/pkg/repository"
 	"github.com/spf13/cobra"
+
+	"github.com/serpro69/gh-arc/internal/cache"
+	"github.com/serpro69/gh-arc/internal/filter"
+	"github.com/serpro69/gh-arc/internal/format"
+	"github.com/serpro69/gh-arc/internal/github"
 )
 
 var (
@@ -65,20 +74,127 @@ func init() {
 
 // runList executes the list command
 func runList(cmd *cobra.Command, args []string) error {
-	// TODO: Implement list functionality in subsequent subtasks
-	// This includes:
-	// 1. GitHub API integration for fetching PRs
-	// 2. Fetching and aggregating PR metadata (reviews, checks)
-	// 3. Building table output with formatting and colors
-	// 4. Implementing filtering and caching logic
+	ctx := context.Background()
 
-	fmt.Println("List command is not yet fully implemented.")
-	fmt.Println("Configuration:")
-	fmt.Printf("  Author filter: %s\n", getAuthorFilter())
-	fmt.Printf("  Status filter: %s\n", getStatusFilter())
-	fmt.Printf("  Branch filter: %s\n", getBranchFilter())
-	fmt.Printf("  Use cache: %t\n", !listNoCache)
-	fmt.Printf("  JSON output: %t\n", GetJSON())
+	// Get current repository
+	repo, err := repository.Current()
+	if err != nil {
+		return fmt.Errorf("failed to determine current repository: %w", err)
+	}
+
+	owner, repoName := repo.Owner, repo.Name
+
+	// Create GitHub client
+	client, err := github.NewClient()
+	if err != nil {
+		return fmt.Errorf("failed to create GitHub client: %w", err)
+	}
+
+	// Get current user for "me" filter
+	currentUser, err := client.GetCurrentUser(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get current user: %w", err)
+	}
+
+	// Initialize cache
+	prCache, err := cache.New()
+	if err != nil {
+		return fmt.Errorf("failed to initialize cache: %w", err)
+	}
+
+	// Clean expired cache entries
+	_ = prCache.CleanExpired()
+
+	// Generate cache key
+	cacheKey := cache.GenerateKey("prs", owner, repoName, "open")
+
+	var prs []*github.PullRequest
+
+	// Try to get from cache if not disabled
+	if !listNoCache {
+		hit, err := prCache.Get(cacheKey, &prs)
+		if err != nil {
+			// Log error but continue with fresh fetch
+			fmt.Fprintf(os.Stderr, "Cache error: %v\n", err)
+		} else if hit {
+			// Cache hit - use cached data
+			// Still need to filter
+			prs = applyFilters(prs, currentUser)
+			return outputResults(prs)
+		}
+	}
+
+	// Fetch PRs from GitHub
+	opts := &github.PullRequestListOptions{
+		State: "open",
+	}
+
+	prs, err = client.GetPullRequests(ctx, owner, repoName, opts)
+	if err != nil {
+		return fmt.Errorf("failed to fetch pull requests: %w", err)
+	}
+
+	// Enrich PRs with metadata (reviews, checks, reviewers)
+	if err := client.EnrichPullRequests(ctx, owner, repoName, prs); err != nil {
+		return fmt.Errorf("failed to enrich pull requests: %w", err)
+	}
+
+	// Cache the results
+	if !listNoCache {
+		if err := prCache.Set(cacheKey, prs); err != nil {
+			// Log error but continue
+			fmt.Fprintf(os.Stderr, "Failed to cache results: %v\n", err)
+		}
+	}
+
+	// Apply filters
+	prs = applyFilters(prs, currentUser)
+
+	return outputResults(prs)
+}
+
+// applyFilters applies command-line filters to the PR list
+func applyFilters(prs []*github.PullRequest, currentUser string) []*github.PullRequest {
+	prFilter := &filter.PRFilter{
+		Author:      listAuthor,
+		Status:      listStatus,
+		Branch:      listBranch,
+		CurrentUser: currentUser,
+	}
+
+	// Apply general filters
+	prs = filter.FilterPullRequests(prs, prFilter)
+
+	// Apply draft filter separately if needed
+	if listStatus == "draft" {
+		var draftPRs []*github.PullRequest
+		for _, pr := range prs {
+			if filter.MatchesDraft(pr, listStatus) {
+				draftPRs = append(draftPRs, pr)
+			}
+		}
+		return draftPRs
+	}
+
+	return prs
+}
+
+// outputResults outputs the PR list in the requested format
+func outputResults(prs []*github.PullRequest) error {
+	if GetJSON() {
+		// JSON output
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		if err := encoder.Encode(prs); err != nil {
+			return fmt.Errorf("failed to encode JSON: %w", err)
+		}
+		return nil
+	}
+
+	// Table output
+	opts := format.DefaultPRFormatterOptions()
+	output := format.FormatPRTable(prs, opts)
+	fmt.Print(output)
 
 	return nil
 }

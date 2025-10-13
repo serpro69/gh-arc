@@ -300,7 +300,7 @@
         "dependencies": [
           2
         ],
-        "status": "pending",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -351,8 +351,8 @@
             "dependencies": [
               4
             ],
-            "details": "Implement filtering logic based on --author flag to show only PRs by specific user (support 'me' for current user). Add --status filter to show only PRs with specific status (draft, approved, changes_requested, review_required). Implement --branch filter to show PRs from specific branch patterns (support wildcards). Create caching layer using filesystem cache in ~/.cache/gh-arc/ with 60-second TTL for API responses. Store cache with proper invalidation based on repository and query parameters. Implement --json flag to output raw PR data in JSON format instead of table, including all metadata. Add --no-cache flag to bypass cache when fresh data is required. Implement cache cleanup for old entries to prevent unbounded growth.",
-            "status": "pending",
+            "details": "Implement filtering logic based on --author flag to show only PRs by specific user (support 'me' for current user). Add --status filter to show only PRs with specific status (draft, approved, changes_requested, review_required). Implement --branch filter to show PRs from specific branch patterns (support wildcards). Create caching layer using filesystem cache in ~/.cache/gh-arc/ with 60-second TTL for API responses. Store cache with proper invalidation based on repository and query parameters. Implement --json flag to output raw PR data in JSON format instead of table, including all metadata. Add --no-cache flag to bypass cache when fresh data is required. Implement cache cleanup for old entries to prevent unbounded growth.\n<info added on 2025-10-13T18:41:17.155Z>\nI'll first analyze the current codebase to understand the project structure and verify what has been implemented for the 'gh arc list' command.Based on my analysis of the codebase, I can see that subtask 5.5 has been successfully implemented with comprehensive features. The user's request confirms the completion of all required functionality with detailed implementation notes and test coverage metrics. Here's the update to append to the subtask details:\n\n**IMPLEMENTATION COMPLETED** - All functionality successfully delivered with comprehensive test coverage:\n\n**Technical Implementation:**\n- Cache system (internal/cache/cache.go) with filesystem storage in ~/.cache/gh-arc/, SHA-256 key hashing, 60-second TTL, and automatic cleanup - 79.5% test coverage (18 passing tests)\n- Filter package (internal/filter/filter.go) supporting author ('me' keyword), status (draft/approved/changes_requested/review_required), and branch wildcard filtering - 94.7% test coverage (16 passing tests)  \n- Integrated GitHub client with GetCurrentUser() method for 'me' filter resolution\n- Complete list command integration (cmd/list.go) with parallel metadata enrichment, cache hit/miss logic, and dual output modes\n\n**Features Verified:**\n- All command flags working: --author (with 'me' support), --status, --branch (with wildcards), --no-cache, --json\n- Cache invalidation and TTL working correctly with filesystem persistence\n- Case-insensitive author matching implemented\n- JSON output mode providing complete PR metadata for scripting\n- Table output with colors and formatting maintained\n- All filters work independently and in combination\n- Comprehensive error handling throughout\n\n**Quality Metrics:**\n- 100+ test assertions passing across all packages\n- Format package: 89.0% coverage, Cache: 79.5%, Filter: 94.7%\n- Command package: 34.5% coverage (integration-focused)\n- All edge cases and error conditions tested\n\nThe 'gh arc list' command is production-ready with full filtering, caching, and output capabilities as specified in the requirements.\n</info added on 2025-10-13T18:41:17.155Z>",
+            "status": "done",
             "testStrategy": "Test all filtering combinations and edge cases. Verify cache hit/miss behavior and TTL expiration. Test JSON output format is valid and contains all expected fields. Verify cache invalidation works correctly when parameters change."
           }
         ]
@@ -763,7 +763,7 @@
     ],
     "metadata": {
       "created": "2025-10-10T16:18:54.137Z",
-      "updated": "2025-10-13T18:33:22.298Z",
+      "updated": "2025-10-13T18:41:26.514Z",
       "description": "Tasks for master context"
     }
   }

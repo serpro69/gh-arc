@@ -227,6 +227,15 @@ func (c *Client) CurrentUser(ctx context.Context) (*User, error) {
 	}, nil
 }
 
+// GetCurrentUser returns the login name of the authenticated user
+func (c *Client) GetCurrentUser(ctx context.Context) (string, error) {
+	user, err := c.CurrentUser(ctx)
+	if err != nil {
+		return "", err
+	}
+	return user.Login, nil
+}
+
 // VerifyAuthentication checks if the client is properly authenticated
 // by attempting to retrieve the current user's information
 func (c *Client) VerifyAuthentication(ctx context.Context) error {
