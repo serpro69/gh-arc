@@ -14,20 +14,20 @@ gh extension install serpro69/gh-arc
 
 ## Authentication
 
-`gh-arc` requires GitHub CLI authentication with specific OAuth scopes to access user information and repository data. The required scopes are:
+`gh-arc` requires GitHub CLI authentication with specific OAuth scopes to access user information and repository data. The required _additional_ scopes are:
 
 - `user:email` - Access to user email addresses
 - `read:user` - Read user profile data
 
 ### Setting up authentication
 
-**If you're already logged in to GitHub CLI**, refresh your token with the required scopes:
+**If you're already logged in to GitHub CLI**, refresh your token with the additional required scopes:
 
 ```bash
 gh auth refresh --scopes "user:email,read:user"
 ```
 
-**If you're not logged in**, authenticate with the required scopes:
+**If you're not logged in**, authenticate with the additional required scopes:
 
 ```bash
 gh auth login --scopes "user:email,read:user"
@@ -39,7 +39,7 @@ gh auth login --scopes "user:email,read:user"
 echo "your-token-here" | gh auth login --with-token
 ```
 
-> **Note**: Personal access tokens must include the `user:email` and `read:user` scopes to work with `gh-arc`.
+> **Note**: Personal access tokens must include the `user:email` and `read:user` scopes, in addition to the scopes needed by `gh` cli itself, to work with `gh-arc`.
 
 To verify your authentication and scopes:
 
@@ -87,5 +87,5 @@ This extension also integrates with other tools:
 
 It has some advanced features as well, you can:
 
-- activate tab completion with `gh arc shell-complete`
+- activate tab completion with `gh arc completion`
 - ...or extend the extension and add new commands
