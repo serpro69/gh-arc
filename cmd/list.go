@@ -41,6 +41,14 @@ Shows PRs in a formatted table with the following information:
 The command caches results for 60 seconds to reduce API calls. Use --no-cache
 to force a fresh fetch from GitHub.
 
+Authentication Requirements:
+  This command requires GitHub authentication with the following OAuth scopes:
+  - user:email (to access user email addresses)
+  - read:user (to read user profile data)
+
+  If you encounter authentication errors, refresh your token:
+    gh auth refresh --scopes "user:email,read:user"
+
 Examples:
   # List all open PRs
   gh arc list
@@ -48,11 +56,17 @@ Examples:
   # List PRs by specific author
   gh arc list --author octocat
 
+  # List your own PRs
+  gh arc list --author me
+
   # List only PRs awaiting review
   gh arc list --status review_required
 
   # List PRs from a specific branch
   gh arc list --branch feature/new-feature
+
+  # List PRs with wildcards
+  gh arc list --branch "feature/*"
 
   # Output as JSON for scripting
   gh arc list --json
@@ -93,6 +107,19 @@ func runList(cmd *cobra.Command, args []string) error {
 	// Get current user for "me" filter
 	currentUser, err := client.GetCurrentUser(ctx)
 	if err != nil {
+		// Check for authentication/authorization errors and provide helpful guidance
+		if github.IsAuthenticationError(err) || github.IsAuthorizationError(err) {
+			fmt.Fprintf(os.Stderr, "Error: %v\n\n", err)
+			fmt.Fprintln(os.Stderr, "This command requires GitHub authentication with specific OAuth scopes.")
+			fmt.Fprintln(os.Stderr, "Required scopes: user:email, read:user")
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, "To fix this, refresh your GitHub CLI token with the required scopes:")
+			fmt.Fprintln(os.Stderr, "  gh auth refresh --scopes \"user:email,read:user\"")
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, "Or if you're not logged in:")
+			fmt.Fprintln(os.Stderr, "  gh auth login --scopes \"user:email,read:user\"")
+			return fmt.Errorf("authentication failed")
+		}
 		return fmt.Errorf("failed to get current user: %w", err)
 	}
 

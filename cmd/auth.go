@@ -22,7 +22,17 @@ var authCmd = &cobra.Command{
 	Short: "Verify GitHub authentication status",
 	Long: `Check if the GitHub CLI is properly authenticated and display
 the current user information. This command verifies that gh-arc
-can communicate with the GitHub API.`,
+can communicate with the GitHub API.
+
+gh-arc requires GitHub authentication with the following OAuth scopes:
+  - user:email (to access user email addresses)
+  - read:user (to read user profile data)
+
+If you encounter authentication errors, refresh your token:
+  gh auth refresh --scopes "user:email,read:user"
+
+Or authenticate with the required scopes:
+  gh auth login --scopes "user:email,read:user"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		logger.Debug().Msg("Checking GitHub authentication status")
 
@@ -77,12 +87,22 @@ func outputAuthStatus(status AuthStatus) error {
 	} else {
 		if status.Authenticated {
 			fmt.Printf("✓ Authenticated as %s\n", status.User)
+			fmt.Println("\nNote: gh-arc requires the following OAuth scopes:")
+			fmt.Println("  - user:email")
+			fmt.Println("  - read:user")
+			fmt.Println("\nIf you encounter permission errors, refresh your token:")
+			fmt.Println("  gh auth refresh --scopes \"user:email,read:user\"")
 		} else {
 			fmt.Printf("✗ Not authenticated\n")
 			if status.Error != "" {
 				fmt.Printf("Error: %s\n", status.Error)
 			}
-			fmt.Println("\nPlease authenticate using: gh auth login")
+			fmt.Println("\ngh-arc requires GitHub authentication with specific OAuth scopes.")
+			fmt.Println("Required scopes: user:email, read:user")
+			fmt.Println("\nTo authenticate with the required scopes:")
+			fmt.Println("  gh auth login --scopes \"user:email,read:user\"")
+			fmt.Println("\nOr if already logged in, refresh your token:")
+			fmt.Println("  gh auth refresh --scopes \"user:email,read:user\"")
 		}
 	}
 

@@ -33,7 +33,8 @@
       "mcp__task-master-ai__expand_task",
       "Bash(go mod:*)",
       "Bash(./gh-arc list --help)",
-      "Bash(./gh-arc list:*)"
+      "Bash(./gh-arc list:*)",
+      "Bash(./gh-arc auth --help)"
     ],
     "deny": [
       "Bash(task-master:*)"
