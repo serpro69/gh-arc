@@ -32,6 +32,10 @@ type DiffConfig struct {
 	EnableStacking        bool   `mapstructure:"enableStacking"`
 	DefaultBase           string `mapstructure:"defaultBase"`
 	ShowStackingWarnings  bool   `mapstructure:"showStackingWarnings"`
+	TemplatePath          string `mapstructure:"templatePath"`
+	RequireTestPlan       bool   `mapstructure:"requireTestPlan"`
+	LinearEnabled         bool   `mapstructure:"linearEnabled"`
+	LinearDefaultProject  string `mapstructure:"linearDefaultProject"`
 }
 
 // LandConfig contains merge settings
@@ -162,6 +166,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("diff.enableStacking", true)        // Opt-out (enabled by default)
 	v.SetDefault("diff.defaultBase", "")             // Empty = auto-detect from git
 	v.SetDefault("diff.showStackingWarnings", true)
+	v.SetDefault("diff.templatePath", "")            // Empty = use built-in template
+	v.SetDefault("diff.requireTestPlan", true)       // Enforce test plan by default
+	v.SetDefault("diff.linearEnabled", false)        // Linear integration disabled by default
+	v.SetDefault("diff.linearDefaultProject", "")    // No default Linear project
 
 	// Land defaults
 	v.SetDefault("land.defaultMergeMethod", "squash")
@@ -243,6 +251,16 @@ func (c *Config) Validate() error {
 			if i == 0 && !((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')) {
 				return fmt.Errorf("diff.defaultBase must start with alphanumeric character: %q", c.Diff.DefaultBase)
 			}
+		}
+	}
+
+	// Validate template path if specified
+	if c.Diff.TemplatePath != "" {
+		if _, err := os.Stat(c.Diff.TemplatePath); err != nil {
+			if os.IsNotExist(err) {
+				return fmt.Errorf("diff.templatePath does not exist: %q", c.Diff.TemplatePath)
+			}
+			return fmt.Errorf("diff.templatePath cannot be accessed: %w", err)
 		}
 	}
 

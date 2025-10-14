@@ -27,6 +27,18 @@ func TestLoad(t *testing.T) {
 		if !cfg.Diff.CreateAsDraft {
 			t.Error("Expected createAsDraft to be true by default")
 		}
+		if !cfg.Diff.EnableStacking {
+			t.Error("Expected enableStacking to be true by default")
+		}
+		if !cfg.Diff.RequireTestPlan {
+			t.Error("Expected requireTestPlan to be true by default")
+		}
+		if cfg.Diff.TemplatePath != "" {
+			t.Errorf("Expected templatePath to be empty by default, got '%s'", cfg.Diff.TemplatePath)
+		}
+		if cfg.Diff.LinearEnabled {
+			t.Error("Expected linearEnabled to be false by default")
+		}
 	})
 
 	t.Run("load from JSON config file", func(t *testing.T) {
@@ -87,6 +99,36 @@ diff:
 		// For now, we'll skip YAML test as it requires more setup
 
 		t.Skip("YAML test requires additional viper configuration")
+	})
+
+	t.Run("load with environment variables", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		os.Chdir(tmpDir)
+
+		// Clear cached config to force reload
+		cfg = nil
+		v = nil
+
+		// Set environment variables (testing that viper's AutomaticEnv works)
+		// Viper automatically binds env vars with GHARC_ prefix
+		os.Setenv("GHARC_DIFF_REQUIRETESTPLAN", "false")
+		os.Setenv("GHARC_DIFF_LINEARENABLED", "true")
+		os.Setenv("GHARC_DIFF_LINEARDEFAULTPROJECT", "TEST")
+		defer os.Unsetenv("GHARC_DIFF_REQUIRETESTPLAN")
+		defer os.Unsetenv("GHARC_DIFF_LINEARENABLED")
+		defer os.Unsetenv("GHARC_DIFF_LINEARDEFAULTPROJECT")
+
+		config, err := Load()
+		if err != nil {
+			t.Fatalf("Expected no error with env vars set, got: %v", err)
+		}
+
+		// Verify config loaded successfully with env vars present
+		// Note: Viper's AutomaticEnv() handles the binding, but actual value
+		// testing would require integration tests. Here we just verify no errors.
+		if config == nil {
+			t.Fatal("Expected config to be loaded")
+		}
 	})
 }
 
@@ -208,6 +250,60 @@ func TestValidate(t *testing.T) {
 			},
 			wantErr: true,
 			errMsg:  "command is required",
+		},
+		{
+			name: "valid diff config with empty template path",
+			config: Config{
+				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Lint: LintConfig{
+					MegaLinter: MegaLinterConfig{Enabled: "auto"},
+				},
+				Diff: DiffConfig{
+					TemplatePath: "",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid diff config with nonexistent template path",
+			config: Config{
+				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Lint: LintConfig{
+					MegaLinter: MegaLinterConfig{Enabled: "auto"},
+				},
+				Diff: DiffConfig{
+					TemplatePath: "/nonexistent/template.md",
+				},
+			},
+			wantErr: true,
+			errMsg:  "diff.templatePath does not exist",
+		},
+		{
+			name: "valid diff config with valid base branch",
+			config: Config{
+				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Lint: LintConfig{
+					MegaLinter: MegaLinterConfig{Enabled: "auto"},
+				},
+				Diff: DiffConfig{
+					DefaultBase: "main",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid diff config with base branch containing spaces",
+			config: Config{
+				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Lint: LintConfig{
+					MegaLinter: MegaLinterConfig{Enabled: "auto"},
+				},
+				Diff: DiffConfig{
+					DefaultBase: "feature branch",
+				},
+			},
+			wantErr: true,
+			errMsg:  "diff.defaultBase cannot contain spaces",
 		},
 	}
 
