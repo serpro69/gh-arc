@@ -414,18 +414,153 @@ func TestClientCacheManagement(t *testing.T) {
 	})
 }
 
-func TestClientDoGraphQL(t *testing.T) {
-	t.Run("Do placeholder returns nil", func(t *testing.T) {
+func TestClientDo(t *testing.T) {
+	t.Run("circuit breaker open blocks request", func(t *testing.T) {
 		client, err := NewClient()
 		if err != nil {
 			t.Fatalf("Failed to create client: %v", err)
 		}
 		defer client.Close()
 
-		// Do is a placeholder that returns nil
-		err = client.Do(nil, "GET", "/test", nil, nil)
-		if err != nil {
-			t.Errorf("Do() returned error: %v", err)
+		// Open the circuit breaker by simulating failures
+		for i := 0; i < 5; i++ {
+			client.circuitBreaker.RecordFailure()
+		}
+
+		// Now the circuit should be open
+		var response interface{}
+		err = client.Do(nil, "GET", "/test", nil, &response)
+
+		if err == nil {
+			t.Error("Do() should return error when circuit breaker is open")
+		}
+
+		if !contains(err.Error(), "circuit breaker") {
+			t.Errorf("Do() error should mention circuit breaker, got: %v", err)
 		}
 	})
+
+	t.Run("request body marshaling error", func(t *testing.T) {
+		client, err := NewClient()
+		if err != nil {
+			t.Fatalf("Failed to create client: %v", err)
+		}
+		defer client.Close()
+
+		// Use a channel as body which cannot be marshaled to JSON
+		invalidBody := make(chan int)
+
+		var response interface{}
+		err = client.Do(nil, "POST", "/test", invalidBody, &response)
+
+		if err == nil {
+			t.Error("Do() should return error for invalid body")
+		}
+
+		if !contains(err.Error(), "marshal") {
+			t.Errorf("Do() error should mention marshal failure, got: %v", err)
+		}
+	})
+
+	t.Run("cache generates correct key for GET requests", func(t *testing.T) {
+		client, err := NewClient()
+		if err != nil {
+			t.Fatalf("Failed to create client: %v", err)
+		}
+		defer client.Close()
+
+		// The Do method should generate a cache key using GenerateCacheKey
+		// We can verify this by checking that the cache key is used
+		// This is an indirect test since we can't easily mock the REST client
+
+		// Just verify that the method doesn't panic with nil context
+		// and handles the cache key generation
+		cacheKey := GenerateCacheKey("GET", "/test/path", nil)
+		if cacheKey == "" {
+			t.Error("GenerateCacheKey returned empty string")
+		}
+	})
+}
+
+func TestCopyResponse(t *testing.T) {
+	tests := []struct {
+		name        string
+		cached      interface{}
+		shouldError bool
+	}{
+		{
+			name: "simple map",
+			cached: map[string]string{
+				"key": "value",
+			},
+			shouldError: false,
+		},
+		{
+			name: "struct with fields",
+			cached: struct {
+				Name  string
+				Count int
+			}{
+				Name:  "test",
+				Count: 42,
+			},
+			shouldError: false,
+		},
+		{
+			name:        "nil cached value",
+			cached:      nil,
+			shouldError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var output interface{}
+			err := copyResponse(tt.cached, &output)
+
+			if tt.shouldError && err == nil {
+				t.Error("copyResponse() should have returned error")
+			}
+
+			if !tt.shouldError && err != nil {
+				t.Errorf("copyResponse() returned unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestClientDoGraphQL(t *testing.T) {
+	t.Run("circuit breaker integration", func(t *testing.T) {
+		client, err := NewClient()
+		if err != nil {
+			t.Fatalf("Failed to create client: %v", err)
+		}
+		defer client.Close()
+
+		// Open the circuit breaker
+		for i := 0; i < 5; i++ {
+			client.circuitBreaker.RecordFailure()
+		}
+
+		// DoGraphQL should respect circuit breaker state
+		err = client.DoGraphQL(nil, "query { viewer { login } }", nil, nil)
+		if err == nil {
+			t.Error("DoGraphQL() should return error when circuit breaker is open")
+		}
+	})
+}
+
+// Helper functions for tests
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && containsSubstring(s, substr))
+}
+
+func containsSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

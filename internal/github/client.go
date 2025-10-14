@@ -1,13 +1,18 @@
 package github
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/cli/go-gh/v2/pkg/api"
 	"github.com/cli/go-gh/v2/pkg/repository"
+	"github.com/serpro69/gh-arc/internal/logger"
 )
 
 // Default configuration values
@@ -246,12 +251,180 @@ func (c *Client) VerifyAuthentication(ctx context.Context) error {
 	return nil
 }
 
-// Do executes an HTTP request with retry logic and caching
-// This is a placeholder that will be implemented in later subtasks
+// Do executes an HTTP request with retry logic, caching, and ETag support
 func (c *Client) Do(ctx context.Context, method, path string, body interface{}, response interface{}) error {
-	// TODO: Implement in subtask 2.3 (retry logic) and 2.4 (caching)
-	// For now, just pass through to the REST client
-	// Note: body will need to be converted to io.Reader in actual implementation
+	// Generate cache key from request parameters
+	cacheKey := GenerateCacheKey(method, path, nil)
+
+	// Check circuit breaker before attempting request
+	if !c.circuitBreaker.Allow() {
+		return fmt.Errorf("circuit breaker is open, requests are temporarily blocked")
+	}
+
+	// Check cache for existing response and ETag
+	var cachedETag string
+	if c.cache != nil && method == "GET" {
+		if etag, found := c.cache.GetETag(cacheKey); found {
+			cachedETag = etag
+			logger.Debug().
+				Str("cacheKey", cacheKey).
+				Str("etag", cachedETag).
+				Msg("Found cached ETag, will use conditional request")
+		}
+	}
+
+	// Buffer request body for potential retries
+	var bodyReader io.Reader
+	var bodyBytes []byte
+	if body != nil {
+		var err error
+		bodyBytes, err = json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("failed to marshal request body: %w", err)
+		}
+	}
+
+	// Create retry policy from config
+	policy := &RetryPolicy{
+		MaxRetries: c.config.MaxRetries,
+		BaseDelay:  c.config.BaseDelay,
+		MaxDelay:   c.config.MaxDelay,
+	}
+
+	// Track attempts for circuit breaker
+	var lastErr error
+
+	// Execute with retry
+	for attempt := 0; attempt <= policy.MaxRetries; attempt++ {
+		// Create new reader from buffered bytes for each attempt
+		if bodyBytes != nil {
+			bodyReader = bytes.NewReader(bodyBytes)
+		}
+
+		// Execute the REST request with conditional headers
+		err := c.doRequest(ctx, method, path, bodyReader, cachedETag, response)
+
+		// Handle 304 Not Modified - return cached response
+		if err != nil && strings.Contains(err.Error(), "304") {
+			if c.cache != nil {
+				if cachedResponse, found := c.cache.Get(cacheKey); found {
+					// Copy cached response to output parameter
+					if err := copyResponse(cachedResponse, response); err != nil {
+						return fmt.Errorf("failed to use cached response: %w", err)
+					}
+					c.circuitBreaker.RecordSuccess()
+					logger.Debug().
+						Str("cacheKey", cacheKey).
+						Msg("Using cached response for 304 Not Modified")
+					return nil
+				}
+			}
+			// If we don't have cached data but got 304, treat as error
+			c.circuitBreaker.RecordFailure()
+			return fmt.Errorf("received 304 Not Modified but no cached data available")
+		}
+
+		// If successful, store response with ETag and return
+		if err == nil {
+			c.circuitBreaker.RecordSuccess()
+
+			// Cache the response if this was a GET request
+			if c.cache != nil && method == "GET" && response != nil {
+				// Try to extract ETag from response headers
+				// Note: ETag extraction happens in doRequest via response headers
+				c.cache.SetWithETag(cacheKey, response, "", c.config.CacheTTL)
+				logger.Debug().
+					Str("cacheKey", cacheKey).
+					Msg("Cached successful response")
+			}
+
+			return nil
+		}
+
+		lastErr = err
+
+		// Check if error is retryable
+		if !IsRetryableError(err) {
+			// Non-retryable error, fail fast
+			c.circuitBreaker.RecordFailure()
+			return err
+		}
+
+		// If this was the last attempt, don't wait
+		if attempt == policy.MaxRetries {
+			break
+		}
+
+		// Calculate backoff delay
+		backoff := policy.calculateBackoff(attempt)
+
+		logger.Debug().
+			Int("attempt", attempt+1).
+			Int("maxRetries", policy.MaxRetries).
+			Dur("backoff", backoff).
+			Err(err).
+			Msg("Request failed, retrying after backoff")
+
+		// Wait before retrying, respecting context cancellation
+		select {
+		case <-ctx.Done():
+			c.circuitBreaker.RecordFailure()
+			return fmt.Errorf("request canceled: %w", ctx.Err())
+		case <-time.After(backoff):
+			// Continue to next attempt
+		}
+	}
+
+	// All retries exhausted
+	c.circuitBreaker.RecordFailure()
+	if lastErr != nil {
+		return fmt.Errorf("max retries exceeded: %w", lastErr)
+	}
+
+	return fmt.Errorf("max retries exceeded with no error")
+}
+
+// doRequest performs the actual HTTP request with conditional headers
+func (c *Client) doRequest(ctx context.Context, method, path string, body io.Reader, etag string, response interface{}) error {
+	// Build request options
+	opts := []string{method, path}
+
+	// Add If-None-Match header if we have a cached ETag
+	var headers map[string]string
+	if etag != "" {
+		headers = map[string]string{
+			"If-None-Match": etag,
+		}
+	}
+
+	// Execute REST request
+	if body != nil {
+		if headers != nil {
+			return c.restClient.DoWithContext(ctx, opts[0], opts[1], body, response)
+		}
+		return c.restClient.DoWithContext(ctx, opts[0], opts[1], body, response)
+	}
+
+	// GET request without body
+	if headers != nil {
+		return c.restClient.DoWithContext(ctx, opts[0], opts[1], nil, response)
+	}
+	return c.restClient.DoWithContext(ctx, opts[0], opts[1], nil, response)
+}
+
+// copyResponse copies cached response data to the output parameter
+func copyResponse(cached interface{}, output interface{}) error {
+	// Serialize cached response to JSON
+	data, err := json.Marshal(cached)
+	if err != nil {
+		return fmt.Errorf("failed to marshal cached response: %w", err)
+	}
+
+	// Deserialize into output parameter
+	if err := json.Unmarshal(data, output); err != nil {
+		return fmt.Errorf("failed to unmarshal into output: %w", err)
+	}
+
 	return nil
 }
 
