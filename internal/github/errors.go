@@ -314,3 +314,212 @@ func ParseErrorResponse(errResp *ErrorResponse) error {
 		return errResp
 	}
 }
+
+// CircularDependencyError represents a circular dependency in stacked PRs
+type CircularDependencyError struct {
+	Message      string
+	Branches     []string // The branches forming the circular dependency
+	CurrentPR    int      // Current PR number
+	ConflictingPR int     // PR number that creates the circular dependency
+	Err          error
+}
+
+func (e *CircularDependencyError) Error() string {
+	if len(e.Branches) > 0 {
+		branchChain := ""
+		for i, branch := range e.Branches {
+			if i > 0 {
+				branchChain += " → "
+			}
+			branchChain += branch
+		}
+		if e.Err != nil {
+			return fmt.Sprintf("circular dependency detected: %s (dependency chain: %s): %v", e.Message, branchChain, e.Err)
+		}
+		return fmt.Sprintf("circular dependency detected: %s (dependency chain: %s)", e.Message, branchChain)
+	}
+	if e.Err != nil {
+		return fmt.Sprintf("circular dependency detected: %s: %v", e.Message, e.Err)
+	}
+	return fmt.Sprintf("circular dependency detected: %s", e.Message)
+}
+
+func (e *CircularDependencyError) Unwrap() error {
+	return e.Err
+}
+
+// NewCircularDependencyError creates a new CircularDependencyError
+func NewCircularDependencyError(message string, branches []string, currentPR, conflictingPR int, err error) *CircularDependencyError {
+	return &CircularDependencyError{
+		Message:       message,
+		Branches:      branches,
+		CurrentPR:     currentPR,
+		ConflictingPR: conflictingPR,
+		Err:           err,
+	}
+}
+
+// IsCircularDependencyError checks if an error is a CircularDependencyError
+func IsCircularDependencyError(err error) bool {
+	_, ok := err.(*CircularDependencyError)
+	return ok
+}
+
+// InvalidBaseError represents an invalid base branch error in stacked PRs
+type InvalidBaseError struct {
+	Message    string
+	BaseBranch string   // The invalid base branch
+	ValidBases []string // List of valid base branches (if available)
+	Err        error
+}
+
+func (e *InvalidBaseError) Error() string {
+	if len(e.ValidBases) > 0 {
+		validList := ""
+		for i, base := range e.ValidBases {
+			if i > 0 {
+				validList += ", "
+			}
+			validList += base
+		}
+		if e.Err != nil {
+			return fmt.Sprintf("invalid base branch: %s (branch: %s, valid: %s): %v", e.Message, e.BaseBranch, validList, e.Err)
+		}
+		return fmt.Sprintf("invalid base branch: %s (branch: %s, valid: %s)", e.Message, e.BaseBranch, validList)
+	}
+	if e.Err != nil {
+		return fmt.Sprintf("invalid base branch: %s (branch: %s): %v", e.Message, e.BaseBranch, e.Err)
+	}
+	return fmt.Sprintf("invalid base branch: %s (branch: %s)", e.Message, e.BaseBranch)
+}
+
+func (e *InvalidBaseError) Unwrap() error {
+	return e.Err
+}
+
+// NewInvalidBaseError creates a new InvalidBaseError
+func NewInvalidBaseError(message string, baseBranch string, validBases []string, err error) *InvalidBaseError {
+	return &InvalidBaseError{
+		Message:    message,
+		BaseBranch: baseBranch,
+		ValidBases: validBases,
+		Err:        err,
+	}
+}
+
+// IsInvalidBaseError checks if an error is an InvalidBaseError
+func IsInvalidBaseError(err error) bool {
+	_, ok := err.(*InvalidBaseError)
+	return ok
+}
+
+// ParentPRConflictError represents a conflict with the parent PR in stacked workflow
+type ParentPRConflictError struct {
+	Message    string
+	ParentPR   int    // Parent PR number
+	ParentState string // Parent PR state (closed, merged, etc.)
+	Reason     string // Reason for the conflict
+	Err        error
+}
+
+func (e *ParentPRConflictError) Error() string {
+	if e.Reason != "" {
+		if e.Err != nil {
+			return fmt.Sprintf("parent PR conflict: %s (PR #%d is %s: %s): %v", e.Message, e.ParentPR, e.ParentState, e.Reason, e.Err)
+		}
+		return fmt.Sprintf("parent PR conflict: %s (PR #%d is %s: %s)", e.Message, e.ParentPR, e.ParentState, e.Reason)
+	}
+	if e.Err != nil {
+		return fmt.Sprintf("parent PR conflict: %s (PR #%d is %s): %v", e.Message, e.ParentPR, e.ParentState, e.Err)
+	}
+	return fmt.Sprintf("parent PR conflict: %s (PR #%d is %s)", e.Message, e.ParentPR, e.ParentState)
+}
+
+func (e *ParentPRConflictError) Unwrap() error {
+	return e.Err
+}
+
+// NewParentPRConflictError creates a new ParentPRConflictError
+func NewParentPRConflictError(message string, parentPR int, parentState, reason string, err error) *ParentPRConflictError {
+	return &ParentPRConflictError{
+		Message:     message,
+		ParentPR:    parentPR,
+		ParentState: parentState,
+		Reason:      reason,
+		Err:         err,
+	}
+}
+
+// IsParentPRConflictError checks if an error is a ParentPRConflictError
+func IsParentPRConflictError(err error) bool {
+	_, ok := err.(*ParentPRConflictError)
+	return ok
+}
+
+// StackingError represents a general stacking-related error
+type StackingError struct {
+	Message      string
+	CurrentBranch string // Current branch name
+	BaseBranch   string // Base branch name
+	Operation    string // Operation being performed (create, update, etc.)
+	Context      map[string]interface{} // Additional context
+	Err          error
+}
+
+func (e *StackingError) Error() string {
+	contextStr := ""
+	if len(e.Context) > 0 {
+		contextStr = " ("
+		first := true
+		for k, v := range e.Context {
+			if !first {
+				contextStr += ", "
+			}
+			contextStr += fmt.Sprintf("%s: %v", k, v)
+			first = false
+		}
+		contextStr += ")"
+	}
+
+	if e.Operation != "" {
+		if e.Err != nil {
+			return fmt.Sprintf("stacking error during %s: %s [%s → %s]%s: %v", e.Operation, e.Message, e.CurrentBranch, e.BaseBranch, contextStr, e.Err)
+		}
+		return fmt.Sprintf("stacking error during %s: %s [%s → %s]%s", e.Operation, e.Message, e.CurrentBranch, e.BaseBranch, contextStr)
+	}
+	if e.Err != nil {
+		return fmt.Sprintf("stacking error: %s [%s → %s]%s: %v", e.Message, e.CurrentBranch, e.BaseBranch, contextStr, e.Err)
+	}
+	return fmt.Sprintf("stacking error: %s [%s → %s]%s", e.Message, e.CurrentBranch, e.BaseBranch, contextStr)
+}
+
+func (e *StackingError) Unwrap() error {
+	return e.Err
+}
+
+// WithContext adds context to a StackingError
+func (e *StackingError) WithContext(key string, value interface{}) *StackingError {
+	if e.Context == nil {
+		e.Context = make(map[string]interface{})
+	}
+	e.Context[key] = value
+	return e
+}
+
+// NewStackingError creates a new StackingError
+func NewStackingError(message string, currentBranch, baseBranch, operation string, err error) *StackingError {
+	return &StackingError{
+		Message:       message,
+		CurrentBranch: currentBranch,
+		BaseBranch:    baseBranch,
+		Operation:     operation,
+		Context:       make(map[string]interface{}),
+		Err:           err,
+	}
+}
+
+// IsStackingError checks if an error is a StackingError
+func IsStackingError(err error) bool {
+	_, ok := err.(*StackingError)
+	return ok
+}
