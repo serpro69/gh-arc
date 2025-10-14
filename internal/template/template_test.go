@@ -23,7 +23,7 @@ func TestNewTemplateGenerator(t *testing.T) {
 	}
 	reviewers := []string{"@user1", "@team/reviewers"}
 
-	gen := NewTemplateGenerator(stackingCtx, analysis, reviewers)
+	gen := NewTemplateGenerator(stackingCtx, analysis, reviewers, false, false)
 
 	if gen == nil {
 		t.Fatal("NewTemplateGenerator returned nil")
@@ -46,7 +46,7 @@ func TestGenerateTemplateBasic(t *testing.T) {
 		Summary: "This commit adds a new feature",
 	}
 
-	gen := NewTemplateGenerator(nil, analysis, []string{})
+	gen := NewTemplateGenerator(nil, analysis, []string{}, false, false)
 	content := gen.Generate()
 
 	// Check for required sections
@@ -62,8 +62,12 @@ func TestGenerateTemplateBasic(t *testing.T) {
 	if !strings.Contains(content, markerReviewers) {
 		t.Error("Template missing Reviewers marker")
 	}
-	if !strings.Contains(content, markerRef) {
-		t.Error("Template missing Ref marker")
+	if !strings.Contains(content, markerDraft) {
+		t.Error("Template missing Draft marker")
+	}
+	// Ref marker should NOT be present when linearEnabled=false
+	if strings.Contains(content, markerRef) {
+		t.Error("Template should not have Ref marker when Linear is disabled")
 	}
 
 	// Check for pre-filled content
@@ -72,6 +76,10 @@ func TestGenerateTemplateBasic(t *testing.T) {
 	}
 	if !strings.Contains(content, "This commit adds a new feature") {
 		t.Error("Template missing pre-filled summary")
+	}
+	// Check for default draft value (false)
+	if !strings.Contains(content, "false") {
+		t.Error("Template missing default draft value")
 	}
 }
 
@@ -92,7 +100,7 @@ func TestGenerateTemplateWithStacking(t *testing.T) {
 		Summary: "Builds on parent",
 	}
 
-	gen := NewTemplateGenerator(stackingCtx, analysis, []string{"@reviewer1"})
+	gen := NewTemplateGenerator(stackingCtx, analysis, []string{"@reviewer1"}, false, false)
 	content := gen.Generate()
 
 	// Check for stacking information
@@ -133,7 +141,7 @@ func TestGenerateTemplateWithDependents(t *testing.T) {
 		ShowDependents: true,
 	}
 
-	gen := NewTemplateGenerator(stackingCtx, nil, []string{})
+	gen := NewTemplateGenerator(stackingCtx, nil, []string{}, false, false)
 	content := gen.Generate()
 
 	// Check for dependent PR warnings
@@ -155,7 +163,7 @@ func TestGenerateTemplateWithDependents(t *testing.T) {
 func TestGenerateTemplateWithReviewers(t *testing.T) {
 	reviewers := []string{"@user1", "@user2", "@org/team"}
 
-	gen := NewTemplateGenerator(nil, nil, reviewers)
+	gen := NewTemplateGenerator(nil, nil, reviewers, false, false)
 	content := gen.Generate()
 
 	// Check for reviewer suggestions
@@ -1091,6 +1099,222 @@ func TestFindSavedTemplates(t *testing.T) {
 	}
 }
 
+// Test Draft field parsing
+func TestParseDraftField(t *testing.T) {
+	tests := []struct {
+		name     string
+		content  string
+		expected bool
+	}{
+		{
+			name: "draft true",
+			content: `
+# Title:
+Test
+
+# Draft:
+true
+
+# Base Branch: main (read-only)
+`,
+			expected: true,
+		},
+		{
+			name: "draft True (capitalized)",
+			content: `
+# Title:
+Test
+
+# Draft:
+True
+
+# Base Branch: main (read-only)
+`,
+			expected: true,
+		},
+		{
+			name: "draft false",
+			content: `
+# Title:
+Test
+
+# Draft:
+false
+
+# Base Branch: main (read-only)
+`,
+			expected: false,
+		},
+		{
+			name: "draft False (capitalized)",
+			content: `
+# Title:
+Test
+
+# Draft:
+False
+
+# Base Branch: main (read-only)
+`,
+			expected: false,
+		},
+		{
+			name: "draft invalid value defaults to false",
+			content: `
+# Title:
+Test
+
+# Draft:
+invalid
+
+# Base Branch: main (read-only)
+`,
+			expected: false,
+		},
+		{
+			name: "draft empty defaults to false",
+			content: `
+# Title:
+Test
+
+# Draft:
+
+# Base Branch: main (read-only)
+`,
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fields, err := ParseTemplate(tt.content)
+			if err != nil {
+				t.Fatalf("ParseTemplate failed: %v", err)
+			}
+			if fields.Draft != tt.expected {
+				t.Errorf("Draft = %v, want %v", fields.Draft, tt.expected)
+			}
+		})
+	}
+}
+
+// Test Draft field generation with defaultDraft
+func TestGenerateDraftField(t *testing.T) {
+	t.Run("defaultDraft false", func(t *testing.T) {
+		gen := NewTemplateGenerator(nil, nil, []string{}, false, false)
+		content := gen.Generate()
+
+		if !strings.Contains(content, markerDraft) {
+			t.Error("Template missing Draft marker")
+		}
+		// Check that false is the default value
+		lines := strings.Split(content, "\n")
+		foundDraftMarker := false
+		for i, line := range lines {
+			if strings.HasPrefix(line, markerDraft) {
+				foundDraftMarker = true
+				// Next non-comment line should be "false"
+				for j := i + 1; j < len(lines); j++ {
+					if !strings.HasPrefix(lines[j], "#") && strings.TrimSpace(lines[j]) != "" {
+						if strings.TrimSpace(lines[j]) != "false" {
+							t.Errorf("Expected 'false' after Draft marker, got %q", lines[j])
+						}
+						break
+					}
+				}
+				break
+			}
+		}
+		if !foundDraftMarker {
+			t.Error("Draft marker not found in template")
+		}
+	})
+
+	t.Run("defaultDraft true", func(t *testing.T) {
+		gen := NewTemplateGenerator(nil, nil, []string{}, false, true)
+		content := gen.Generate()
+
+		if !strings.Contains(content, markerDraft) {
+			t.Error("Template missing Draft marker")
+		}
+		// Check that true is the default value
+		lines := strings.Split(content, "\n")
+		foundDraftMarker := false
+		for i, line := range lines {
+			if strings.HasPrefix(line, markerDraft) {
+				foundDraftMarker = true
+				// Next non-comment line should be "true"
+				for j := i + 1; j < len(lines); j++ {
+					if !strings.HasPrefix(lines[j], "#") && strings.TrimSpace(lines[j]) != "" {
+						if strings.TrimSpace(lines[j]) != "true" {
+							t.Errorf("Expected 'true' after Draft marker, got %q", lines[j])
+						}
+						break
+					}
+				}
+				break
+			}
+		}
+		if !foundDraftMarker {
+			t.Error("Draft marker not found in template")
+		}
+	})
+}
+
+// Test conditional Linear Ref field
+func TestConditionalLinearRefField(t *testing.T) {
+	t.Run("linearEnabled false - Ref not shown", func(t *testing.T) {
+		gen := NewTemplateGenerator(nil, nil, []string{}, false, false)
+		content := gen.Generate()
+
+		if strings.Contains(content, markerRef) {
+			t.Error("Template should not contain Ref marker when Linear is disabled")
+		}
+	})
+
+	t.Run("linearEnabled true - Ref shown", func(t *testing.T) {
+		gen := NewTemplateGenerator(nil, nil, []string{}, true, false)
+		content := gen.Generate()
+
+		if !strings.Contains(content, markerRef) {
+			t.Error("Template missing Ref marker when Linear is enabled")
+		}
+		// Check for Linear-specific comment
+		if !strings.Contains(content, "Linear") {
+			t.Error("Template should mention Linear when Ref field is shown")
+		}
+	})
+
+	t.Run("linearEnabled true - Ref parsed correctly", func(t *testing.T) {
+		content := `
+# Title:
+Test feature
+
+# Draft:
+false
+
+# Ref:
+ENG-123, ENG-456
+
+# Base Branch: main (read-only)
+`
+		fields, err := ParseTemplate(content)
+		if err != nil {
+			t.Fatalf("ParseTemplate failed: %v", err)
+		}
+
+		expectedRefs := []string{"ENG-123", "ENG-456"}
+		if len(fields.Ref) != len(expectedRefs) {
+			t.Errorf("Ref count = %d, want %d", len(fields.Ref), len(expectedRefs))
+		}
+		for i, expected := range expectedRefs {
+			if i < len(fields.Ref) && fields.Ref[i] != expected {
+				t.Errorf("Ref[%d] = %q, want %q", i, fields.Ref[i], expected)
+			}
+		}
+	})
+}
+
 // Benchmark template generation
 func BenchmarkGenerateTemplate(b *testing.B) {
 	stackingCtx := &StackingContext{
@@ -1104,7 +1328,7 @@ func BenchmarkGenerateTemplate(b *testing.B) {
 	}
 	reviewers := []string{"@user1", "@user2"}
 
-	gen := NewTemplateGenerator(stackingCtx, analysis, reviewers)
+	gen := NewTemplateGenerator(stackingCtx, analysis, reviewers, false, false)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

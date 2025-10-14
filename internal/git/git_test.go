@@ -1,8 +1,10 @@
 package git
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -1686,5 +1688,104 @@ func TestGetStagedDiff(t *testing.T) {
 		diff, err := repo.GetStagedDiff()
 		require.NoError(t, err)
 		assert.Empty(t, diff)
+	})
+}
+
+// TestPush tests pushing commits to remote
+func TestPush(t *testing.T) {
+	t.Run("empty branch name returns error", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		_, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Push with empty branch name should fail
+		err = repo.Push(context.Background(), "")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "branch name cannot be empty")
+	})
+
+	t.Run("context cancellation", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create initial commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("test"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("initial commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Create a cancelled context
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		// Push with cancelled context should fail
+		err = repo.Push(ctx, "master")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "cancelled")
+	})
+
+	t.Run("push with timeout", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create initial commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("test"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("initial commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Create a context with very short timeout (1 nanosecond)
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+		defer cancel()
+
+		// Wait for context to timeout
+		<-ctx.Done()
+
+		// Push with timed-out context should fail
+		err = repo.Push(ctx, "master")
+		assert.Error(t, err)
+		// Error message could be either "timed out" or "cancelled" depending on timing
+		assert.True(t, 
+			strings.Contains(err.Error(), "timed out") || strings.Contains(err.Error(), "cancelled"),
+			"expected error to contain 'timed out' or 'cancelled', got: %v", err)
 	})
 }

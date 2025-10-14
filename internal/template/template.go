@@ -22,6 +22,7 @@ const (
 	markerTestPlan   = "# Test Plan:"
 	markerReviewers  = "# Reviewers:"
 	markerRef        = "# Ref:"
+	markerDraft      = "# Draft:"
 	markerBaseBranch = "# Base Branch:"
 
 	// Template section markers
@@ -47,6 +48,7 @@ type TemplateFields struct {
 	TestPlan   string
 	Reviewers  []string // List of @usernames or @org/team
 	Ref        []string // Linear issue references
+	Draft      bool     // Whether PR should be created as draft
 	BaseBranch string   // Read-only display of base branch
 }
 
@@ -65,14 +67,18 @@ type TemplateGenerator struct {
 	stackingContext *StackingContext
 	analysis        *diff.CommitAnalysis
 	reviewers       []string
+	linearEnabled   bool   // Whether to show Linear Ref field
+	defaultDraft    bool   // Default draft status from config
 }
 
 // NewTemplateGenerator creates a new template generator
-func NewTemplateGenerator(stackingCtx *StackingContext, analysis *diff.CommitAnalysis, reviewers []string) *TemplateGenerator {
+func NewTemplateGenerator(stackingCtx *StackingContext, analysis *diff.CommitAnalysis, reviewers []string, linearEnabled bool, defaultDraft bool) *TemplateGenerator {
 	return &TemplateGenerator{
 		stackingContext: stackingCtx,
 		analysis:        analysis,
 		reviewers:       reviewers,
+		linearEnabled:   linearEnabled,
+		defaultDraft:    defaultDraft,
 	}
 }
 
@@ -151,10 +157,22 @@ func (g *TemplateGenerator) writeFields(sb *strings.Builder) {
 	}
 	sb.WriteString("\n")
 
-	// Ref (Linear issue references)
-	sb.WriteString(markerRef + "\n")
-	sb.WriteString("# Comma-separated Linear issue IDs (e.g., ENG-123, ENG-456)\n")
+	// Draft (whether PR should be created as draft)
+	sb.WriteString(markerDraft + "\n")
+	sb.WriteString("# Set to 'true' or 'false' to control draft status\n")
+	if g.defaultDraft {
+		sb.WriteString("true\n")
+	} else {
+		sb.WriteString("false\n")
+	}
 	sb.WriteString("\n")
+
+	// Ref (Linear issue references) - only show if Linear is enabled
+	if g.linearEnabled {
+		sb.WriteString(markerRef + "\n")
+		sb.WriteString("# Comma-separated Linear issue IDs (e.g., ENG-123, ENG-456)\n")
+		sb.WriteString("\n")
+	}
 
 	// Base Branch (read-only display)
 	if g.stackingContext != nil {
@@ -213,6 +231,14 @@ func ParseTemplate(content string) (*TemplateFields, error) {
 				fields.setField(currentSection, strings.TrimSpace(currentValue.String()))
 			}
 			currentSection = markerReviewers
+			currentValue.Reset()
+			continue
+		}
+		if strings.HasPrefix(line, markerDraft) {
+			if currentSection != "" {
+				fields.setField(currentSection, strings.TrimSpace(currentValue.String()))
+			}
+			currentSection = markerDraft
 			currentValue.Reset()
 			continue
 		}
@@ -276,6 +302,9 @@ func (f *TemplateFields) setField(marker, value string) {
 		f.TestPlan = value
 	case markerReviewers:
 		f.Reviewers = parseCommaSeparatedList(value)
+	case markerDraft:
+		// Parse boolean value (default to false if invalid)
+		f.Draft = strings.EqualFold(strings.TrimSpace(value), "true")
 	case markerRef:
 		f.Ref = parseCommaSeparatedList(value)
 	}

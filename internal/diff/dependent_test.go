@@ -163,6 +163,14 @@ func TestFormatDependentPRsWarning_WithDependents(t *testing.T) {
 	if !contains(msg, "2") {
 		t.Error("expected message to mention count of dependent PRs")
 	}
+
+	// Check that message contains branch names (pr.Head.Ref)
+	if !contains(msg, "feature-child-1") {
+		t.Error("expected message to contain branch name 'feature-child-1'")
+	}
+	if !contains(msg, "feature-child-2") {
+		t.Error("expected message to contain branch name 'feature-child-2'")
+	}
 }
 
 func TestFormatDependentPRsInfo_NoDependents(t *testing.T) {

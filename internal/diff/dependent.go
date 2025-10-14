@@ -91,7 +91,7 @@ func (info *DependentPRInfo) FormatDependentPRsWarning() string {
 	sb.WriteString(fmt.Sprintf("   %d PR(s) target this branch:\n", len(info.DependentPRs)))
 
 	for _, pr := range info.DependentPRs {
-		sb.WriteString(fmt.Sprintf("   - #%d: %s (branch: %s)\n", pr.Number, pr.Title, pr.Head))
+		sb.WriteString(fmt.Sprintf("   - #%d: %s (branch: %s)\n", pr.Number, pr.Title, pr.Head.Ref))
 	}
 
 	sb.WriteString("\n   Changes to this branch will affect the dependent PRs.\n")
