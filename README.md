@@ -2,6 +2,7 @@
 
 `gh-arc` is a [github cli extension](https://docs.github.com/en/github-cli/github-cli/creating-github-cli-extensions#about-github-cli-extensions) that implements an opinionated [trunk-based development workflow](https://martinfowler.com/articles/branching-patterns.html#Trunk-basedDevelopment) with Github, built upon the great traditions of tools like [phacility/arcanist](https://github.com/phacility/arcanist/tree/master) and [phorge/arcanist](https://github.com/phorgeit/arcanist.git).
 
+> [!TIP]
 > Check out this [DORA Trunk-based development](https://dora.dev/capabilities/trunk-based-development/) page if, by any chance, this is the first time you're hearing about it and interested to learn more about about this methodology.
 
 ## Installation
@@ -41,7 +42,8 @@ gh auth login --scopes "user:email,read:user"
 echo "your-token-here" | gh auth login --with-token
 ```
 
-> **Note**: Personal access tokens must include the `user:email` and `read:user` scopes, in addition to the scopes needed by `gh` cli itself, to work with `gh-arc`.
+> [!NOTE]
+> Personal access tokens must include the `user:email` and `read:user` scopes, in addition to the scopes needed by `gh` cli itself, to work with `gh-arc`.
 
 To verify your authentication and scopes:
 
@@ -89,14 +91,14 @@ This extension also integrates with other tools:
 
 It has some advanced features as well, you can:
 
-- activate tab completion with `gh arc completion`
+- enable tab completion with `gh arc completion`
 - ...or extend the extension and add new commands
 
 ### Shell Completion
 
-Github CLI does not currently support completion out of the box for extensions (See [#5309](https://github.com/cli/cli/issues/5309)), but even if it did, who wants to type `gh arc <TAB> <TAB> <TAB>`... that's just too much work if you ask me 🤷
+Github CLI does not currently support shell completion for extensions (See [cli/cli#5309](https://github.com/cli/cli/issues/5309)), but even if it did, who wants to type `gh arc <TAB> <TAB> <TAB>` ...that's just too much work if you ask me 🤷
 
-So we've come up with a solution to both of the above problems:
+So we've come up with a "simple as a rock" (is that a thing? 🤔) solution to both of the above problems 💡
 
 - Find out where github cli installs extensions on your machine. On Linux (and maybe on Mac), it's usually under `~/.local/share/gh/extensions`. 
 
@@ -109,10 +111,10 @@ So we've come up with a solution to both of the above problems:
     gh arc "$@"
     ```
 
-- Make it executable and place it on your `PATH`
+- Make it executable and place it on your `PATH`.
 
-- Get the completion script for your shell from the [releases](https://github.com/serpro69/gh-arc/releases/latest) page.
+- Get the completion script for your shell from the [releases](https://github.com/serpro69/gh-arc/releases/latest) page. Don't forget to source it or whatever, you know what to do.
 
-- Reload your shell, and try typing `arc <TAB>`. You should see the command completion for the extension, and you've shortened the overall gh command as well... 🤯
+- Then try typing `arc <TAB>` ...you should see the command completion for the extension; and as an added bonus, you've shortened the overall `gh ...` command as well... 🤯 Who said ingenious can't be simple?
 
-- Profit ⏱️
+- Profit... ⏱️
