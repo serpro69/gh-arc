@@ -428,7 +428,7 @@ func TestIsTemplateEmpty(t *testing.T) {
 	}
 }
 
-// Test ValidateFields
+// Test ValidateFields without stacking context
 func TestValidateFields(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -497,7 +497,119 @@ func TestValidateFields(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			errs := ValidateFields(tt.fields, tt.requireTestPlan)
+			errs := ValidateFields(tt.fields, tt.requireTestPlan, nil)
+
+			if tt.expectErrors && len(errs) == 0 {
+				t.Error("Expected validation errors but got none")
+			}
+			if !tt.expectErrors && len(errs) > 0 {
+				t.Errorf("Expected no errors but got: %v", errs)
+			}
+
+			for _, contains := range tt.errorContains {
+				found := false
+				for _, err := range errs {
+					if strings.Contains(err.Error(), contains) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("Expected error containing %q but not found in %v", contains, errs)
+				}
+			}
+		})
+	}
+}
+
+// Test ValidateFields with stacking context
+func TestValidateFieldsWithStackingContext(t *testing.T) {
+	tests := []struct {
+		name            string
+		fields          *TemplateFields
+		requireTestPlan bool
+		stackingCtx     *StackingContext
+		expectErrors    bool
+		errorContains   []string
+	}{
+		{
+			name: "valid stacked PR with all fields",
+			fields: &TemplateFields{
+				Title:     "Child feature",
+				TestPlan:  "Tested with parent",
+				Reviewers: []string{"@user1"},
+			},
+			requireTestPlan: true,
+			stackingCtx: &StackingContext{
+				IsStacking:    true,
+				BaseBranch:    "feature/parent",
+				CurrentBranch: "feature/child",
+			},
+			expectErrors: false,
+		},
+		{
+			name: "missing title with stacking context",
+			fields: &TemplateFields{
+				TestPlan: "Tested",
+			},
+			requireTestPlan: true,
+			stackingCtx: &StackingContext{
+				IsStacking:    true,
+				BaseBranch:    "feature/parent",
+				CurrentBranch: "feature/child",
+			},
+			expectErrors:  true,
+			errorContains: []string{"Title is required for stacked PR on feature/parent"},
+		},
+		{
+			name: "missing test plan with stacking context and parent PR",
+			fields: &TemplateFields{
+				Title: "Child feature",
+			},
+			requireTestPlan: true,
+			stackingCtx: &StackingContext{
+				IsStacking:    true,
+				BaseBranch:    "feature/parent",
+				CurrentBranch: "feature/child",
+				ParentPR: &github.PullRequest{
+					Number: 100,
+					Title:  "Parent feature",
+				},
+			},
+			expectErrors:  true,
+			errorContains: []string{"Test Plan is required for stacked PR on feature/parent (PR #100)"},
+		},
+		{
+			name: "missing test plan with stacking context without parent PR",
+			fields: &TemplateFields{
+				Title: "Feature",
+			},
+			requireTestPlan: true,
+			stackingCtx: &StackingContext{
+				IsStacking:    true,
+				BaseBranch:    "main",
+				CurrentBranch: "feature",
+			},
+			expectErrors:  true,
+			errorContains: []string{"Test Plan is required for stacked PR on main"},
+		},
+		{
+			name: "non-stacking context behaves like nil",
+			fields: &TemplateFields{
+				Title: "Feature",
+			},
+			requireTestPlan: true,
+			stackingCtx: &StackingContext{
+				IsStacking: false,
+			},
+			expectErrors:  true,
+			errorContains: []string{"Test Plan is required"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := ValidateFields(tt.fields, tt.requireTestPlan, tt.stackingCtx)
 
 			if tt.expectErrors && len(errs) == 0 {
 				t.Error("Expected validation errors but got none")
@@ -525,17 +637,17 @@ func TestValidateFields(t *testing.T) {
 // Test FormatValidationErrors
 func TestFormatValidationErrors(t *testing.T) {
 	t.Run("no errors", func(t *testing.T) {
-		result := FormatValidationErrors([]error{})
+		result := FormatValidationErrors([]error{}, nil)
 		if result != "" {
 			t.Errorf("Expected empty string for no errors, got %q", result)
 		}
 	})
 
-	t.Run("single error", func(t *testing.T) {
+	t.Run("single error without stacking", func(t *testing.T) {
 		errs := []error{ErrEditorCancelled}
-		result := FormatValidationErrors(errs)
+		result := FormatValidationErrors(errs, nil)
 
-		if !strings.Contains(result, "✗ Template validation failed") {
+		if !strings.Contains(result, "✗ Template validation failed:") {
 			t.Error("Missing validation failed header")
 		}
 		if !strings.Contains(result, ErrEditorCancelled.Error()) {
@@ -546,15 +658,272 @@ func TestFormatValidationErrors(t *testing.T) {
 		}
 	})
 
-	t.Run("multiple errors", func(t *testing.T) {
-		errs := ValidateFields(&TemplateFields{}, true)
-		result := FormatValidationErrors(errs)
+	t.Run("multiple errors without stacking", func(t *testing.T) {
+		errs := ValidateFields(&TemplateFields{}, true, nil)
+		result := FormatValidationErrors(errs, nil)
 
 		if !strings.Contains(result, "Title is required") {
 			t.Error("Missing title error")
 		}
 		if !strings.Contains(result, "Test Plan is required") {
 			t.Error("Missing test plan error")
+		}
+	})
+
+	t.Run("errors with stacking context without parent PR", func(t *testing.T) {
+		stackingCtx := &StackingContext{
+			IsStacking:    true,
+			BaseBranch:    "main",
+			CurrentBranch: "feature",
+		}
+		errs := ValidateFields(&TemplateFields{}, true, stackingCtx)
+		result := FormatValidationErrors(errs, stackingCtx)
+
+		if !strings.Contains(result, "✗ Template validation failed for stacked PR:") {
+			t.Error("Missing stacked PR validation header")
+		}
+		if !strings.Contains(result, "Stack: feature → main") {
+			t.Error("Missing stack hierarchy without PR number")
+		}
+		if !strings.Contains(result, "Title is required") {
+			t.Error("Missing title error")
+		}
+	})
+
+	t.Run("errors with stacking context with parent PR", func(t *testing.T) {
+		stackingCtx := &StackingContext{
+			IsStacking:    true,
+			BaseBranch:    "feature/parent",
+			CurrentBranch: "feature/child",
+			ParentPR: &github.PullRequest{
+				Number: 100,
+				Title:  "Parent feature",
+			},
+		}
+		errs := ValidateFields(&TemplateFields{}, true, stackingCtx)
+		result := FormatValidationErrors(errs, stackingCtx)
+
+		if !strings.Contains(result, "✗ Template validation failed for stacked PR:") {
+			t.Error("Missing stacked PR validation header")
+		}
+		if !strings.Contains(result, "Stack: feature/child → feature/parent (PR #100)") {
+			t.Error("Missing stack hierarchy with PR number")
+		}
+	})
+
+	t.Run("non-stacking context behaves like nil", func(t *testing.T) {
+		stackingCtx := &StackingContext{
+			IsStacking: false,
+		}
+		errs := ValidateFields(&TemplateFields{}, true, stackingCtx)
+		result := FormatValidationErrors(errs, stackingCtx)
+
+		if !strings.Contains(result, "✗ Template validation failed:") {
+			t.Error("Should use standard header for non-stacking")
+		}
+		if strings.Contains(result, "stacked PR") {
+			t.Error("Should not mention stacking for non-stacking context")
+		}
+	})
+}
+
+// Test GetStackingInfo
+func TestGetStackingInfo(t *testing.T) {
+	t.Run("nil context", func(t *testing.T) {
+		result := GetStackingInfo(nil)
+		if result != "" {
+			t.Errorf("Expected empty string for nil context, got %q", result)
+		}
+	})
+
+	t.Run("non-stacking context", func(t *testing.T) {
+		stackingCtx := &StackingContext{
+			IsStacking: false,
+		}
+		result := GetStackingInfo(stackingCtx)
+		if result != "" {
+			t.Errorf("Expected empty string for non-stacking, got %q", result)
+		}
+	})
+
+	t.Run("stacking without parent PR", func(t *testing.T) {
+		stackingCtx := &StackingContext{
+			IsStacking: true,
+			BaseBranch: "main",
+		}
+		result := GetStackingInfo(stackingCtx)
+		expected := "📚 Stacking on main"
+		if result != expected {
+			t.Errorf("GetStackingInfo() = %q, want %q", result, expected)
+		}
+	})
+
+	t.Run("stacking with parent PR", func(t *testing.T) {
+		stackingCtx := &StackingContext{
+			IsStacking: true,
+			BaseBranch: "feature/parent",
+			ParentPR: &github.PullRequest{
+				Number: 100,
+				Title:  "Parent feature",
+			},
+		}
+		result := GetStackingInfo(stackingCtx)
+		if !strings.Contains(result, "📚 Stacking on feature/parent") {
+			t.Error("Missing base branch in stacking info")
+		}
+		if !strings.Contains(result, "PR #100") {
+			t.Error("Missing PR number in stacking info")
+		}
+		if !strings.Contains(result, "Parent feature") {
+			t.Error("Missing PR title in stacking info")
+		}
+	})
+}
+
+// Test GetDependentPRsWarning
+func TestGetDependentPRsWarning(t *testing.T) {
+	t.Run("nil context", func(t *testing.T) {
+		result := GetDependentPRsWarning(nil)
+		if result != "" {
+			t.Errorf("Expected empty string for nil context, got %q", result)
+		}
+	})
+
+	t.Run("show dependents false", func(t *testing.T) {
+		stackingCtx := &StackingContext{
+			ShowDependents: false,
+			DependentPRs: []*github.PullRequest{
+				{Number: 101, Title: "Dependent"},
+			},
+		}
+		result := GetDependentPRsWarning(stackingCtx)
+		if result != "" {
+			t.Errorf("Expected empty string when ShowDependents is false, got %q", result)
+		}
+	})
+
+	t.Run("no dependent PRs", func(t *testing.T) {
+		stackingCtx := &StackingContext{
+			ShowDependents: true,
+			DependentPRs:   []*github.PullRequest{},
+		}
+		result := GetDependentPRsWarning(stackingCtx)
+		if result != "" {
+			t.Errorf("Expected empty string when no dependent PRs, got %q", result)
+		}
+	})
+
+	t.Run("single dependent PR", func(t *testing.T) {
+		stackingCtx := &StackingContext{
+			ShowDependents: true,
+			DependentPRs: []*github.PullRequest{
+				{
+					Number: 101,
+					Title:  "Dependent feature",
+					User:   github.PRUser{Login: "alice"},
+				},
+			},
+		}
+		result := GetDependentPRsWarning(stackingCtx)
+		if !strings.Contains(result, "⚠️  WARNING: 1 dependent PR(s) target this branch:") {
+			t.Error("Missing warning header for single PR")
+		}
+		if !strings.Contains(result, "PR #101") {
+			t.Error("Missing PR number")
+		}
+		if !strings.Contains(result, "Dependent feature") {
+			t.Error("Missing PR title")
+		}
+		if !strings.Contains(result, "@alice") {
+			t.Error("Missing PR author")
+		}
+	})
+
+	t.Run("multiple dependent PRs", func(t *testing.T) {
+		stackingCtx := &StackingContext{
+			ShowDependents: true,
+			DependentPRs: []*github.PullRequest{
+				{
+					Number: 101,
+					Title:  "Dependent feature 1",
+					User:   github.PRUser{Login: "alice"},
+				},
+				{
+					Number: 102,
+					Title:  "Dependent feature 2",
+					User:   github.PRUser{Login: "bob"},
+				},
+			},
+		}
+		result := GetDependentPRsWarning(stackingCtx)
+		if !strings.Contains(result, "⚠️  WARNING: 2 dependent PR(s) target this branch:") {
+			t.Error("Missing warning header for multiple PRs")
+		}
+		if !strings.Contains(result, "PR #101") {
+			t.Error("Missing first PR")
+		}
+		if !strings.Contains(result, "PR #102") {
+			t.Error("Missing second PR")
+		}
+		if !strings.Contains(result, "@alice") {
+			t.Error("Missing first author")
+		}
+		if !strings.Contains(result, "@bob") {
+			t.Error("Missing second author")
+		}
+	})
+}
+
+// Test ValidateFieldsWithContext
+func TestValidateFieldsWithContext(t *testing.T) {
+	t.Run("valid fields returns true", func(t *testing.T) {
+		fields := &TemplateFields{
+			Title:     "Feature",
+			TestPlan:  "Tested",
+			Reviewers: []string{"@user1"},
+		}
+		valid, msg := ValidateFieldsWithContext(fields, true, nil)
+		if !valid {
+			t.Error("Expected valid=true for valid fields")
+		}
+		if msg != "" {
+			t.Errorf("Expected empty message for valid fields, got %q", msg)
+		}
+	})
+
+	t.Run("invalid fields returns formatted error", func(t *testing.T) {
+		fields := &TemplateFields{}
+		valid, msg := ValidateFieldsWithContext(fields, true, nil)
+		if valid {
+			t.Error("Expected valid=false for invalid fields")
+		}
+		if msg == "" {
+			t.Error("Expected non-empty error message")
+		}
+		if !strings.Contains(msg, "Title is required") {
+			t.Error("Message missing title error")
+		}
+		if !strings.Contains(msg, "Test Plan is required") {
+			t.Error("Message missing test plan error")
+		}
+	})
+
+	t.Run("invalid fields with stacking context", func(t *testing.T) {
+		fields := &TemplateFields{}
+		stackingCtx := &StackingContext{
+			IsStacking:    true,
+			BaseBranch:    "main",
+			CurrentBranch: "feature",
+		}
+		valid, msg := ValidateFieldsWithContext(fields, true, stackingCtx)
+		if valid {
+			t.Error("Expected valid=false for invalid fields")
+		}
+		if !strings.Contains(msg, "stacked PR") {
+			t.Error("Message should mention stacked PR")
+		}
+		if !strings.Contains(msg, "Stack: feature → main") {
+			t.Error("Message should include stack hierarchy")
 		}
 	})
 }

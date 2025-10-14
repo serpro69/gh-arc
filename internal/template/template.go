@@ -470,17 +470,29 @@ func GetEditorCommand() (string, error) {
 }
 
 // ValidateFields validates that required template fields are filled
-func ValidateFields(fields *TemplateFields, requireTestPlan bool) []error {
+// stackingCtx can be nil for non-stacking scenarios
+func ValidateFields(fields *TemplateFields, requireTestPlan bool, stackingCtx *StackingContext) []error {
 	var errs []error
 
 	// Title is always required
 	if fields.Title == "" {
-		errs = append(errs, errors.New("Title is required"))
+		if stackingCtx != nil && stackingCtx.IsStacking {
+			errs = append(errs, fmt.Errorf("Title is required for stacked PR on %s", stackingCtx.BaseBranch))
+		} else {
+			errs = append(errs, errors.New("Title is required"))
+		}
 	}
 
 	// Test Plan required if configured
 	if requireTestPlan && fields.TestPlan == "" {
-		errs = append(errs, errors.New("Test Plan is required"))
+		if stackingCtx != nil && stackingCtx.IsStacking && stackingCtx.ParentPR != nil {
+			errs = append(errs, fmt.Errorf("Test Plan is required for stacked PR on %s (PR #%d)",
+				stackingCtx.BaseBranch, stackingCtx.ParentPR.Number))
+		} else if stackingCtx != nil && stackingCtx.IsStacking {
+			errs = append(errs, fmt.Errorf("Test Plan is required for stacked PR on %s", stackingCtx.BaseBranch))
+		} else {
+			errs = append(errs, errors.New("Test Plan is required"))
+		}
 	}
 
 	// Validate reviewer format (should start with @)
@@ -493,20 +505,81 @@ func ValidateFields(fields *TemplateFields, requireTestPlan bool) []error {
 	return errs
 }
 
-// FormatValidationErrors formats validation errors for display
-func FormatValidationErrors(errs []error) string {
+// FormatValidationErrors formats validation errors for display with stacking context
+// stackingCtx can be nil for non-stacking scenarios
+func FormatValidationErrors(errs []error, stackingCtx *StackingContext) string {
 	if len(errs) == 0 {
 		return ""
 	}
 
 	var sb strings.Builder
-	sb.WriteString("✗ Template validation failed:\n")
+
+	// Header with stacking context
+	if stackingCtx != nil && stackingCtx.IsStacking {
+		sb.WriteString("✗ Template validation failed for stacked PR:\n")
+		if stackingCtx.ParentPR != nil {
+			sb.WriteString(fmt.Sprintf("  Stack: %s → %s (PR #%d)\n",
+				stackingCtx.CurrentBranch, stackingCtx.BaseBranch, stackingCtx.ParentPR.Number))
+		} else {
+			sb.WriteString(fmt.Sprintf("  Stack: %s → %s\n",
+				stackingCtx.CurrentBranch, stackingCtx.BaseBranch))
+		}
+		sb.WriteString("\n")
+	} else {
+		sb.WriteString("✗ Template validation failed:\n")
+	}
+
+	// List errors
 	for _, err := range errs {
 		sb.WriteString(fmt.Sprintf("  • %s\n", err.Error()))
 	}
+
+	// Recovery suggestion
 	sb.WriteString("\nUse 'gh arc diff --continue' to retry editing.\n")
 
 	return sb.String()
+}
+
+// GetStackingInfo returns a formatted string with stacking information for display
+func GetStackingInfo(stackingCtx *StackingContext) string {
+	if stackingCtx == nil || !stackingCtx.IsStacking {
+		return ""
+	}
+
+	if stackingCtx.ParentPR != nil {
+		return fmt.Sprintf("📚 Stacking on %s (PR #%d: %s)",
+			stackingCtx.BaseBranch, stackingCtx.ParentPR.Number, stackingCtx.ParentPR.Title)
+	}
+
+	return fmt.Sprintf("📚 Stacking on %s", stackingCtx.BaseBranch)
+}
+
+// GetDependentPRsWarning returns a formatted warning about dependent PRs
+func GetDependentPRsWarning(stackingCtx *StackingContext) string {
+	if stackingCtx == nil || !stackingCtx.ShowDependents || len(stackingCtx.DependentPRs) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("⚠️  WARNING: %d dependent PR(s) target this branch:\n",
+		len(stackingCtx.DependentPRs)))
+
+	for _, dep := range stackingCtx.DependentPRs {
+		sb.WriteString(fmt.Sprintf("   • PR #%d: %s (@%s)\n",
+			dep.Number, dep.Title, dep.User.Login))
+	}
+
+	return sb.String()
+}
+
+// ValidateFieldsWithContext is a convenience wrapper that combines validation and formatting
+func ValidateFieldsWithContext(fields *TemplateFields, requireTestPlan bool, stackingCtx *StackingContext) (bool, string) {
+	errs := ValidateFields(fields, requireTestPlan, stackingCtx)
+	if len(errs) == 0 {
+		return true, ""
+	}
+
+	return false, FormatValidationErrors(errs, stackingCtx)
 }
 
 // WriteTemplateTo writes template content to a writer (for testing)
