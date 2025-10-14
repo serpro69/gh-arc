@@ -7,6 +7,9 @@ import (
 	"github.com/cli/go-gh/v2/pkg/repository"
 	"github.com/spf13/cobra"
 
+	"github.com/serpro69/gh-arc/internal/config"
+	"github.com/serpro69/gh-arc/internal/diff"
+	"github.com/serpro69/gh-arc/internal/git"
 	"github.com/serpro69/gh-arc/internal/github"
 	"github.com/serpro69/gh-arc/internal/logger"
 )
@@ -120,6 +123,12 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		Str("base", diffBase).
 		Msg("Starting diff command")
 
+	// Load configuration
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load configuration: %w", err)
+	}
+
 	// Get current repository
 	repo, err := repository.Current()
 	if err != nil {
@@ -130,6 +139,22 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		Str("owner", repo.Owner).
 		Str("repo", repo.Name).
 		Msg("Repository detected")
+
+	// Open git repository
+	gitRepo, err := git.OpenRepository(".")
+	if err != nil {
+		return fmt.Errorf("failed to open git repository: %w", err)
+	}
+
+	// Get current branch
+	currentBranch, err := gitRepo.GetCurrentBranch()
+	if err != nil {
+		return fmt.Errorf("failed to get current branch: %w", err)
+	}
+
+	logger.Info().
+		Str("branch", currentBranch).
+		Msg("Current branch")
 
 	// Create GitHub client
 	client, err := github.NewClient()
@@ -147,11 +172,32 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		Str("user", currentUser).
 		Msg("Authenticated user")
 
-	// TODO: Implement diff workflow
-	// 1. Detect base branch (stacking logic)
-	// 2. Check for existing PR
-	// 3. Determine workflow path (simple push vs template editing)
-	// 4. Execute appropriate workflow
+	// Step 1: Detect base branch (stacking logic)
+	baseDetector := diff.NewBaseBranchDetector(gitRepo, client, &cfg.Diff, repo.Owner, repo.Name)
+	baseResult, err := baseDetector.DetectBaseBranch(ctx, currentBranch, diffBase)
+	if err != nil {
+		return fmt.Errorf("failed to detect base branch: %w", err)
+	}
 
-	return fmt.Errorf("diff command not yet implemented - this is just the command structure")
+	// Display stacking information
+	fmt.Println(baseResult.FormatStackingMessage())
+
+	// Step 2: Check for dependent PRs on current branch
+	dependentDetector := diff.NewDependentPRDetector(client, &cfg.Diff, repo.Owner, repo.Name)
+	dependentInfo, err := dependentDetector.DetectDependentPRs(ctx, currentBranch)
+	if err != nil {
+		return fmt.Errorf("failed to detect dependent PRs: %w", err)
+	}
+
+	// Display dependent PR warning if applicable
+	if dependentInfo.HasDependents && dependentDetector.ShouldShowWarning() {
+		fmt.Println(dependentInfo.FormatDependentPRsWarning())
+	}
+
+	// TODO: Continue with remaining workflow steps
+	// 3. Check for existing PR
+	// 4. Determine workflow path (simple push vs template editing)
+	// 5. Execute appropriate workflow
+
+	return fmt.Errorf("diff command not yet fully implemented - base detection and dependent PR detection complete")
 }

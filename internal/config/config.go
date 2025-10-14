@@ -26,9 +26,12 @@ type GitHubConfig struct {
 
 // DiffConfig contains PR creation settings
 type DiffConfig struct {
-	CreateAsDraft          bool `mapstructure:"createAsDraft"`
-	AutoUpdatePR           bool `mapstructure:"autoUpdatePR"`
-	IncludeCommitMessages  bool `mapstructure:"includeCommitMessages"`
+	CreateAsDraft         bool   `mapstructure:"createAsDraft"`
+	AutoUpdatePR          bool   `mapstructure:"autoUpdatePR"`
+	IncludeCommitMessages bool   `mapstructure:"includeCommitMessages"`
+	EnableStacking        bool   `mapstructure:"enableStacking"`
+	DefaultBase           string `mapstructure:"defaultBase"`
+	ShowStackingWarnings  bool   `mapstructure:"showStackingWarnings"`
 }
 
 // LandConfig contains merge settings
@@ -156,6 +159,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("diff.createAsDraft", true)
 	v.SetDefault("diff.autoUpdatePR", true)
 	v.SetDefault("diff.includeCommitMessages", true)
+	v.SetDefault("diff.enableStacking", true)        // Opt-out (enabled by default)
+	v.SetDefault("diff.defaultBase", "")             // Empty = auto-detect from git
+	v.SetDefault("diff.showStackingWarnings", true)
 
 	// Land defaults
 	v.SetDefault("land.defaultMergeMethod", "squash")
@@ -219,6 +225,24 @@ func (c *Config) Validate() error {
 		}
 		if runner.Command == "" {
 			return fmt.Errorf("lint runner %s: command is required", runner.Name)
+		}
+	}
+
+	// Validate diff configuration
+	if c.Diff.DefaultBase != "" {
+		// Validate branch name format: no spaces, starts with alphanumeric
+		if len(c.Diff.DefaultBase) == 0 {
+			return fmt.Errorf("diff.defaultBase cannot be empty string if specified")
+		}
+		// Basic validation: no spaces, slashes allowed for remote branches
+		for i, ch := range c.Diff.DefaultBase {
+			if ch == ' ' {
+				return fmt.Errorf("diff.defaultBase cannot contain spaces: %q", c.Diff.DefaultBase)
+			}
+			// First character must be alphanumeric
+			if i == 0 && !((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')) {
+				return fmt.Errorf("diff.defaultBase must start with alphanumeric character: %q", c.Diff.DefaultBase)
+			}
 		}
 	}
 

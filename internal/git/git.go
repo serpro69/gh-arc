@@ -890,3 +890,37 @@ func isBinaryFile(file *object.File) bool {
 
 	return false
 }
+
+// GetMergeBase finds the common ancestor (merge-base) between two refs.
+// It uses git CLI since go-git doesn't have reliable merge-base support.
+// Returns the SHA of the common ancestor commit.
+func (r *Repository) GetMergeBase(ref1, ref2 string) (string, error) {
+	if ref1 == "" || ref2 == "" {
+		return "", fmt.Errorf("both refs must be non-empty")
+	}
+
+	// Use git CLI to find merge-base
+	cmd := exec.Command("git", "merge-base", ref1, ref2)
+	cmd.Dir = r.path
+
+	output, err := cmd.Output()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			// Exit code 1 means no common ancestor
+			if exitErr.ExitCode() == 1 {
+				return "", fmt.Errorf("no common ancestor between %s and %s", ref1, ref2)
+			}
+			// Other exit codes indicate errors
+			return "", fmt.Errorf("failed to find merge-base: %s", string(exitErr.Stderr))
+		}
+		return "", fmt.Errorf("failed to execute git merge-base: %w", err)
+	}
+
+	// Parse and return the SHA
+	sha := strings.TrimSpace(string(output))
+	if sha == "" {
+		return "", fmt.Errorf("git merge-base returned empty result")
+	}
+
+	return sha, nil
+}
