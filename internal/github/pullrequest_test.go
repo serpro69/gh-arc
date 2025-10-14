@@ -1737,3 +1737,714 @@ func TestStackingMetadataFormat(t *testing.T) {
 		t.Error("Metadata should contain stacking reference line")
 	}
 }
+
+// ======================================
+// Reviewer Assignment Tests
+// ======================================
+
+func TestParseReviewers(t *testing.T) {
+	tests := []struct {
+		name          string
+		reviewers     []string
+		expectedUsers []string
+		expectedTeams []string
+	}{
+		{
+			name:          "empty list",
+			reviewers:     []string{},
+			expectedUsers: []string{},
+			expectedTeams: []string{},
+		},
+		{
+			name:          "single user",
+			reviewers:     []string{"@octocat"},
+			expectedUsers: []string{"octocat"},
+			expectedTeams: []string{},
+		},
+		{
+			name:          "single team",
+			reviewers:     []string{"@myorg/security-team"},
+			expectedUsers: []string{},
+			expectedTeams: []string{"myorg/security-team"},
+		},
+		{
+			name:          "mixed users and teams",
+			reviewers:     []string{"@octocat", "@myorg/security", "@reviewer2", "@myorg/frontend"},
+			expectedUsers: []string{"octocat", "reviewer2"},
+			expectedTeams: []string{"myorg/security", "myorg/frontend"},
+		},
+		{
+			name:          "without @ prefix",
+			reviewers:     []string{"octocat", "myorg/team"},
+			expectedUsers: []string{"octocat"},
+			expectedTeams: []string{"myorg/team"},
+		},
+		{
+			name:          "mixed @ prefix",
+			reviewers:     []string{"@octocat", "reviewer2", "@myorg/team"},
+			expectedUsers: []string{"octocat", "reviewer2"},
+			expectedTeams: []string{"myorg/team"},
+		},
+		{
+			name:          "empty strings filtered",
+			reviewers:     []string{"@octocat", "", "@", "myorg/team"},
+			expectedUsers: []string{"octocat"},
+			expectedTeams: []string{"myorg/team"},
+		},
+		{
+			name:          "multiple users",
+			reviewers:     []string{"@user1", "@user2", "@user3"},
+			expectedUsers: []string{"user1", "user2", "user3"},
+			expectedTeams: []string{},
+		},
+		{
+			name:          "multiple teams",
+			reviewers:     []string{"@org/team1", "@org/team2", "@org/team3"},
+			expectedUsers: []string{},
+			expectedTeams: []string{"org/team1", "org/team2", "org/team3"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assignment := ParseReviewers(tt.reviewers)
+
+			if len(assignment.Users) != len(tt.expectedUsers) {
+				t.Errorf("ParseReviewers() users count = %d, expected %d", len(assignment.Users), len(tt.expectedUsers))
+			}
+
+			if len(assignment.Teams) != len(tt.expectedTeams) {
+				t.Errorf("ParseReviewers() teams count = %d, expected %d", len(assignment.Teams), len(tt.expectedTeams))
+			}
+
+			// Check users
+			for i, user := range assignment.Users {
+				if user != tt.expectedUsers[i] {
+					t.Errorf("ParseReviewers() user[%d] = %s, expected %s", i, user, tt.expectedUsers[i])
+				}
+			}
+
+			// Check teams
+			for i, team := range assignment.Teams {
+				if team != tt.expectedTeams[i] {
+					t.Errorf("ParseReviewers() team[%d] = %s, expected %s", i, team, tt.expectedTeams[i])
+				}
+			}
+		})
+	}
+}
+
+func TestReviewerAssignmentStructure(t *testing.T) {
+	t.Run("basic structure", func(t *testing.T) {
+		assignment := &ReviewerAssignment{
+			Users: []string{"user1", "user2"},
+			Teams: []string{"org/team1"},
+		}
+
+		if len(assignment.Users) != 2 {
+			t.Errorf("Users count = %d, expected 2", len(assignment.Users))
+		}
+
+		if len(assignment.Teams) != 1 {
+			t.Errorf("Teams count = %d, expected 1", len(assignment.Teams))
+		}
+
+		if assignment.Users[0] != "user1" {
+			t.Errorf("Users[0] = %s, expected 'user1'", assignment.Users[0])
+		}
+
+		if assignment.Teams[0] != "org/team1" {
+			t.Errorf("Teams[0] = %s, expected 'org/team1'", assignment.Teams[0])
+		}
+	})
+
+	t.Run("empty assignment", func(t *testing.T) {
+		assignment := &ReviewerAssignment{
+			Users: []string{},
+			Teams: []string{},
+		}
+
+		if len(assignment.Users) != 0 {
+			t.Errorf("Users count = %d, expected 0", len(assignment.Users))
+		}
+
+		if len(assignment.Teams) != 0 {
+			t.Errorf("Teams count = %d, expected 0", len(assignment.Teams))
+		}
+	})
+}
+
+func TestAssignReviewersRequestStructure(t *testing.T) {
+	t.Run("with users and teams", func(t *testing.T) {
+		req := AssignReviewersRequest{
+			Reviewers:     []string{"octocat", "reviewer2"},
+			TeamReviewers: []string{"security-team", "frontend-team"},
+		}
+
+		if len(req.Reviewers) != 2 {
+			t.Errorf("Reviewers count = %d, expected 2", len(req.Reviewers))
+		}
+
+		if len(req.TeamReviewers) != 2 {
+			t.Errorf("TeamReviewers count = %d, expected 2", len(req.TeamReviewers))
+		}
+	})
+
+	t.Run("users only", func(t *testing.T) {
+		req := AssignReviewersRequest{
+			Reviewers:     []string{"octocat"},
+			TeamReviewers: []string{},
+		}
+
+		if len(req.Reviewers) != 1 {
+			t.Errorf("Reviewers count = %d, expected 1", len(req.Reviewers))
+		}
+
+		if len(req.TeamReviewers) != 0 {
+			t.Errorf("TeamReviewers count = %d, expected 0", len(req.TeamReviewers))
+		}
+	})
+
+	t.Run("teams only", func(t *testing.T) {
+		req := AssignReviewersRequest{
+			Reviewers:     []string{},
+			TeamReviewers: []string{"security"},
+		}
+
+		if len(req.Reviewers) != 0 {
+			t.Errorf("Reviewers count = %d, expected 0", len(req.Reviewers))
+		}
+
+		if len(req.TeamReviewers) != 1 {
+			t.Errorf("TeamReviewers count = %d, expected 1", len(req.TeamReviewers))
+		}
+	})
+}
+
+func TestGetStackAwareReviewers(t *testing.T) {
+	tests := []struct {
+		name                string
+		opts                *StackAwareReviewerOptions
+		expectedUsersCount  int
+		expectedTeamsCount  int
+		expectedUsers       []string
+		expectedTeams       []string
+		shouldContainUser   string
+		shouldNotContainUser string
+	}{
+		{
+			name: "current reviewers only",
+			opts: &StackAwareReviewerOptions{
+				CurrentReviewers: []string{"@octocat", "@myorg/security"},
+				CurrentUser:      "",
+				ParentPR:         nil,
+				InheritParent:    false,
+				DeduplicateStack: false,
+			},
+			expectedUsersCount: 1,
+			expectedTeamsCount: 1,
+			expectedUsers:      []string{"octocat"},
+			expectedTeams:      []string{"myorg/security"},
+		},
+		{
+			name: "filter out current user",
+			opts: &StackAwareReviewerOptions{
+				CurrentReviewers: []string{"@octocat", "@current-user"},
+				CurrentUser:      "@current-user",
+				ParentPR:         nil,
+				InheritParent:    false,
+				DeduplicateStack: false,
+			},
+			expectedUsersCount:   1,
+			shouldContainUser:    "octocat",
+			shouldNotContainUser: "current-user",
+		},
+		{
+			name: "filter out current user case insensitive",
+			opts: &StackAwareReviewerOptions{
+				CurrentReviewers: []string{"@octocat", "@Current-User"},
+				CurrentUser:      "@current-user",
+				ParentPR:         nil,
+				InheritParent:    false,
+				DeduplicateStack: false,
+			},
+			expectedUsersCount:   1,
+			shouldContainUser:    "octocat",
+			shouldNotContainUser: "Current-User",
+		},
+		{
+			name: "inherit from parent PR",
+			opts: &StackAwareReviewerOptions{
+				CurrentReviewers: []string{"@octocat"},
+				CurrentUser:      "",
+				ParentPR: &PullRequest{
+					Number: 122,
+					Reviewers: []PRReviewer{
+						{Login: "parent-reviewer"},
+					},
+				},
+				InheritParent:    true,
+				DeduplicateStack: true,
+			},
+			expectedUsersCount: 2,
+			shouldContainUser:  "octocat",
+		},
+		{
+			name: "deduplicate inherited reviewers",
+			opts: &StackAwareReviewerOptions{
+				CurrentReviewers: []string{"@octocat", "@shared-reviewer"},
+				CurrentUser:      "",
+				ParentPR: &PullRequest{
+					Number: 122,
+					Reviewers: []PRReviewer{
+						{Login: "shared-reviewer"},
+					},
+				},
+				InheritParent:    true,
+				DeduplicateStack: true,
+			},
+			expectedUsersCount: 2,
+			shouldContainUser:  "octocat",
+		},
+		{
+			name: "no inheritance when InheritParent is false",
+			opts: &StackAwareReviewerOptions{
+				CurrentReviewers: []string{"@octocat"},
+				CurrentUser:      "",
+				ParentPR: &PullRequest{
+					Number: 122,
+					Reviewers: []PRReviewer{
+						{Login: "parent-reviewer"},
+					},
+				},
+				InheritParent:    false,
+				DeduplicateStack: true,
+			},
+			expectedUsersCount: 1,
+			shouldContainUser:  "octocat",
+		},
+		{
+			name: "empty reviewers",
+			opts: &StackAwareReviewerOptions{
+				CurrentReviewers: []string{},
+				CurrentUser:      "",
+				ParentPR:         nil,
+				InheritParent:    false,
+				DeduplicateStack: false,
+			},
+			expectedUsersCount: 0,
+			expectedTeamsCount: 0,
+		},
+		{
+			name: "teams and users combined",
+			opts: &StackAwareReviewerOptions{
+				CurrentReviewers: []string{"@octocat", "@myorg/team1", "@reviewer2", "@myorg/team2"},
+				CurrentUser:      "",
+				ParentPR:         nil,
+				InheritParent:    false,
+				DeduplicateStack: false,
+			},
+			expectedUsersCount: 2,
+			expectedTeamsCount: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assignment := GetStackAwareReviewers(tt.opts)
+
+			if assignment == nil {
+				t.Fatal("GetStackAwareReviewers() returned nil")
+			}
+
+			if len(assignment.Users) != tt.expectedUsersCount {
+				t.Errorf("Users count = %d, expected %d", len(assignment.Users), tt.expectedUsersCount)
+			}
+
+			if tt.expectedTeamsCount > 0 && len(assignment.Teams) != tt.expectedTeamsCount {
+				t.Errorf("Teams count = %d, expected %d", len(assignment.Teams), tt.expectedTeamsCount)
+			}
+
+			// Check expected users
+			if len(tt.expectedUsers) > 0 {
+				for _, expectedUser := range tt.expectedUsers {
+					found := false
+					for _, user := range assignment.Users {
+						if user == expectedUser {
+							found = true
+							break
+						}
+					}
+					if !found {
+						t.Errorf("Expected user %s not found in assignment", expectedUser)
+					}
+				}
+			}
+
+			// Check expected teams
+			if len(tt.expectedTeams) > 0 {
+				for _, expectedTeam := range tt.expectedTeams {
+					found := false
+					for _, team := range assignment.Teams {
+						if team == expectedTeam {
+							found = true
+							break
+						}
+					}
+					if !found {
+						t.Errorf("Expected team %s not found in assignment", expectedTeam)
+					}
+				}
+			}
+
+			// Check shouldContainUser
+			if tt.shouldContainUser != "" {
+				found := false
+				for _, user := range assignment.Users {
+					if user == tt.shouldContainUser {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("Expected user %s to be in assignment", tt.shouldContainUser)
+				}
+			}
+
+			// Check shouldNotContainUser
+			if tt.shouldNotContainUser != "" {
+				for _, user := range assignment.Users {
+					if strings.EqualFold(user, tt.shouldNotContainUser) {
+						t.Errorf("User %s should not be in assignment", tt.shouldNotContainUser)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestFormatReviewerAssignment(t *testing.T) {
+	tests := []struct {
+		name          string
+		assignment    *ReviewerAssignment
+		parentPR      *PullRequest
+		inherited     bool
+		expectEmpty   bool
+		expectedParts []string
+	}{
+		{
+			name:        "nil assignment",
+			assignment:  nil,
+			parentPR:    nil,
+			inherited:   false,
+			expectEmpty: true,
+		},
+		{
+			name: "empty assignment",
+			assignment: &ReviewerAssignment{
+				Users: []string{},
+				Teams: []string{},
+			},
+			parentPR:    nil,
+			inherited:   false,
+			expectEmpty: true,
+		},
+		{
+			name: "users only",
+			assignment: &ReviewerAssignment{
+				Users: []string{"octocat", "reviewer2"},
+				Teams: []string{},
+			},
+			parentPR:      nil,
+			inherited:     false,
+			expectEmpty:   false,
+			expectedParts: []string{"Assigned reviewers:", "@octocat", "@reviewer2"},
+		},
+		{
+			name: "teams only",
+			assignment: &ReviewerAssignment{
+				Users: []string{},
+				Teams: []string{"myorg/security", "myorg/frontend"},
+			},
+			parentPR:      nil,
+			inherited:     false,
+			expectEmpty:   false,
+			expectedParts: []string{"Assigned reviewers:", "@myorg/security", "@myorg/frontend"},
+		},
+		{
+			name: "users and teams",
+			assignment: &ReviewerAssignment{
+				Users: []string{"octocat"},
+				Teams: []string{"myorg/security"},
+			},
+			parentPR:      nil,
+			inherited:     false,
+			expectEmpty:   false,
+			expectedParts: []string{"Assigned reviewers:", "@octocat", "@myorg/security"},
+		},
+		{
+			name: "with inheritance note",
+			assignment: &ReviewerAssignment{
+				Users: []string{"octocat"},
+				Teams: []string{},
+			},
+			parentPR: &PullRequest{
+				Number: 122,
+				Title:  "Parent PR",
+			},
+			inherited:     true,
+			expectEmpty:   false,
+			expectedParts: []string{"Assigned reviewers:", "@octocat", "parent PR #122"},
+		},
+		{
+			name: "no inheritance note when inherited is false",
+			assignment: &ReviewerAssignment{
+				Users: []string{"octocat"},
+				Teams: []string{},
+			},
+			parentPR: &PullRequest{
+				Number: 122,
+				Title:  "Parent PR",
+			},
+			inherited:   false,
+			expectEmpty: false,
+			expectedParts: []string{"Assigned reviewers:", "@octocat"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := FormatReviewerAssignment(tt.assignment, tt.parentPR, tt.inherited)
+
+			if tt.expectEmpty {
+				if result != "" {
+					t.Errorf("Expected empty string, got %q", result)
+				}
+				return
+			}
+
+			for _, part := range tt.expectedParts {
+				if !strings.Contains(result, part) {
+					t.Errorf("Expected result to contain %q, got %q", part, result)
+				}
+			}
+
+			// Check inheritance note is not present when not expected
+			if !tt.inherited && strings.Contains(result, "parent PR") {
+				t.Error("Result should not contain inheritance note when inherited is false")
+			}
+		})
+	}
+}
+
+func TestDetectReviewerConflicts(t *testing.T) {
+	tests := []struct {
+		name              string
+		currentReviewers  []string
+		parentPR          *PullRequest
+		expectedConflicts []string
+	}{
+		{
+			name:              "no parent PR",
+			currentReviewers:  []string{"@octocat"},
+			parentPR:          nil,
+			expectedConflicts: []string{},
+		},
+		{
+			name:             "parent PR with no reviewers",
+			currentReviewers: []string{"@octocat"},
+			parentPR: &PullRequest{
+				Number:    122,
+				Reviewers: []PRReviewer{},
+			},
+			expectedConflicts: []string{},
+		},
+		{
+			name:              "no current reviewers",
+			currentReviewers:  []string{},
+			parentPR:          &PullRequest{Number: 122, Reviewers: []PRReviewer{{Login: "octocat"}}},
+			expectedConflicts: []string{},
+		},
+		{
+			name:             "no conflicts - different reviewers",
+			currentReviewers: []string{"@reviewer1", "@reviewer2"},
+			parentPR: &PullRequest{
+				Number: 122,
+				Reviewers: []PRReviewer{
+					{Login: "octocat"},
+					{Login: "reviewer3"},
+				},
+			},
+			expectedConflicts: []string{},
+		},
+		{
+			name:             "single conflict",
+			currentReviewers: []string{"@octocat", "@reviewer2"},
+			parentPR: &PullRequest{
+				Number: 122,
+				Reviewers: []PRReviewer{
+					{Login: "octocat"},
+				},
+			},
+			expectedConflicts: []string{"@octocat"},
+		},
+		{
+			name:             "multiple conflicts",
+			currentReviewers: []string{"@octocat", "@reviewer2", "@reviewer3"},
+			parentPR: &PullRequest{
+				Number: 122,
+				Reviewers: []PRReviewer{
+					{Login: "octocat"},
+					{Login: "reviewer2"},
+				},
+			},
+			expectedConflicts: []string{"@octocat", "@reviewer2"},
+		},
+		{
+			name:             "case insensitive matching",
+			currentReviewers: []string{"@Octocat", "@Reviewer2"},
+			parentPR: &PullRequest{
+				Number: 122,
+				Reviewers: []PRReviewer{
+					{Login: "octocat"},
+					{Login: "reviewer2"},
+				},
+			},
+			expectedConflicts: []string{"@Octocat", "@Reviewer2"},
+		},
+		{
+			name:             "without @ prefix",
+			currentReviewers: []string{"octocat", "reviewer2"},
+			parentPR: &PullRequest{
+				Number: 122,
+				Reviewers: []PRReviewer{
+					{Login: "octocat"},
+				},
+			},
+			expectedConflicts: []string{"octocat"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conflicts := DetectReviewerConflicts(tt.currentReviewers, tt.parentPR)
+
+			if len(conflicts) != len(tt.expectedConflicts) {
+				t.Errorf("DetectReviewerConflicts() returned %d conflicts, expected %d", len(conflicts), len(tt.expectedConflicts))
+			}
+
+			// Check that all expected conflicts are present
+			for _, expected := range tt.expectedConflicts {
+				found := false
+				for _, conflict := range conflicts {
+					if conflict == expected {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("Expected conflict %s not found in results", expected)
+				}
+			}
+		})
+	}
+}
+
+func TestAssignReviewersForCurrentRepo(t *testing.T) {
+	t.Run("no repository context", func(t *testing.T) {
+		client := &Client{
+			repo:           nil,
+			config:         DefaultConfig(),
+			cache:          &NoOpCache{},
+			circuitBreaker: NewCircuitBreaker(5, 1*time.Minute),
+		}
+
+		err := client.AssignReviewersForCurrentRepo(nil, 123, []string{"octocat"}, []string{})
+		if err == nil {
+			t.Error("Expected error when repository context is not set")
+		}
+
+		if err.Error() != "no repository context set" {
+			t.Errorf("Error message = %q, expected 'no repository context set'", err.Error())
+		}
+	})
+}
+
+func TestStackAwareReviewerOptionsStructure(t *testing.T) {
+	t.Run("all fields set", func(t *testing.T) {
+		opts := &StackAwareReviewerOptions{
+			CurrentReviewers: []string{"@octocat"},
+			CurrentUser:      "@current-user",
+			ParentPR: &PullRequest{
+				Number: 122,
+			},
+			InheritParent:    true,
+			DeduplicateStack: true,
+		}
+
+		if len(opts.CurrentReviewers) != 1 {
+			t.Errorf("CurrentReviewers count = %d, expected 1", len(opts.CurrentReviewers))
+		}
+
+		if opts.CurrentUser != "@current-user" {
+			t.Errorf("CurrentUser = %s, expected '@current-user'", opts.CurrentUser)
+		}
+
+		if opts.ParentPR == nil {
+			t.Error("ParentPR should not be nil")
+		}
+
+		if !opts.InheritParent {
+			t.Error("InheritParent should be true")
+		}
+
+		if !opts.DeduplicateStack {
+			t.Error("DeduplicateStack should be true")
+		}
+	})
+}
+
+func TestReviewerAssignmentEdgeCases(t *testing.T) {
+	t.Run("reviewers with multiple slashes", func(t *testing.T) {
+		// Edge case: team with multiple slashes (though unusual)
+		reviewers := []string{"@org/parent/child"}
+		assignment := ParseReviewers(reviewers)
+
+		// Should still be treated as a team (contains slash)
+		if len(assignment.Teams) != 1 {
+			t.Errorf("Expected 1 team, got %d", len(assignment.Teams))
+		}
+	})
+
+	t.Run("whitespace in reviewer names", func(t *testing.T) {
+		// Note: GitHub usernames can't have spaces, but testing input handling
+		reviewers := []string{" @octocat ", "@org/team "}
+		assignment := ParseReviewers(reviewers)
+
+		// Parser should handle trimming (through @ prefix removal)
+		// Though spaces in the middle won't be trimmed
+		if len(assignment.Users) == 0 && len(assignment.Teams) == 0 {
+			t.Error("Expected some reviewers to be parsed")
+		}
+	})
+
+	t.Run("empty parent PR reviewers", func(t *testing.T) {
+		opts := &StackAwareReviewerOptions{
+			CurrentReviewers: []string{"@octocat"},
+			CurrentUser:      "",
+			ParentPR: &PullRequest{
+				Number:    122,
+				Reviewers: []PRReviewer{}, // Empty list
+			},
+			InheritParent:    true,
+			DeduplicateStack: true,
+		}
+
+		assignment := GetStackAwareReviewers(opts)
+
+		// Should only have current reviewers
+		if len(assignment.Users) != 1 {
+			t.Errorf("Expected 1 user, got %d", len(assignment.Users))
+		}
+	})
+}

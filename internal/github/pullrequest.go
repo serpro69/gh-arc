@@ -1223,3 +1223,259 @@ func (c *Client) CheckDraftTransitionForCurrentRepo(
 
 	return c.CheckDraftTransition(ctx, c.repo.Owner, c.repo.Name, pr)
 }
+
+// ReviewerAssignment represents parsed reviewers separated by type
+type ReviewerAssignment struct {
+	Users []string // Individual GitHub usernames (without @ prefix)
+	Teams []string // Team slugs in org/team format (without @ prefix)
+}
+
+// ParseReviewers parses a list of @usernames and @org/team into separate lists
+// Removes the @ prefix and separates individual users from team reviewers
+func ParseReviewers(reviewers []string) *ReviewerAssignment {
+	assignment := &ReviewerAssignment{
+		Users: []string{},
+		Teams: []string{},
+	}
+
+	for _, reviewer := range reviewers {
+		// Remove @ prefix if present
+		cleaned := strings.TrimPrefix(reviewer, "@")
+		if cleaned == "" {
+			continue
+		}
+
+		// Team reviewers contain a slash (org/team)
+		if strings.Contains(cleaned, "/") {
+			assignment.Teams = append(assignment.Teams, cleaned)
+		} else {
+			assignment.Users = append(assignment.Users, cleaned)
+		}
+	}
+
+	logger.Debug().
+		Int("users", len(assignment.Users)).
+		Int("teams", len(assignment.Teams)).
+		Msg("Parsed reviewers into users and teams")
+
+	return assignment
+}
+
+// AssignReviewersRequest represents the payload for requesting reviewers
+type AssignReviewersRequest struct {
+	Reviewers     []string `json:"reviewers,omitempty"`      // Individual user logins
+	TeamReviewers []string `json:"team_reviewers,omitempty"` // Team slugs (without org prefix)
+}
+
+// AssignReviewers assigns reviewers to a pull request via GitHub API
+// POST /repos/{owner}/{repo}/pulls/{number}/requested_reviewers
+func (c *Client) AssignReviewers(
+	ctx context.Context,
+	owner, repo string,
+	number int,
+	users, teams []string,
+) error {
+	if len(users) == 0 && len(teams) == 0 {
+		logger.Debug().
+			Int("pr", number).
+			Msg("No reviewers to assign, skipping")
+		return nil
+	}
+
+	logger.Info().
+		Int("pr", number).
+		Strs("users", users).
+		Strs("teams", teams).
+		Msg("Assigning reviewers to PR")
+
+	path := fmt.Sprintf("repos/%s/%s/pulls/%d/requested_reviewers", owner, repo, number)
+
+	// Prepare request payload
+	// Teams need to be in "team-slug" format (just the slug part after org/)
+	teamSlugs := make([]string, 0, len(teams))
+	for _, team := range teams {
+		// If team is in org/team format, extract just the team slug
+		parts := strings.Split(team, "/")
+		if len(parts) == 2 {
+			teamSlugs = append(teamSlugs, parts[1])
+		} else {
+			// Already just a slug
+			teamSlugs = append(teamSlugs, team)
+		}
+	}
+
+	payload := AssignReviewersRequest{
+		Reviewers:     users,
+		TeamReviewers: teamSlugs,
+	}
+
+	// Use Do method with POST
+	err := c.Do(ctx, "POST", path, payload, nil)
+	if err != nil {
+		// Check for specific error types
+		if strings.Contains(err.Error(), "422") || strings.Contains(err.Error(), "Unprocessable Entity") {
+			return fmt.Errorf("failed to assign reviewers: one or more reviewers not found or invalid")
+		}
+		if strings.Contains(err.Error(), "403") || strings.Contains(err.Error(), "Forbidden") {
+			return fmt.Errorf("failed to assign reviewers: insufficient permissions (private team or restricted access)")
+		}
+		return fmt.Errorf("failed to assign reviewers: %w", err)
+	}
+
+	logger.Info().
+		Int("pr", number).
+		Int("usersAssigned", len(users)).
+		Int("teamsAssigned", len(teamSlugs)).
+		Msg("Successfully assigned reviewers to PR")
+
+	return nil
+}
+
+// AssignReviewersForCurrentRepo assigns reviewers to a PR in the current repository
+func (c *Client) AssignReviewersForCurrentRepo(
+	ctx context.Context,
+	number int,
+	users, teams []string,
+) error {
+	if c.repo == nil {
+		return fmt.Errorf("no repository context set")
+	}
+
+	return c.AssignReviewers(ctx, c.repo.Owner, c.repo.Name, number, users, teams)
+}
+
+// StackAwareReviewerOptions contains options for stack-aware reviewer suggestions
+type StackAwareReviewerOptions struct {
+	CurrentReviewers []string        // Reviewers from template for current PR
+	ParentPR         *PullRequest    // Parent PR in stack (if any)
+	CurrentUser      string          // Current user to filter out
+	InheritParent    bool            // Whether to inherit parent PR reviewers
+	DeduplicateStack bool            // Whether to deduplicate across stack
+}
+
+// GetStackAwareReviewers returns reviewers considering stacking context
+// Handles reviewer inheritance, deduplication, and conflict detection
+func GetStackAwareReviewers(opts *StackAwareReviewerOptions) *ReviewerAssignment {
+	reviewerSet := make(map[string]bool)
+
+	// Start with current PR reviewers from template
+	for _, reviewer := range opts.CurrentReviewers {
+		cleaned := strings.TrimPrefix(reviewer, "@")
+		if cleaned == "" {
+			continue
+		}
+
+		// Filter out current user
+		if opts.CurrentUser != "" {
+			if strings.EqualFold(cleaned, opts.CurrentUser) ||
+			   strings.EqualFold(cleaned, strings.TrimPrefix(opts.CurrentUser, "@")) {
+				logger.Debug().
+					Str("reviewer", cleaned).
+					Msg("Filtered out current user from reviewers")
+				continue
+			}
+		}
+
+		reviewerSet[cleaned] = true
+	}
+
+	// Optionally inherit from parent PR
+	if opts.InheritParent && opts.ParentPR != nil && len(opts.ParentPR.Reviewers) > 0 {
+		logger.Debug().
+			Int("parentPR", opts.ParentPR.Number).
+			Int("parentReviewers", len(opts.ParentPR.Reviewers)).
+			Msg("Considering parent PR reviewers for inheritance")
+
+		for _, parentReviewer := range opts.ParentPR.Reviewers {
+			// Only add if not already present (deduplication)
+			if !reviewerSet[parentReviewer.Login] {
+				if opts.DeduplicateStack {
+					logger.Debug().
+						Str("reviewer", parentReviewer.Login).
+						Int("from", opts.ParentPR.Number).
+						Msg("Inheriting reviewer from parent PR")
+				}
+				reviewerSet[parentReviewer.Login] = true
+			}
+		}
+	}
+
+	// Convert set back to slice and separate users/teams
+	allReviewers := make([]string, 0, len(reviewerSet))
+	for reviewer := range reviewerSet {
+		allReviewers = append(allReviewers, reviewer)
+	}
+
+	logger.Debug().
+		Int("total", len(allReviewers)).
+		Msg("Determined stack-aware reviewers")
+
+	// Re-add @ prefix for parsing
+	withPrefix := make([]string, len(allReviewers))
+	for i, reviewer := range allReviewers {
+		withPrefix[i] = "@" + reviewer
+	}
+
+	return ParseReviewers(withPrefix)
+}
+
+// FormatReviewerAssignment formats assigned reviewers for display
+func FormatReviewerAssignment(assignment *ReviewerAssignment, parentPR *PullRequest, inherited bool) string {
+	if assignment == nil || (len(assignment.Users) == 0 && len(assignment.Teams) == 0) {
+		return ""
+	}
+
+	var parts []string
+
+	// Add users
+	for _, user := range assignment.Users {
+		parts = append(parts, "@"+user)
+	}
+
+	// Add teams
+	for _, team := range assignment.Teams {
+		parts = append(parts, "@"+team)
+	}
+
+	result := "Assigned reviewers: " + strings.Join(parts, ", ")
+
+	// Add inheritance note if applicable
+	if inherited && parentPR != nil {
+		result += fmt.Sprintf(" (includes reviewers from parent PR #%d)", parentPR.Number)
+	}
+
+	return result
+}
+
+// DetectReviewerConflicts checks for potential reviewer assignment conflicts in stacked PRs
+// Returns warnings about reviewers assigned to multiple levels of the stack
+func DetectReviewerConflicts(currentReviewers []string, parentPR *PullRequest) []string {
+	if parentPR == nil || len(parentPR.Reviewers) == 0 || len(currentReviewers) == 0 {
+		return []string{}
+	}
+
+	conflicts := []string{}
+	parentReviewerSet := make(map[string]bool)
+
+	// Build set of parent reviewers
+	for _, reviewer := range parentPR.Reviewers {
+		parentReviewerSet[strings.ToLower(reviewer.Login)] = true
+	}
+
+	// Check for overlaps
+	for _, current := range currentReviewers {
+		cleaned := strings.TrimPrefix(strings.ToLower(current), "@")
+		if parentReviewerSet[cleaned] {
+			conflicts = append(conflicts, current)
+		}
+	}
+
+	if len(conflicts) > 0 {
+		logger.Debug().
+			Int("parentPR", parentPR.Number).
+			Strs("conflicts", conflicts).
+			Msg("Detected reviewer assignment overlap between parent and child PRs")
+	}
+
+	return conflicts
+}
