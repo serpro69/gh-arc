@@ -36,7 +36,8 @@
       "Bash(./gh-arc list:*)",
       "Bash(./gh-arc auth --help)",
       "mcp__serena__find_file",
-      "WebSearch"
+      "WebSearch",
+      "Bash(./gh-arc diff --help)"
     ],
     "deny": [
       "Bash(task-master:*)"

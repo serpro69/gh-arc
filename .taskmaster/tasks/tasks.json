@@ -229,7 +229,7 @@
             "description": "Set up the basic Cobra command structure for 'gh arc diff' including command definition, flags for --draft, --ready, --no-edit, --continue, --base and help text documentation",
             "dependencies": [],
             "details": "Create cmd/diff.go file with proper package structure. Import cobra and go-gh libraries. Define diffCmd with Use, Short, Long descriptions. Add persistent flags: --draft (bool), --ready (bool), --no-edit (bool), --continue (bool), --base (string). Update flag validation to ensure draft and ready are mutually exclusive. Add --base flag for manual base branch override with description \"Override detected base branch for stacking\". Set up RunE function signature that will contain the main command logic. Register the command to be exposed via the main command router. Update help text to reflect template-based workflow and stacking capabilities.\n<info added on 2025-10-14T15:19:30.296Z>\nI'll analyze the project structure and current implementation to provide a detailed update for the subtask about adding the --base flag for stacking support.Based on the user request and analysis of the existing codebase, I need to provide an update for the subtask about implementing the --base flag for stacking support. The project already has a solid foundation with Git operations in `internal/git/git.go` and Cobra command patterns established in existing commands like `cmd/list.go` and `cmd/root.go`.\n\nAdd flag validation logic to handle flag interactions and conflicts. The --draft and --ready flags should be mutually exclusive using cobra.MarkFlagsMutuallyExclusive. The --edit and --no-edit flags should also be mutually exclusive. Flag descriptions should clearly explain stacking use cases: --base allows manual override of automatic base branch detection for creating stacked PRs, useful for breaking out of stacks (--base=main), explicitly targeting different parent branches, or correcting incorrect auto-detection. Import validation from existing flag handling patterns used in cmd/list.go. The --base flag should accept branch names, commit SHAs, or remote refs (origin/feature-branch) and integrate with the existing git operations in internal/git/git.go like CreateBranch and GetCommitRange functions. Add comprehensive help examples showing --base usage for different stacking scenarios in the command's Long description field.\n</info added on 2025-10-14T15:19:30.296Z>",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit test flag parsing and validation logic. Test mutual exclusivity of draft/ready flags. Test --base flag override functionality. Verify command registration and help text output."
           },
           {
@@ -988,7 +988,7 @@
     ],
     "metadata": {
       "created": "2025-10-10T16:18:54.137Z",
-      "updated": "2025-10-13T19:40:22.633Z",
+      "updated": "2025-10-14T15:29:58.756Z",
       "description": "Tasks for master context"
     }
   }
