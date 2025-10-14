@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/cli/go-gh/v2/pkg/repository"
 	"github.com/spf13/cobra"
 
+	"github.com/serpro69/gh-arc/internal/codeowners"
 	"github.com/serpro69/gh-arc/internal/config"
 	"github.com/serpro69/gh-arc/internal/diff"
 	"github.com/serpro69/gh-arc/internal/git"
@@ -114,7 +116,9 @@ func init() {
 
 // runDiff executes the diff command
 func runDiff(cmd *cobra.Command, args []string) error {
-	ctx := context.Background()
+	// Create context with timeout to prevent hanging on slow operations
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
 
 	logger.Debug().
 		Bool("draft", diffDraft).
@@ -240,6 +244,13 @@ func runDiff(cmd *cobra.Command, args []string) error {
 			fmt.Println("   ✓ Base branch updated")
 		}
 
+		// Push new commits to remote
+		fmt.Println("\n✓ Pushing new commits...")
+		if err := gitRepo.Push(ctx, currentBranch); err != nil {
+			return fmt.Errorf("failed to push commits: %w", err)
+		}
+		fmt.Println("  ✓ Commits pushed successfully")
+
 		return nil
 	}
 
@@ -268,6 +279,40 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		// Generate fresh template
 		logger.Debug().Msg("Generating fresh template")
 
+		// Get CODEOWNERS reviewer suggestions
+		var reviewerSuggestions []string
+		co, err := codeowners.ParseCodeowners(".")
+		if err != nil {
+			logger.Warn().Err(err).Msg("Failed to parse CODEOWNERS file")
+		} else {
+			// Get trunk branch for stack-aware analysis
+			trunkBranch, err := gitRepo.GetDefaultBranch()
+			if err != nil {
+				logger.Warn().Err(err).Msg("Failed to get default branch")
+				trunkBranch = "main" // Fallback
+			}
+
+			// Get stack-aware reviewers based on changed files
+			considerFullStack := baseResult.IsStacking
+			reviewerSuggestions, err = codeowners.GetStackAwareReviewers(
+				gitRepo,
+				co,
+				currentBranch,
+				baseResult.Base,
+				trunkBranch,
+				currentUser,
+				considerFullStack,
+			)
+			if err != nil {
+				logger.Warn().Err(err).Msg("Failed to get stack-aware reviewers")
+			}
+
+			logger.Info().
+				Int("count", len(reviewerSuggestions)).
+				Strs("reviewers", reviewerSuggestions).
+				Msg("Generated reviewer suggestions from CODEOWNERS")
+		}
+
 		// Create template generator
 		gen := template.NewTemplateGenerator(
 			&template.StackingContext{
@@ -279,7 +324,9 @@ func runDiff(cmd *cobra.Command, args []string) error {
 				ShowDependents: dependentInfo.HasDependents,
 			},
 			analysis,
-			[]string{}, // TODO: Get CODEOWNERS suggestions from subtask 4.10
+			reviewerSuggestions,
+			cfg.Diff.LinearEnabled,
+			cfg.Diff.CreateAsDraft,
 		)
 
 		templateContent = gen.Generate()
@@ -337,12 +384,12 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	// Step 8: Create or update PR
 	var pr *github.PullRequest
 
-	// Determine draft status
-	isDraft := cfg.Diff.CreateAsDraft
+	// Determine draft status with precedence: flags > template > config
+	isDraft := parsedFields.Draft // Use template value (which defaults to config value)
 	if diffDraft {
-		isDraft = true
+		isDraft = true // Flag overrides template
 	} else if diffReady {
-		isDraft = false
+		isDraft = false // Flag overrides template
 	}
 
 	// Build PR body from template

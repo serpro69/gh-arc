@@ -3,6 +3,7 @@
 package git
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -939,4 +940,31 @@ func (r *Repository) GetMergeBase(ref1, ref2 string) (string, error) {
 	}
 
 	return sha, nil
+}
+
+// Push pushes commits from the specified branch to its remote tracking branch.
+// If the branch has no remote tracking branch, it pushes to origin with the same name.
+// Uses context for cancellation support.
+func (r *Repository) Push(ctx context.Context, branchName string) error {
+	if branchName == "" {
+		return fmt.Errorf("branch name cannot be empty")
+	}
+
+	// Use git CLI for push operations as go-git's push has authentication complexities
+	// and doesn't integrate well with gh CLI's existing authentication
+	cmd := exec.CommandContext(ctx, "git", "push", "origin", branchName)
+	cmd.Dir = r.path
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("push operation timed out")
+		}
+		if ctx.Err() == context.Canceled {
+			return fmt.Errorf("push operation cancelled")
+		}
+		return fmt.Errorf("failed to push branch %s: %w\nOutput: %s", branchName, err, string(output))
+	}
+
+	return nil
 }

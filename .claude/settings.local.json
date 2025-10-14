@@ -38,7 +38,8 @@
       "mcp__serena__find_file",
       "WebSearch",
       "Bash(./gh-arc diff --help)",
-      "mcp__serena__find_symbol"
+      "mcp__serena__find_symbol",
+      "mcp__zen__codereview"
     ],
     "deny": [
       "Bash(task-master:*)"
