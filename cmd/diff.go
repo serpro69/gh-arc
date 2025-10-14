@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/cli/go-gh/v2/pkg/repository"
 	"github.com/spf13/cobra"
@@ -12,6 +13,7 @@ import (
 	"github.com/serpro69/gh-arc/internal/git"
 	"github.com/serpro69/gh-arc/internal/github"
 	"github.com/serpro69/gh-arc/internal/logger"
+	"github.com/serpro69/gh-arc/internal/template"
 )
 
 var (
@@ -194,10 +196,247 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		fmt.Println(dependentInfo.FormatDependentPRsWarning())
 	}
 
-	// TODO: Continue with remaining workflow steps
-	// 3. Check for existing PR
-	// 4. Determine workflow path (simple push vs template editing)
-	// 5. Execute appropriate workflow
+	// Step 3: Analyze commits for template pre-filling
+	analysis, err := diff.AnalyzeCommitsForTemplate(gitRepo, baseResult.Base, currentBranch)
+	if err != nil {
+		return fmt.Errorf("failed to analyze commits: %w", err)
+	}
 
-	return fmt.Errorf("diff command not yet fully implemented - base detection and dependent PR detection complete")
+	logger.Debug().
+		Int("commitCount", analysis.CommitCount).
+		Str("baseBranch", analysis.BaseBranch).
+		Msg("Analyzed commits for template")
+
+	// Step 4: Check for existing PR
+	existingPR, err := client.FindExistingPRForCurrentBranch(ctx, currentBranch)
+	if err != nil {
+		return fmt.Errorf("failed to check for existing PR: %w", err)
+	}
+
+	// Step 5: Determine workflow path
+	needsTemplateEditing := existingPR == nil || diffEdit
+	skipEditor := diffNoEdit && needsTemplateEditing
+
+	logger.Debug().
+		Bool("existingPR", existingPR != nil).
+		Bool("needsTemplateEditing", needsTemplateEditing).
+		Bool("skipEditor", skipEditor).
+		Msg("Determined workflow path")
+
+	// If existing PR and no --edit flag, just push commits (fast path)
+	if existingPR != nil && !diffEdit {
+		fmt.Printf("✓ PR #%d already exists, pushing new commits\n", existingPR.Number)
+		fmt.Printf("  %s\n", existingPR.HTMLURL)
+
+		// Check if base changed and update if needed
+		if github.DetectBaseChanged(existingPR, baseResult.Base) {
+			fmt.Printf("\n⚠️  Base branch changed: %s → %s\n", existingPR.Base.Ref, baseResult.Base)
+			fmt.Println("   Updating PR base...")
+
+			err := client.UpdatePRBaseForCurrentRepo(ctx, existingPR.Number, baseResult.Base)
+			if err != nil {
+				return fmt.Errorf("failed to update PR base: %w", err)
+			}
+			fmt.Println("   ✓ Base branch updated")
+		}
+
+		return nil
+	}
+
+	// Step 6: Generate and edit template
+	var templateContent string
+	var parsedFields *template.TemplateFields
+
+	// Check if we're in --continue mode
+	var savedTemplatePath string
+	if diffContinue {
+		logger.Debug().Msg("Continue mode: looking for saved template")
+
+		// Find saved templates
+		savedTemplates, err := template.FindSavedTemplates()
+		if err != nil || len(savedTemplates) == 0 {
+			return fmt.Errorf("no saved template found (use 'gh arc diff --edit' to start fresh): %w", err)
+		}
+
+		// Use the most recent saved template
+		savedTemplatePath = savedTemplates[len(savedTemplates)-1]
+		templateContent, err = template.LoadSavedTemplate(savedTemplatePath)
+		if err != nil {
+			return fmt.Errorf("failed to load saved template (use 'gh arc diff --edit' to start fresh): %w", err)
+		}
+	} else {
+		// Generate fresh template
+		logger.Debug().Msg("Generating fresh template")
+
+		// Create template generator
+		gen := template.NewTemplateGenerator(
+			&template.StackingContext{
+				IsStacking:     baseResult.IsStacking,
+				BaseBranch:     baseResult.Base,
+				ParentPR:       baseResult.ParentPR,
+				DependentPRs:   dependentInfo.DependentPRs,
+				CurrentBranch:  currentBranch,
+				ShowDependents: dependentInfo.HasDependents,
+			},
+			analysis,
+			[]string{}, // TODO: Get CODEOWNERS suggestions from subtask 4.10
+		)
+
+		templateContent = gen.Generate()
+
+		// Open editor unless --no-edit flag is set
+		if !skipEditor {
+			templateContent, err = template.OpenEditor(templateContent)
+			if err != nil {
+				if err == template.ErrEditorCancelled {
+					fmt.Println("✗ Editor cancelled, no changes made")
+					return nil
+				}
+				return fmt.Errorf("failed to open editor: %w", err)
+			}
+		}
+	}
+
+	// Step 7: Parse and validate template
+	parsedFields, err = template.ParseTemplate(templateContent)
+	if err != nil {
+		return fmt.Errorf("failed to parse template: %w", err)
+	}
+
+	stackingCtx := &template.StackingContext{
+		IsStacking:     baseResult.IsStacking,
+		BaseBranch:     baseResult.Base,
+		ParentPR:       baseResult.ParentPR,
+		DependentPRs:   dependentInfo.DependentPRs,
+		CurrentBranch:  currentBranch,
+		ShowDependents: dependentInfo.HasDependents,
+	}
+
+	valid, validationMessage := template.ValidateFieldsWithContext(parsedFields, cfg.Diff.RequireTestPlan, stackingCtx)
+	if !valid {
+		fmt.Println(validationMessage)
+
+		// Save template for --continue
+		savedPath, err := template.SaveTemplate(templateContent)
+		if err != nil {
+			logger.Warn().Err(err).Msg("Failed to save template for retry")
+		} else {
+			fmt.Printf("\nTemplate saved to: %s\n", savedPath)
+			fmt.Println("Fix the issues and run:")
+			fmt.Printf("  gh arc diff --continue\n")
+		}
+
+		return fmt.Errorf("template validation failed")
+	}
+
+	logger.Debug().
+		Str("title", parsedFields.Title).
+		Int("reviewers", len(parsedFields.Reviewers)).
+		Msg("Template validated successfully")
+
+	// Step 8: Create or update PR
+	var pr *github.PullRequest
+
+	// Determine draft status
+	isDraft := cfg.Diff.CreateAsDraft
+	if diffDraft {
+		isDraft = true
+	} else if diffReady {
+		isDraft = false
+	}
+
+	// Build PR body from template
+	prBody := parsedFields.Summary
+	if parsedFields.TestPlan != "" {
+		prBody += "\n\n## Test Plan\n" + parsedFields.TestPlan
+	}
+	if len(parsedFields.Ref) > 0 {
+		prBody += "\n\n**Ref:** " + parsedFields.Ref[0]
+	}
+
+	if existingPR != nil {
+		// Update existing PR
+		fmt.Printf("\n✓ Updating PR #%d...\n", existingPR.Number)
+
+		draftPtr := &isDraft
+		pr, err = client.UpdatePullRequestForCurrentRepo(
+			ctx,
+			existingPR.Number,
+			parsedFields.Title,
+			prBody,
+			draftPtr,
+			baseResult.ParentPR,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to update PR: %w", err)
+		}
+
+		fmt.Printf("  %s\n", pr.HTMLURL)
+	} else {
+		// Create new PR
+		fmt.Println("\n✓ Creating new PR...")
+
+		pr, err = client.CreatePullRequestForCurrentRepo(
+			ctx,
+			parsedFields.Title,
+			currentBranch,
+			baseResult.Base,
+			prBody,
+			isDraft,
+			baseResult.ParentPR,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to create PR: %w", err)
+		}
+
+		fmt.Printf("  PR #%d: %s\n", pr.Number, pr.HTMLURL)
+	}
+
+	// Step 9: Assign reviewers
+	if len(parsedFields.Reviewers) > 0 {
+		fmt.Println("\n✓ Assigning reviewers...")
+
+		// Parse reviewers into users and teams
+		assignment := github.ParseReviewers(parsedFields.Reviewers)
+
+		// Filter out current user
+		filteredUsers := []string{}
+		for _, user := range assignment.Users {
+			if !strings.EqualFold(user, currentUser) {
+				filteredUsers = append(filteredUsers, user)
+			}
+		}
+		assignment.Users = filteredUsers
+
+		// Assign reviewers
+		if len(assignment.Users) > 0 || len(assignment.Teams) > 0 {
+			err = client.AssignReviewersForCurrentRepo(ctx, pr.Number, assignment.Users, assignment.Teams)
+			if err != nil {
+				// Log warning but don't fail the entire operation
+				logger.Warn().
+					Err(err).
+					Int("pr", pr.Number).
+					Msg("Failed to assign some reviewers")
+				fmt.Printf("  ⚠️  Warning: %v\n", err)
+			} else {
+				fmt.Println("  " + github.FormatReviewerAssignment(assignment, baseResult.ParentPR, false))
+			}
+		}
+	}
+
+	// Step 10: Clean up saved template on success
+	if diffContinue && savedTemplatePath != "" {
+		_ = template.RemoveSavedTemplate(savedTemplatePath)
+	}
+
+	// Display final success message
+	fmt.Println("\n✓ Success!")
+	if isDraft {
+		fmt.Println("  PR created as draft")
+	}
+	if baseResult.IsStacking {
+		fmt.Printf("  Stacked on: %s\n", baseResult.Base)
+	}
+
+	return nil
 }
