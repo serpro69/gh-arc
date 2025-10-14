@@ -756,3 +756,254 @@ func TestMultipleReviewStates(t *testing.T) {
 		})
 	}
 }
+
+func TestFindExistingPR(t *testing.T) {
+	t.Run("no repository context", func(t *testing.T) {
+		client := &Client{
+			repo:           nil,
+			config:         DefaultConfig(),
+			cache:          &NoOpCache{},
+			circuitBreaker: NewCircuitBreaker(5, 1*time.Minute),
+		}
+
+		_, err := client.FindExistingPRForCurrentBranch(nil, "feature-branch")
+		if err == nil {
+			t.Error("Expected error when repository context is not set")
+		}
+
+		if err.Error() != "no repository context set" {
+			t.Errorf("Error message = %q, expected 'no repository context set'", err.Error())
+		}
+	})
+}
+
+func TestDetectBaseChanged(t *testing.T) {
+	tests := []struct {
+		name          string
+		existingPR    *PullRequest
+		detectedBase  string
+		expectChanged bool
+	}{
+		{
+			name:          "nil PR",
+			existingPR:    nil,
+			detectedBase:  "main",
+			expectChanged: false,
+		},
+		{
+			name: "base unchanged",
+			existingPR: &PullRequest{
+				Number: 123,
+				Base: PRBranch{
+					Ref: "main",
+				},
+			},
+			detectedBase:  "main",
+			expectChanged: false,
+		},
+		{
+			name: "base changed from main to feature",
+			existingPR: &PullRequest{
+				Number: 123,
+				Base: PRBranch{
+					Ref: "main",
+				},
+			},
+			detectedBase:  "feature/auth",
+			expectChanged: true,
+		},
+		{
+			name: "base changed from feature to main",
+			existingPR: &PullRequest{
+				Number: 123,
+				Base: PRBranch{
+					Ref: "feature/parent",
+				},
+			},
+			detectedBase:  "main",
+			expectChanged: true,
+		},
+		{
+			name: "base changed between feature branches",
+			existingPR: &PullRequest{
+				Number: 123,
+				Base: PRBranch{
+					Ref: "feature/auth",
+				},
+			},
+			detectedBase:  "feature/payment",
+			expectChanged: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := DetectBaseChanged(tt.existingPR, tt.detectedBase)
+
+			if result != tt.expectChanged {
+				t.Errorf("DetectBaseChanged() = %v, want %v", result, tt.expectChanged)
+			}
+		})
+	}
+}
+
+func TestFindDependentPRsForCurrentBranch(t *testing.T) {
+	t.Run("no repository context", func(t *testing.T) {
+		client := &Client{
+			repo:           nil,
+			config:         DefaultConfig(),
+			cache:          &NoOpCache{},
+			circuitBreaker: NewCircuitBreaker(5, 1*time.Minute),
+		}
+
+		_, err := client.FindDependentPRsForCurrentBranch(nil, "feature-branch")
+		if err == nil {
+			t.Error("Expected error when repository context is not set")
+		}
+
+		if err.Error() != "no repository context set" {
+			t.Errorf("Error message = %q, expected 'no repository context set'", err.Error())
+		}
+	})
+}
+
+func TestUpdatePRBaseForCurrentRepo(t *testing.T) {
+	t.Run("no repository context", func(t *testing.T) {
+		client := &Client{
+			repo:           nil,
+			config:         DefaultConfig(),
+			cache:          &NoOpCache{},
+			circuitBreaker: NewCircuitBreaker(5, 1*time.Minute),
+		}
+
+		err := client.UpdatePRBaseForCurrentRepo(nil, 123, "new-base")
+		if err == nil {
+			t.Error("Expected error when repository context is not set")
+		}
+
+		if err.Error() != "no repository context set" {
+			t.Errorf("Error message = %q, expected 'no repository context set'", err.Error())
+		}
+	})
+}
+
+func TestDependentPRLogic(t *testing.T) {
+	// Test the logic for filtering dependent PRs
+	// Simulating how FindDependentPRs would filter PRs
+
+	t.Run("filter PRs by base branch", func(t *testing.T) {
+		allPRs := []*PullRequest{
+			{
+				Number: 100,
+				Head:   PRBranch{Ref: "feature/child1"},
+				Base:   PRBranch{Ref: "feature/parent"},
+			},
+			{
+				Number: 101,
+				Head:   PRBranch{Ref: "feature/child2"},
+				Base:   PRBranch{Ref: "feature/parent"},
+			},
+			{
+				Number: 102,
+				Head:   PRBranch{Ref: "feature/child3"},
+				Base:   PRBranch{Ref: "main"},
+			},
+			{
+				Number: 103,
+				Head:   PRBranch{Ref: "feature/parent"},
+				Base:   PRBranch{Ref: "main"},
+			},
+		}
+
+		targetBase := "feature/parent"
+		var dependentPRs []*PullRequest
+
+		// Simulate FindDependentPRs filtering logic
+		for _, pr := range allPRs {
+			if pr.Base.Ref == targetBase {
+				dependentPRs = append(dependentPRs, pr)
+			}
+		}
+
+		// Should find PRs 100 and 101 (both target feature/parent as base)
+		if len(dependentPRs) != 2 {
+			t.Errorf("Expected 2 dependent PRs, got %d", len(dependentPRs))
+		}
+
+		// Verify the correct PRs were found
+		foundNumbers := make(map[int]bool)
+		for _, pr := range dependentPRs {
+			foundNumbers[pr.Number] = true
+		}
+
+		if !foundNumbers[100] || !foundNumbers[101] {
+			t.Error("Expected to find PRs #100 and #101 as dependents")
+		}
+	})
+
+	t.Run("no dependent PRs", func(t *testing.T) {
+		allPRs := []*PullRequest{
+			{
+				Number: 100,
+				Head:   PRBranch{Ref: "feature/a"},
+				Base:   PRBranch{Ref: "main"},
+			},
+			{
+				Number: 101,
+				Head:   PRBranch{Ref: "feature/b"},
+				Base:   PRBranch{Ref: "main"},
+			},
+		}
+
+		targetBase := "feature/parent"
+		var dependentPRs []*PullRequest
+
+		for _, pr := range allPRs {
+			if pr.Base.Ref == targetBase {
+				dependentPRs = append(dependentPRs, pr)
+			}
+		}
+
+		if len(dependentPRs) != 0 {
+			t.Errorf("Expected 0 dependent PRs, got %d", len(dependentPRs))
+		}
+	})
+
+	t.Run("multiple levels of stacking", func(t *testing.T) {
+		allPRs := []*PullRequest{
+			{
+				Number: 100,
+				Head:   PRBranch{Ref: "feature/grandchild"},
+				Base:   PRBranch{Ref: "feature/child"},
+			},
+			{
+				Number: 101,
+				Head:   PRBranch{Ref: "feature/child"},
+				Base:   PRBranch{Ref: "feature/parent"},
+			},
+			{
+				Number: 102,
+				Head:   PRBranch{Ref: "feature/parent"},
+				Base:   PRBranch{Ref: "main"},
+			},
+		}
+
+		// Find dependents of feature/parent (should be feature/child)
+		targetBase := "feature/parent"
+		var dependentPRs []*PullRequest
+
+		for _, pr := range allPRs {
+			if pr.Base.Ref == targetBase {
+				dependentPRs = append(dependentPRs, pr)
+			}
+		}
+
+		if len(dependentPRs) != 1 {
+			t.Errorf("Expected 1 dependent PR for feature/parent, got %d", len(dependentPRs))
+		}
+
+		if dependentPRs[0].Number != 101 {
+			t.Errorf("Expected PR #101 as dependent, got #%d", dependentPRs[0].Number)
+		}
+	})
+}

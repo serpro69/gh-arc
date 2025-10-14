@@ -762,3 +762,57 @@ func (c *Client) UpdatePRBaseForCurrentRepo(ctx context.Context, number int, new
 
 	return c.UpdatePRBase(ctx, c.repo.Owner, c.repo.Name, number, newBase)
 }
+
+// FindDependentPRs finds all pull requests that target the given branch as their base
+// These are "child" PRs in a stacked PR workflow - PRs that depend on the given branch
+func (c *Client) FindDependentPRs(ctx context.Context, owner, repo, baseBranch string) ([]*PullRequest, error) {
+	logger.Debug().
+		Str("owner", owner).
+		Str("repo", repo).
+		Str("baseBranch", baseBranch).
+		Msg("Finding dependent PRs targeting branch as base")
+
+	// Get all open PRs
+	opts := &PullRequestListOptions{
+		State:     "open",
+		Sort:      "updated",
+		Direction: "desc",
+		PerPage:   100,
+		Page:      1,
+	}
+
+	prs, err := c.GetPullRequests(ctx, owner, repo, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pull requests: %w", err)
+	}
+
+	// Filter for PRs where base.ref matches the given branch
+	var dependentPRs []*PullRequest
+	for _, pr := range prs {
+		if pr.Base.Ref == baseBranch {
+			dependentPRs = append(dependentPRs, pr)
+		}
+	}
+
+	if len(dependentPRs) > 0 {
+		logger.Info().
+			Str("baseBranch", baseBranch).
+			Int("count", len(dependentPRs)).
+			Msg("Found dependent PRs targeting branch")
+	} else {
+		logger.Debug().
+			Str("baseBranch", baseBranch).
+			Msg("No dependent PRs found")
+	}
+
+	return dependentPRs, nil
+}
+
+// FindDependentPRsForCurrentBranch finds dependent PRs for the current repository's branch
+func (c *Client) FindDependentPRsForCurrentBranch(ctx context.Context, branchName string) ([]*PullRequest, error) {
+	if c.repo == nil {
+		return nil, fmt.Errorf("no repository context set")
+	}
+
+	return c.FindDependentPRs(ctx, c.repo.Owner, c.repo.Name, branchName)
+}
