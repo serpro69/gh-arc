@@ -1,0 +1,130 @@
+> I also want to think about how we're going to handle stacked PRs. What is your plan in that regard, if there's any?
+
+● Excellent question! Stacked PRs (stacked diffs) are a core feature of trunk-based development and arcanist. Let me think through the approach:
+
+  What Are Stacked PRs?
+
+  In a stacked PR workflow, you create a series of dependent PRs where each builds on the previous:
+
+  ```
+  main
+    └─> feature/auth (PR #1)
+         └─> feature/auth-tests (PR #2)
+              └─> feature/auth-docs (PR #3)
+  ```
+
+  Each PR targets the previous PR's branch instead of main, allowing you to work on multiple features without waiting for reviews.
+
+  Current Task 4 Plan
+
+  Currently, Task 4 assumes each PR targets main/master directly. There's no stacking logic.
+
+  Options for Stacking
+
+  Option 1: No Stacking (Current)
+
+  - Always target `main`/`master`
+  - Users manually set base branch via GitHub UI
+  - Simplest, but not trunk-based-friendly
+
+  Option 2: Basic Stacking (Recommended for Task 4)
+
+  - Auto-detect if current branch was created from a feature branch
+  - If parent branch has open PR, target that branch instead of main
+  - Add `--base=<branch>` flag to override
+  - Minimal complexity, natural workflow
+
+  Option 3: Full Stack Management (Future Task?)
+
+  - Track stack relationships explicitly
+  - `gh arc stack` command to visualize
+  - Auto-update dependent PRs when parent lands
+  - `gh arc land --stack` to land entire stack
+  - More complex, separate feature
+
+  My Recommendation
+
+  Add basic stacking to Task 4 with this logic:
+
+  Base Branch Detection (enhance Subtask 4.2)
+
+  ```
+  func getBaseBranch() string {
+      // 1. If --base flag provided, use it
+      if baseFlag != "" {
+          return baseFlag
+      }
+
+      // 2. Detect where current branch diverged from
+      parentBranch := detectBranchPoint()
+
+      // 3. If parent is main/master/trunk, use it
+      if isMainBranch(parentBranch) {
+          return parentBranch
+      }
+
+      // 4. Check if parent branch has open PR
+      if hasOpenPR(parentBranch) {
+          return parentBranch  // Stack on it!
+      }
+
+      // 5. Fallback to main
+      return "main"
+  }
+  ```
+
+  User Experience
+
+  ```bash
+  # Create base PR
+  arc work feature/auth
+  # work...
+  gh arc diff  # PR: feature/auth -> main
+
+  # Stack another PR
+  arc work feature/auth-tests
+  # work...
+  gh arc diff  # PR: feature/auth-tests -> feature/auth (auto!)
+
+  # Override if needed
+  gh arc diff --base=main  # Force target main
+  ```
+
+  Configuration Addition
+
+  ```yaml
+  diff:
+    enable_stacking: true  # Auto-detect stacked PRs
+    default_base: "main"   # Fallback base
+  ```
+
+  What This Means for Task 4
+
+  Changes needed:
+
+  1. Subtask 4.1: Add `--base=<branch>` flag
+  2. Subtask 4.2: Enhance `getBaseBranch()` with stacking logic
+  3. Subtask 4.3: Check for PR existence on parent branch
+  4. Subtask 4.9: Add `enable_stacking` config option
+
+  Future tasks (not Task 4):
+  - Task 5: `gh arc stack` - visualize stack
+  - Task 6: `gh arc land --stack` - land entire stack
+  - Advanced: Auto-rebase dependent PRs when parent changes
+
+  Questions for You
+
+  1. Should we add basic stacking to Task 4, or keep it for a future task?
+  2. If adding to Task 4, should it be opt-in (`enable_stacking: false` by default) or opt-out?
+  3. Do you want automatic rebasing of stacked PRs, or just creation?
+  4. Should `gh arc diff --edit` on a parent PR warn about dependent PRs?
+
+  What's your preference?
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+> 1. Yes, let's add basic stacking to task 4.
+> 2. It should be opt-out
+> 3. We don't need to automatically rebase for now, only create. But we need to handle cases where a user has update the parent, then rebased the stack manually, and is trying to update the child.
+> 4. Yes, updating an existing PR which is a parent should warn about dependent PRs.
+>
+> Please update the task 4 accordingly. We can think about more advanced stack implementations later.
