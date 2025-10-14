@@ -733,6 +733,22 @@ func (r *Repository) GetStagedDiff() (string, error) {
 	return r.getDiffViaCLI("--cached", "HEAD")
 }
 
+// GetChangedFiles returns a list of file paths changed between two refs.
+// This is a simpler version of GetFilesChanged that only returns file paths.
+func (r *Repository) GetChangedFiles(base, head string) ([]string, error) {
+	changes, err := r.GetFilesChanged(base, head)
+	if err != nil {
+		return nil, err
+	}
+
+	paths := make([]string, 0, len(changes))
+	for _, change := range changes {
+		paths = append(paths, change.Path)
+	}
+
+	return paths, nil
+}
+
 // GetFilesChanged returns a list of files changed between two refs.
 func (r *Repository) GetFilesChanged(base, head string) ([]FileChange, error) {
 	// Resolve base reference
