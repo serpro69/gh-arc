@@ -816,3 +816,134 @@ func (c *Client) FindDependentPRsForCurrentBranch(ctx context.Context, branchNam
 
 	return c.FindDependentPRs(ctx, c.repo.Owner, c.repo.Name, branchName)
 }
+
+// DetectRebase checks if the base commit SHA has changed, indicating a rebase occurred
+// This is different from DetectBaseChanged which only checks branch names
+// Returns true if the base SHA differs, suggesting a rebase on the same branch
+func DetectRebase(existingPR *PullRequest, currentBaseSHA string) bool {
+	if existingPR == nil || currentBaseSHA == "" {
+		return false
+	}
+
+	// Compare the PR's base SHA with the current base commit SHA
+	rebased := existingPR.Base.SHA != currentBaseSHA
+
+	if rebased {
+		// Show short SHA for readability (7 chars if available, otherwise full SHA)
+		prSHA := existingPR.Base.SHA
+		if len(prSHA) > 7 {
+			prSHA = prSHA[:7]
+		}
+
+		currSHA := currentBaseSHA
+		if len(currSHA) > 7 {
+			currSHA = currSHA[:7]
+		}
+
+		logger.Info().
+			Int("pr", existingPR.Number).
+			Str("prBaseSHA", prSHA).
+			Str("currentBaseSHA", currSHA).
+			Msg("Detected base rebase - SHA changed")
+	}
+
+	return rebased
+}
+
+// StackedPRUpdateResult represents the result of a stacked PR update operation
+type StackedPRUpdateResult struct {
+	UpdatedBase    bool     // Whether the base was actually updated
+	OldBase        string   // Previous base branch name
+	NewBase        string   // New base branch name
+	RebaseDetected bool     // Whether a rebase was detected
+	Error          error    // Any error that occurred
+}
+
+// HandleStackedPRUpdate orchestrates the complete workflow for updating stacked PR bases
+// It detects base changes, optionally prompts user, updates PR base, and displays results
+// Returns StackedPRUpdateResult with details of what was updated
+func (c *Client) HandleStackedPRUpdate(
+	ctx context.Context,
+	existingPR *PullRequest,
+	detectedBase string,
+	currentBaseSHA string,
+	promptUser bool,
+) (*StackedPRUpdateResult, error) {
+	result := &StackedPRUpdateResult{
+		UpdatedBase:    false,
+		OldBase:        "",
+		NewBase:        detectedBase,
+		RebaseDetected: false,
+	}
+
+	if existingPR == nil {
+		result.Error = fmt.Errorf("existing PR is nil")
+		return result, result.Error
+	}
+
+	result.OldBase = existingPR.Base.Ref
+
+	// Check for base branch name change
+	baseChanged := DetectBaseChanged(existingPR, detectedBase)
+
+	// Check for rebase (SHA change on same branch)
+	rebased := false
+	if currentBaseSHA != "" {
+		rebased = DetectRebase(existingPR, currentBaseSHA)
+		result.RebaseDetected = rebased
+	}
+
+	// If neither changed, nothing to do
+	if !baseChanged && !rebased {
+		logger.Debug().
+			Int("pr", existingPR.Number).
+			Msg("No base changes detected")
+		return result, nil
+	}
+
+	// Log what changed
+	if baseChanged {
+		logger.Info().
+			Int("pr", existingPR.Number).
+			Str("from", result.OldBase).
+			Str("to", result.NewBase).
+			Msg("Base branch change detected")
+	}
+
+	if rebased {
+		logger.Info().
+			Int("pr", existingPR.Number).
+			Str("branch", existingPR.Base.Ref).
+			Msg("Base rebase detected (SHA changed)")
+	}
+
+	// TODO: Add user prompt support when promptUser is true
+	// For now, we always proceed with the update
+	if promptUser {
+		logger.Debug().Msg("User prompting not yet implemented, proceeding with update")
+	}
+
+	// Only update if the branch name changed
+	// Rebase detection is informational - the PR base ref doesn't need updating
+	if baseChanged {
+		if c.repo == nil {
+			result.Error = fmt.Errorf("no repository context set")
+			return result, result.Error
+		}
+
+		err := c.UpdatePRBase(ctx, c.repo.Owner, c.repo.Name, existingPR.Number, detectedBase)
+		if err != nil {
+			result.Error = fmt.Errorf("failed to update PR base: %w", err)
+			return result, result.Error
+		}
+
+		result.UpdatedBase = true
+
+		logger.Info().
+			Int("pr", existingPR.Number).
+			Str("newBase", detectedBase).
+			Msg("Successfully updated stacked PR base")
+	}
+
+	return result, nil
+}

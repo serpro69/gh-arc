@@ -1007,3 +1007,231 @@ func TestDependentPRLogic(t *testing.T) {
 		}
 	})
 }
+
+func TestDetectRebase(t *testing.T) {
+	tests := []struct {
+		name           string
+		existingPR     *PullRequest
+		currentBaseSHA string
+		expectRebased  bool
+	}{
+		{
+			name:           "nil PR",
+			existingPR:     nil,
+			currentBaseSHA: "abc123",
+			expectRebased:  false,
+		},
+		{
+			name: "empty current SHA",
+			existingPR: &PullRequest{
+				Number: 100,
+				Base: PRBranch{
+					Ref: "main",
+					SHA: "abc123",
+				},
+			},
+			currentBaseSHA: "",
+			expectRebased:  false,
+		},
+		{
+			name: "SHA matches - no rebase",
+			existingPR: &PullRequest{
+				Number: 100,
+				Base: PRBranch{
+					Ref: "main",
+					SHA: "abc1234567890",
+				},
+			},
+			currentBaseSHA: "abc1234567890",
+			expectRebased:  false,
+		},
+		{
+			name: "SHA differs - rebase detected",
+			existingPR: &PullRequest{
+				Number: 100,
+				Base: PRBranch{
+					Ref: "main",
+					SHA: "abc1234567890",
+				},
+			},
+			currentBaseSHA: "def9876543210",
+			expectRebased:  true,
+		},
+		{
+			name: "different SHA on feature branch",
+			existingPR: &PullRequest{
+				Number: 100,
+				Base: PRBranch{
+					Ref: "feature/parent",
+					SHA: "1111111111111",
+				},
+			},
+			currentBaseSHA: "2222222222222",
+			expectRebased:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := DetectRebase(tt.existingPR, tt.currentBaseSHA)
+			if result != tt.expectRebased {
+				t.Errorf("DetectRebase() = %v, want %v", result, tt.expectRebased)
+			}
+		})
+	}
+}
+
+func TestHandleStackedPRUpdate(t *testing.T) {
+	t.Run("nil PR error", func(t *testing.T) {
+		client := &Client{}
+		result, err := client.HandleStackedPRUpdate(nil, nil, "main", "abc123", false)
+
+		if err == nil {
+			t.Error("Expected error for nil PR, got nil")
+		}
+
+		if result == nil {
+			t.Fatal("Expected result even on error")
+		}
+
+		if result.Error == nil {
+			t.Error("Expected result.Error to be set")
+		}
+	})
+
+	t.Run("no changes detected", func(t *testing.T) {
+		client := &Client{}
+		existingPR := &PullRequest{
+			Number: 100,
+			Base: PRBranch{
+				Ref: "main",
+				SHA: "abc123",
+			},
+		}
+
+		result, err := client.HandleStackedPRUpdate(nil, existingPR, "main", "abc123", false)
+
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+
+		if result.UpdatedBase {
+			t.Error("Expected UpdatedBase to be false when no changes")
+		}
+
+		if result.RebaseDetected {
+			t.Error("Expected RebaseDetected to be false when SHAs match")
+		}
+	})
+
+	t.Run("base branch changed", func(t *testing.T) {
+		// This would require mocking the GitHub API call
+		// For now, we test the logic without the actual API update
+		existingPR := &PullRequest{
+			Number: 100,
+			Base: PRBranch{
+				Ref: "main",
+				SHA: "abc123",
+			},
+		}
+
+		// Test that DetectBaseChanged would return true
+		changed := DetectBaseChanged(existingPR, "feature/parent")
+		if !changed {
+			t.Error("Expected base change to be detected")
+		}
+	})
+
+	t.Run("rebase detected but same branch", func(t *testing.T) {
+		client := &Client{}
+		existingPR := &PullRequest{
+			Number: 100,
+			Base: PRBranch{
+				Ref: "main",
+				SHA: "abc1234567890",
+			},
+		}
+
+		result, err := client.HandleStackedPRUpdate(nil, existingPR, "main", "def9876543210", false)
+
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+
+		if !result.RebaseDetected {
+			t.Error("Expected RebaseDetected to be true when SHA differs")
+		}
+
+		// Base should not be updated when only SHA changed (same branch name)
+		if result.UpdatedBase {
+			t.Error("Expected UpdatedBase to be false when only rebase detected")
+		}
+	})
+
+	t.Run("result fields populated correctly", func(t *testing.T) {
+		client := &Client{}
+		existingPR := &PullRequest{
+			Number: 100,
+			Base: PRBranch{
+				Ref: "main",
+				SHA: "abc123",
+			},
+		}
+
+		// Use same branch name to avoid API call, but different SHA to trigger rebase detection
+		result, err := client.HandleStackedPRUpdate(nil, existingPR, "main", "def456", false)
+
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+
+		if result.OldBase != "main" {
+			t.Errorf("Expected OldBase to be 'main', got '%s'", result.OldBase)
+		}
+
+		if result.NewBase != "main" {
+			t.Errorf("Expected NewBase to be 'main', got '%s'", result.NewBase)
+		}
+
+		if !result.RebaseDetected {
+			t.Error("Expected RebaseDetected to be true when SHA changed")
+		}
+
+		// Should not update base when only SHA changed (rebase on same branch)
+		if result.UpdatedBase {
+			t.Error("Expected UpdatedBase to be false for rebase-only scenario")
+		}
+	})
+}
+
+func TestStackedPRUpdateResult(t *testing.T) {
+	t.Run("result struct fields", func(t *testing.T) {
+		result := &StackedPRUpdateResult{
+			UpdatedBase:    true,
+			OldBase:        "main",
+			NewBase:        "feature/parent",
+			RebaseDetected: false,
+			Error:          nil,
+		}
+
+		if !result.UpdatedBase {
+			t.Error("Expected UpdatedBase to be true")
+		}
+
+		if result.OldBase != "main" {
+			t.Errorf("Expected OldBase 'main', got '%s'", result.OldBase)
+		}
+
+		if result.NewBase != "feature/parent" {
+			t.Errorf("Expected NewBase 'feature/parent', got '%s'", result.NewBase)
+		}
+
+		if result.RebaseDetected {
+			t.Error("Expected RebaseDetected to be false")
+		}
+
+		if result.Error != nil {
+			t.Errorf("Expected no error, got %v", result.Error)
+		}
+	})
+}

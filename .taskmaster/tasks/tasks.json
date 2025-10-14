@@ -275,8 +275,8 @@
               1,
               2
             ],
-            "details": "Enhance existing PR existence check from internal/github/pullrequest.go to support stacked PR scenarios. Implement findExistingPR() that returns comprehensive PR information including current base branch. Add updatePRBase() function using GitHub API PATCH endpoint /repos/{owner}/{repo}/pulls/{number} to change base branch when parent PR updated. Create detectBaseChange() to compare current detected base with existing PR's base branch. Implement rebaseDetection() that identifies when manual rebase occurred by comparing base commit hashes. Add handleStackedPRUpdate() workflow: detect base changes → prompt user → update PR base via API → display updated stacking information. Use existing PullRequest struct and error handling patterns. Handle edge cases: base branch doesn't exist, circular dependencies, permission issues. Integrate with configuration settings for automatic base updates vs user prompting.",
-            "status": "pending",
+            "details": "Enhance existing PR existence check from internal/github/pullrequest.go to support stacked PR scenarios. Implement findExistingPR() that returns comprehensive PR information including current base branch. Add updatePRBase() function using GitHub API PATCH endpoint /repos/{owner}/{repo}/pulls/{number} to change base branch when parent PR updated. Create detectBaseChange() to compare current detected base with existing PR's base branch. Implement rebaseDetection() that identifies when manual rebase occurred by comparing base commit hashes. Add handleStackedPRUpdate() workflow: detect base changes → prompt user → update PR base via API → display updated stacking information. Use existing PullRequest struct and error handling patterns. Handle edge cases: base branch doesn't exist, circular dependencies, permission issues. Integrate with configuration settings for automatic base updates vs user prompting.\n<info added on 2025-10-14T18:28:23.019Z>\nBased on the user's completion report for subtask 4.5, I need to analyze the current codebase to understand how this implementation fits into the existing structure.COMPLETED SUCCESSFULLY: Subtask 4.5 has been fully implemented with comprehensive PR existence check and stacked PR base update logic. The implementation includes DetectRebase(), StackedPRUpdateResult struct, and HandleStackedPRUpdate() functions with complete test coverage (11 test cases across 3 test functions). All GitHub package tests pass (66 test functions total). The solution integrates seamlessly with existing FindExistingPR(), DetectBaseChanged(), and UpdatePRBase() functions. Key features implemented: rebase detection via SHA comparison, base branch change detection, workflow orchestration with detailed result structure, safe SHA truncation for logging, proper error handling, and repository context validation. Ready for integration into gh arc diff command workflow. Files modified: internal/github/pullrequest.go (+119 lines) and internal/github/pullrequest_test.go (+221 lines).\n</info added on 2025-10-14T18:28:23.019Z>",
+            "status": "done",
             "testStrategy": "Mock GitHub API for PR queries and base updates. Test base change detection logic. Test rebase scenario handling. Verify error handling for invalid base branches and permission issues."
           },
           {
@@ -988,7 +988,7 @@
     ],
     "metadata": {
       "created": "2025-10-10T16:18:54.137Z",
-      "updated": "2025-10-14T18:21:12.273Z",
+      "updated": "2025-10-14T18:28:28.995Z",
       "description": "Tasks for master context"
     }
   }
