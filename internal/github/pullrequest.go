@@ -655,3 +655,110 @@ func (c *Client) EnrichPullRequests(ctx context.Context, owner, repo string, prs
 
 	return nil
 }
+
+// FindExistingPR finds an existing pull request for the given branch
+// Returns the PR if found, nil if not found, or error if there was an API issue
+func (c *Client) FindExistingPR(ctx context.Context, owner, repo, branchName string) (*PullRequest, error) {
+	logger.Debug().
+		Str("owner", owner).
+		Str("repo", repo).
+		Str("branch", branchName).
+		Msg("Finding existing PR for branch")
+
+	// Get all open PRs
+	opts := &PullRequestListOptions{
+		State:     "open",
+		Sort:      "updated",
+		Direction: "desc",
+		PerPage:   100,
+		Page:      1,
+	}
+
+	prs, err := c.GetPullRequests(ctx, owner, repo, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pull requests: %w", err)
+	}
+
+	// Find PR matching the branch
+	for _, pr := range prs {
+		if pr.Head.Ref == branchName {
+			logger.Info().
+				Int("number", pr.Number).
+				Str("branch", branchName).
+				Msg("Found existing PR for branch")
+			return pr, nil
+		}
+	}
+
+	logger.Debug().
+		Str("branch", branchName).
+		Msg("No existing PR found for branch")
+	return nil, nil
+}
+
+// FindExistingPRForCurrentBranch finds an existing PR for the current repository's branch
+func (c *Client) FindExistingPRForCurrentBranch(ctx context.Context, branchName string) (*PullRequest, error) {
+	if c.repo == nil {
+		return nil, fmt.Errorf("no repository context set")
+	}
+
+	return c.FindExistingPR(ctx, c.repo.Owner, c.repo.Name, branchName)
+}
+
+// DetectBaseChanged checks if the base branch of an existing PR differs from the detected base
+// Returns true if the base has changed and needs updating
+func DetectBaseChanged(existingPR *PullRequest, detectedBase string) bool {
+	if existingPR == nil {
+		return false
+	}
+
+	changed := existingPR.Base.Ref != detectedBase
+
+	if changed {
+		logger.Info().
+			Int("pr", existingPR.Number).
+			Str("currentBase", existingPR.Base.Ref).
+			Str("detectedBase", detectedBase).
+			Msg("Detected base branch change")
+	}
+
+	return changed
+}
+
+// UpdatePRBase updates the base branch of an existing pull request
+// This is useful for stacked PRs when the parent branch changes
+func (c *Client) UpdatePRBase(ctx context.Context, owner, repo string, number int, newBase string) error {
+	logger.Info().
+		Int("pr", number).
+		Str("newBase", newBase).
+		Msg("Updating PR base branch")
+
+	path := fmt.Sprintf("repos/%s/%s/pulls/%d", owner, repo, number)
+
+	// Prepare update payload
+	payload := map[string]interface{}{
+		"base": newBase,
+	}
+
+	// Use Do method with PATCH
+	err := c.Do(ctx, "PATCH", path, payload, nil)
+	if err != nil {
+		return fmt.Errorf("failed to update PR base: %w", err)
+	}
+
+	logger.Info().
+		Int("pr", number).
+		Str("newBase", newBase).
+		Msg("Successfully updated PR base branch")
+
+	return nil
+}
+
+// UpdatePRBaseForCurrentRepo updates the base branch for a PR in the current repository
+func (c *Client) UpdatePRBaseForCurrentRepo(ctx context.Context, number int, newBase string) error {
+	if c.repo == nil {
+		return fmt.Errorf("no repository context set")
+	}
+
+	return c.UpdatePRBase(ctx, c.repo.Owner, c.repo.Name, number, newBase)
+}
