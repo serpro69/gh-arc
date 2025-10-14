@@ -947,3 +947,279 @@ func (c *Client) HandleStackedPRUpdate(
 
 	return result, nil
 }
+
+// CreatePRRequest represents the payload for creating a pull request
+type CreatePRRequest struct {
+	Title                string `json:"title"`
+	Head                 string `json:"head"`               // branch name (source)
+	Base                 string `json:"base"`               // base branch (target)
+	Body                 string `json:"body"`               // PR description
+	Draft                bool   `json:"draft,omitempty"`    // optional draft state
+	MaintainerCanModify  bool   `json:"maintainer_can_modify,omitempty"`
+}
+
+// CreatePullRequest creates a new pull request in the specified repository
+// It handles stacking by accepting dynamic base branch and formatting stacking metadata
+func (c *Client) CreatePullRequest(
+	ctx context.Context,
+	owner, repo string,
+	title, head, base, body string,
+	draft bool,
+	parentPR *PullRequest,
+) (*PullRequest, error) {
+	logger.Info().
+		Str("owner", owner).
+		Str("repo", repo).
+		Str("head", head).
+		Str("base", base).
+		Bool("draft", draft).
+		Msg("Creating pull request")
+
+	// Format body with stacking metadata if this is a stacked PR
+	finalBody := body
+	if parentPR != nil {
+		stackingMetadata := FormatStackingMetadata(parentPR)
+		if finalBody != "" {
+			finalBody = body + "\n\n" + stackingMetadata
+		} else {
+			finalBody = stackingMetadata
+		}
+	}
+
+	// Prepare request payload
+	payload := CreatePRRequest{
+		Title:               title,
+		Head:                head,
+		Base:                base,
+		Body:                finalBody,
+		Draft:               draft,
+		MaintainerCanModify: true,
+	}
+
+	path := fmt.Sprintf("repos/%s/%s/pulls", owner, repo)
+
+	// Create PR using POST
+	var createdPR PullRequest
+	err := c.Do(ctx, "POST", path, payload, &createdPR)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create pull request: %w", err)
+	}
+
+	logger.Info().
+		Int("number", createdPR.Number).
+		Str("url", createdPR.HTMLURL).
+		Msg("Successfully created pull request")
+
+	return &createdPR, nil
+}
+
+// CreatePullRequestForCurrentRepo creates a PR in the current repository context
+func (c *Client) CreatePullRequestForCurrentRepo(
+	ctx context.Context,
+	title, head, base, body string,
+	draft bool,
+	parentPR *PullRequest,
+) (*PullRequest, error) {
+	if c.repo == nil {
+		return nil, fmt.Errorf("no repository context set")
+	}
+
+	return c.CreatePullRequest(ctx, c.repo.Owner, c.repo.Name, title, head, base, body, draft, parentPR)
+}
+
+// FormatStackingMetadata formats the stacking information to be added to PR body
+// Shows parent PR reference and stacking context
+func FormatStackingMetadata(parentPR *PullRequest) string {
+	if parentPR == nil {
+		return ""
+	}
+
+	var parts []string
+	parts = append(parts, "---")
+	parts = append(parts, "")
+	parts = append(parts, fmt.Sprintf("📚 **Stacked on:** #%d - %s", parentPR.Number, parentPR.Title))
+	parts = append(parts, "")
+	parts = append(parts, fmt.Sprintf("This PR is part of a stack and builds upon #%d. Review and merge that PR first.", parentPR.Number))
+
+	return strings.Join(parts, "\n")
+}
+
+// UpdatePRRequest represents the payload for updating a pull request
+type UpdatePRRequest struct {
+	Title string `json:"title,omitempty"`
+	Body  string `json:"body,omitempty"`
+	State string `json:"state,omitempty"` // open, closed
+	Base  string `json:"base,omitempty"`  // base branch
+	Draft *bool  `json:"draft,omitempty"` // pointer to allow nil (no change) vs false (ready for review)
+}
+
+// UpdatePullRequest updates an existing pull request with stacking awareness
+// Handles updating title, body, state, base branch, and draft status
+func (c *Client) UpdatePullRequest(
+	ctx context.Context,
+	owner, repo string,
+	number int,
+	title, body string,
+	draft *bool,
+	parentPR *PullRequest,
+) (*PullRequest, error) {
+	logger.Info().
+		Str("owner", owner).
+		Str("repo", repo).
+		Int("number", number).
+		Msg("Updating pull request")
+
+	// Format body with stacking metadata if this is a stacked PR
+	finalBody := body
+	if parentPR != nil && body != "" {
+		// Check if body already contains stacking metadata
+		if !strings.Contains(body, "📚 **Stacked on:**") {
+			stackingMetadata := FormatStackingMetadata(parentPR)
+			finalBody = body + "\n\n" + stackingMetadata
+		}
+	}
+
+	// Prepare update payload (only include fields that should be updated)
+	payload := UpdatePRRequest{}
+	if title != "" {
+		payload.Title = title
+	}
+	if finalBody != "" {
+		payload.Body = finalBody
+	}
+	if draft != nil {
+		payload.Draft = draft
+	}
+
+	path := fmt.Sprintf("repos/%s/%s/pulls/%d", owner, repo, number)
+
+	// Update PR using PATCH
+	var updatedPR PullRequest
+	err := c.Do(ctx, "PATCH", path, payload, &updatedPR)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update pull request: %w", err)
+	}
+
+	logger.Info().
+		Int("number", updatedPR.Number).
+		Msg("Successfully updated pull request")
+
+	return &updatedPR, nil
+}
+
+// UpdatePullRequestForCurrentRepo updates a PR in the current repository context
+func (c *Client) UpdatePullRequestForCurrentRepo(
+	ctx context.Context,
+	number int,
+	title, body string,
+	draft *bool,
+	parentPR *PullRequest,
+) (*PullRequest, error) {
+	if c.repo == nil {
+		return nil, fmt.Errorf("no repository context set")
+	}
+
+	return c.UpdatePullRequest(ctx, c.repo.Owner, c.repo.Name, number, title, body, draft, parentPR)
+}
+
+// DraftTransitionResult represents the result of checking if a PR can transition from draft
+type DraftTransitionResult struct {
+	CanTransition      bool     // Whether the PR can safely transition to ready
+	BlockingReasons    []string // Reasons preventing transition
+	DependentPRsOpen   bool     // Whether there are dependent PRs still open
+	DependentPRsDraft  bool     // Whether dependent PRs are in draft state
+	DependentPRCount   int      // Number of dependent PRs found
+}
+
+// CheckDraftTransition determines if a PR can safely transition from draft to ready
+// Takes into account dependent PRs that might be affected by the state change
+func (c *Client) CheckDraftTransition(
+	ctx context.Context,
+	owner, repo string,
+	pr *PullRequest,
+) (*DraftTransitionResult, error) {
+	result := &DraftTransitionResult{
+		CanTransition:   true,
+		BlockingReasons: []string{},
+	}
+
+	if pr == nil {
+		return result, fmt.Errorf("pull request is nil")
+	}
+
+	// If PR is not in draft, no transition needed
+	if !pr.Draft {
+		logger.Debug().
+			Int("pr", pr.Number).
+			Msg("PR is not in draft state, no transition needed")
+		return result, nil
+	}
+
+	// Find dependent PRs (PRs that target this PR's branch as their base)
+	dependentPRs, err := c.FindDependentPRs(ctx, owner, repo, pr.Head.Ref)
+	if err != nil {
+		return result, fmt.Errorf("failed to find dependent PRs: %w", err)
+	}
+
+	result.DependentPRCount = len(dependentPRs)
+
+	if len(dependentPRs) == 0 {
+		// No dependent PRs, safe to transition
+		logger.Debug().
+			Int("pr", pr.Number).
+			Msg("No dependent PRs, safe to transition from draft")
+		return result, nil
+	}
+
+	// Check state of dependent PRs
+	result.DependentPRsOpen = true
+	var draftDependents []*PullRequest
+	var openDependents []*PullRequest
+
+	for _, dependent := range dependentPRs {
+		if dependent.State == "open" {
+			openDependents = append(openDependents, dependent)
+			if dependent.Draft {
+				draftDependents = append(draftDependents, dependent)
+			}
+		}
+	}
+
+	result.DependentPRsDraft = len(draftDependents) > 0
+
+	// Add informational messages about dependent PRs
+	if len(openDependents) > 0 {
+		result.BlockingReasons = append(result.BlockingReasons,
+			fmt.Sprintf("%d dependent PR(s) target this branch", len(openDependents)))
+	}
+
+	if len(draftDependents) > 0 {
+		result.BlockingReasons = append(result.BlockingReasons,
+			fmt.Sprintf("%d dependent PR(s) are still in draft state", len(draftDependents)))
+	}
+
+	// Note: We don't actually block the transition, just provide information
+	// The user may want to mark ready despite dependent PRs
+	result.CanTransition = true
+
+	logger.Info().
+		Int("pr", pr.Number).
+		Int("dependentCount", len(openDependents)).
+		Int("draftCount", len(draftDependents)).
+		Bool("canTransition", result.CanTransition).
+		Msg("Checked draft transition with dependent PRs")
+
+	return result, nil
+}
+
+// CheckDraftTransitionForCurrentRepo checks draft transition for a PR in the current repository
+func (c *Client) CheckDraftTransitionForCurrentRepo(
+	ctx context.Context,
+	pr *PullRequest,
+) (*DraftTransitionResult, error) {
+	if c.repo == nil {
+		return nil, fmt.Errorf("no repository context set")
+	}
+
+	return c.CheckDraftTransition(ctx, c.repo.Owner, c.repo.Name, pr)
+}

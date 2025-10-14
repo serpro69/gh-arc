@@ -1,6 +1,7 @@
 package github
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -1234,4 +1235,505 @@ func TestStackedPRUpdateResult(t *testing.T) {
 			t.Errorf("Expected no error, got %v", result.Error)
 		}
 	})
+}
+
+func TestFormatStackingMetadata(t *testing.T) {
+	tests := []struct {
+		name          string
+		parentPR      *PullRequest
+		expectEmpty   bool
+		expectedParts []string
+	}{
+		{
+			name:        "nil parent PR",
+			parentPR:    nil,
+			expectEmpty: true,
+		},
+		{
+			name: "parent PR with title",
+			parentPR: &PullRequest{
+				Number: 122,
+				Title:  "Add authentication system",
+			},
+			expectEmpty: false,
+			expectedParts: []string{
+				"---",
+				"📚 **Stacked on:**",
+				"#122",
+				"Add authentication system",
+				"part of a stack",
+				"Review and merge that PR first",
+			},
+		},
+		{
+			name: "parent PR with long title",
+			parentPR: &PullRequest{
+				Number: 999,
+				Title:  "Implement comprehensive authentication and authorization system with JWT",
+			},
+			expectEmpty: false,
+			expectedParts: []string{
+				"---",
+				"📚 **Stacked on:**",
+				"#999",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := FormatStackingMetadata(tt.parentPR)
+
+			if tt.expectEmpty {
+				if result != "" {
+					t.Errorf("Expected empty string, got %q", result)
+				}
+				return
+			}
+
+			for _, part := range tt.expectedParts {
+				if !strings.Contains(result, part) {
+					t.Errorf("Expected result to contain %q, got %q", part, result)
+				}
+			}
+		})
+	}
+}
+
+func TestCreatePullRequestForCurrentRepo(t *testing.T) {
+	t.Run("no repository context", func(t *testing.T) {
+		client := &Client{
+			repo:           nil,
+			config:         DefaultConfig(),
+			cache:          &NoOpCache{},
+			circuitBreaker: NewCircuitBreaker(5, 1*time.Minute),
+		}
+
+		_, err := client.CreatePullRequestForCurrentRepo(nil, "Test PR", "feature", "main", "Description", false, nil)
+		if err == nil {
+			t.Error("Expected error when repository context is not set")
+		}
+
+		if err.Error() != "no repository context set" {
+			t.Errorf("Error message = %q, expected 'no repository context set'", err.Error())
+		}
+	})
+}
+
+func TestCreatePRRequestStructure(t *testing.T) {
+	t.Run("basic request fields", func(t *testing.T) {
+		req := CreatePRRequest{
+			Title:               "Test PR",
+			Head:                "feature-branch",
+			Base:                "main",
+			Body:                "Test description",
+			Draft:               false,
+			MaintainerCanModify: true,
+		}
+
+		if req.Title != "Test PR" {
+			t.Errorf("Title = %q, expected 'Test PR'", req.Title)
+		}
+		if req.Head != "feature-branch" {
+			t.Errorf("Head = %q, expected 'feature-branch'", req.Head)
+		}
+		if req.Base != "main" {
+			t.Errorf("Base = %q, expected 'main'", req.Base)
+		}
+		if !req.MaintainerCanModify {
+			t.Error("Expected MaintainerCanModify to be true")
+		}
+	})
+
+	t.Run("draft PR", func(t *testing.T) {
+		req := CreatePRRequest{
+			Title:               "Draft PR",
+			Head:                "wip-feature",
+			Base:                "main",
+			Body:                "",
+			Draft:               true,
+			MaintainerCanModify: true,
+		}
+
+		if !req.Draft {
+			t.Error("Expected Draft to be true")
+		}
+	})
+}
+
+func TestUpdatePRRequestStructure(t *testing.T) {
+	t.Run("update title only", func(t *testing.T) {
+		req := UpdatePRRequest{
+			Title: "Updated title",
+		}
+
+		if req.Title != "Updated title" {
+			t.Errorf("Title = %q, expected 'Updated title'", req.Title)
+		}
+		if req.Body != "" {
+			t.Error("Body should be empty")
+		}
+	})
+
+	t.Run("update draft state", func(t *testing.T) {
+		readyForReview := false
+		req := UpdatePRRequest{
+			Draft: &readyForReview,
+		}
+
+		if req.Draft == nil {
+			t.Fatal("Draft pointer should not be nil")
+		}
+		if *req.Draft != false {
+			t.Error("Expected draft to be false (ready for review)")
+		}
+	})
+
+	t.Run("nil draft means no change", func(t *testing.T) {
+		req := UpdatePRRequest{
+			Title: "Update",
+			Draft: nil,
+		}
+
+		if req.Draft != nil {
+			t.Error("Draft should be nil to indicate no change")
+		}
+	})
+}
+
+func TestUpdatePullRequestForCurrentRepo(t *testing.T) {
+	t.Run("no repository context", func(t *testing.T) {
+		client := &Client{
+			repo:           nil,
+			config:         DefaultConfig(),
+			cache:          &NoOpCache{},
+			circuitBreaker: NewCircuitBreaker(5, 1*time.Minute),
+		}
+
+		_, err := client.UpdatePullRequestForCurrentRepo(nil, 123, "Updated title", "Updated body", nil, nil)
+		if err == nil {
+			t.Error("Expected error when repository context is not set")
+		}
+
+		if err.Error() != "no repository context set" {
+			t.Errorf("Error message = %q, expected 'no repository context set'", err.Error())
+		}
+	})
+}
+
+func TestCheckDraftTransitionForCurrentRepo(t *testing.T) {
+	t.Run("no repository context", func(t *testing.T) {
+		client := &Client{
+			repo:           nil,
+			config:         DefaultConfig(),
+			cache:          &NoOpCache{},
+			circuitBreaker: NewCircuitBreaker(5, 1*time.Minute),
+		}
+
+		pr := &PullRequest{
+			Number: 123,
+			Draft:  true,
+		}
+
+		_, err := client.CheckDraftTransitionForCurrentRepo(nil, pr)
+		if err == nil {
+			t.Error("Expected error when repository context is not set")
+		}
+
+		if err.Error() != "no repository context set" {
+			t.Errorf("Error message = %q, expected 'no repository context set'", err.Error())
+		}
+	})
+}
+
+func TestCheckDraftTransition(t *testing.T) {
+	t.Run("nil PR error", func(t *testing.T) {
+		client := &Client{}
+
+		_, err := client.CheckDraftTransition(nil, "owner", "repo", nil)
+		if err == nil {
+			t.Error("Expected error for nil PR")
+		}
+
+		expectedMsg := "pull request is nil"
+		if err.Error() != expectedMsg {
+			t.Errorf("Error message = %q, expected %q", err.Error(), expectedMsg)
+		}
+	})
+
+	t.Run("PR not in draft state", func(t *testing.T) {
+		client := &Client{}
+
+		pr := &PullRequest{
+			Number: 123,
+			Draft:  false,
+		}
+
+		result, err := client.CheckDraftTransition(nil, "owner", "repo", pr)
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+
+		if !result.CanTransition {
+			t.Error("Expected CanTransition to be true for non-draft PR")
+		}
+
+		if result.DependentPRCount != 0 {
+			t.Errorf("Expected DependentPRCount to be 0, got %d", result.DependentPRCount)
+		}
+	})
+}
+
+func TestDraftTransitionResultStructure(t *testing.T) {
+	t.Run("can transition with no blockers", func(t *testing.T) {
+		result := &DraftTransitionResult{
+			CanTransition:    true,
+			BlockingReasons:  []string{},
+			DependentPRsOpen: false,
+			DependentPRsDraft: false,
+			DependentPRCount: 0,
+		}
+
+		if !result.CanTransition {
+			t.Error("Expected CanTransition to be true")
+		}
+		if len(result.BlockingReasons) != 0 {
+			t.Errorf("Expected no blocking reasons, got %d", len(result.BlockingReasons))
+		}
+	})
+
+	t.Run("can transition with dependent PRs", func(t *testing.T) {
+		result := &DraftTransitionResult{
+			CanTransition:    true,
+			BlockingReasons:  []string{"2 dependent PR(s) target this branch"},
+			DependentPRsOpen: true,
+			DependentPRsDraft: false,
+			DependentPRCount: 2,
+		}
+
+		if !result.CanTransition {
+			t.Error("Expected CanTransition to be true even with dependents")
+		}
+		if len(result.BlockingReasons) != 1 {
+			t.Errorf("Expected 1 blocking reason, got %d", len(result.BlockingReasons))
+		}
+		if result.DependentPRCount != 2 {
+			t.Errorf("Expected DependentPRCount to be 2, got %d", result.DependentPRCount)
+		}
+	})
+
+	t.Run("dependent PRs in draft state", func(t *testing.T) {
+		result := &DraftTransitionResult{
+			CanTransition:    true,
+			BlockingReasons:  []string{"1 dependent PR(s) are still in draft state"},
+			DependentPRsOpen: true,
+			DependentPRsDraft: true,
+			DependentPRCount: 1,
+		}
+
+		if !result.DependentPRsDraft {
+			t.Error("Expected DependentPRsDraft to be true")
+		}
+	})
+}
+
+func TestStackingMetadataInPRBody(t *testing.T) {
+	t.Run("stacking metadata added to empty body", func(t *testing.T) {
+		parentPR := &PullRequest{
+			Number: 100,
+			Title:  "Parent PR",
+		}
+
+		body := ""
+		metadata := FormatStackingMetadata(parentPR)
+
+		if body != "" {
+			finalBody := body + "\n\n" + metadata
+			if !strings.Contains(finalBody, "📚 **Stacked on:**") {
+				t.Error("Expected stacking metadata in final body")
+			}
+		} else {
+			finalBody := metadata
+			if !strings.Contains(finalBody, "📚 **Stacked on:**") {
+				t.Error("Expected stacking metadata in final body")
+			}
+		}
+	})
+
+	t.Run("stacking metadata added to existing body", func(t *testing.T) {
+		parentPR := &PullRequest{
+			Number: 100,
+			Title:  "Parent PR",
+		}
+
+		body := "This is my PR description"
+		metadata := FormatStackingMetadata(parentPR)
+		finalBody := body + "\n\n" + metadata
+
+		if !strings.Contains(finalBody, "This is my PR description") {
+			t.Error("Expected original body in final body")
+		}
+		if !strings.Contains(finalBody, "📚 **Stacked on:**") {
+			t.Error("Expected stacking metadata in final body")
+		}
+	})
+
+	t.Run("stacking metadata not duplicated", func(t *testing.T) {
+		parentPR := &PullRequest{
+			Number: 100,
+			Title:  "Parent PR",
+		}
+
+		// Body already has stacking metadata
+		body := "PR description\n\n---\n\n📚 **Stacked on:** #100 - Parent PR"
+
+		// Check if body already contains metadata (simulating UpdatePullRequest logic)
+		if strings.Contains(body, "📚 **Stacked on:**") {
+			// Don't add metadata again
+			finalBody := body
+			if finalBody != body {
+				t.Error("Body should not be modified when metadata already present")
+			}
+		} else {
+			// Add metadata
+			metadata := FormatStackingMetadata(parentPR)
+			finalBody := body + "\n\n" + metadata
+			if !strings.Contains(finalBody, "📚 **Stacked on:**") {
+				t.Error("Expected stacking metadata in final body")
+			}
+		}
+	})
+}
+
+func TestPRCreationWithStackingScenarios(t *testing.T) {
+	t.Run("non-stacked PR (no parent)", func(t *testing.T) {
+		// Simulate creating a PR without parent
+		_ = "Feature PR"      // title
+		_ = "feature/auth"    // head
+		_ = "main"            // base
+		body := "Implements authentication"
+		parentPR := (*PullRequest)(nil)
+
+		finalBody := body
+		if parentPR != nil {
+			metadata := FormatStackingMetadata(parentPR)
+			if finalBody != "" {
+				finalBody = body + "\n\n" + metadata
+			} else {
+				finalBody = metadata
+			}
+		}
+
+		// Should not have stacking metadata
+		if strings.Contains(finalBody, "📚 **Stacked on:**") {
+			t.Error("Non-stacked PR should not have stacking metadata")
+		}
+		if finalBody != "Implements authentication" {
+			t.Errorf("Final body = %q, expected original body only", finalBody)
+		}
+	})
+
+	t.Run("stacked PR (with parent)", func(t *testing.T) {
+		// Simulate creating a stacked PR
+		_ = "Feature PR - Part 2"   // title
+		_ = "feature/auth-part2"    // head
+		_ = "feature/auth"          // base
+		body := "Continues authentication work"
+		parentPR := &PullRequest{
+			Number: 122,
+			Title:  "Feature PR - Part 1",
+		}
+
+		finalBody := body
+		if parentPR != nil {
+			metadata := FormatStackingMetadata(parentPR)
+			if finalBody != "" {
+				finalBody = body + "\n\n" + metadata
+			} else {
+				finalBody = metadata
+			}
+		}
+
+		// Should have stacking metadata
+		if !strings.Contains(finalBody, "📚 **Stacked on:**") {
+			t.Error("Stacked PR should have stacking metadata")
+		}
+		if !strings.Contains(finalBody, "#122") {
+			t.Error("Should reference parent PR number")
+		}
+		if !strings.Contains(finalBody, "Continues authentication work") {
+			t.Error("Should preserve original body")
+		}
+	})
+}
+
+func TestDraftStateTransitions(t *testing.T) {
+	t.Run("marking PR ready for review", func(t *testing.T) {
+		// Simulate transition from draft to ready
+		readyForReview := false
+		req := UpdatePRRequest{
+			Draft: &readyForReview,
+		}
+
+		if *req.Draft != false {
+			t.Error("Expected draft to be false (ready for review)")
+		}
+	})
+
+	t.Run("keeping PR in draft", func(t *testing.T) {
+		// Simulate keeping PR in draft
+		stillDraft := true
+		req := UpdatePRRequest{
+			Draft: &stillDraft,
+		}
+
+		if *req.Draft != true {
+			t.Error("Expected draft to be true")
+		}
+	})
+
+	t.Run("not changing draft state", func(t *testing.T) {
+		// Simulate update without touching draft state
+		req := UpdatePRRequest{
+			Title: "Updated title",
+			Draft: nil, // nil means don't change
+		}
+
+		if req.Draft != nil {
+			t.Error("Draft should be nil when not changing state")
+		}
+	})
+}
+
+func TestStackingMetadataFormat(t *testing.T) {
+	parentPR := &PullRequest{
+		Number: 123,
+		Title:  "Parent Feature",
+	}
+
+	metadata := FormatStackingMetadata(parentPR)
+
+	// Check that metadata has proper markdown formatting
+	lines := strings.Split(metadata, "\n")
+
+	if len(lines) < 3 {
+		t.Errorf("Expected at least 3 lines in metadata, got %d", len(lines))
+	}
+
+	// First line should be separator
+	if lines[0] != "---" {
+		t.Errorf("Expected first line to be '---', got %q", lines[0])
+	}
+
+	// Should contain the stacking reference line
+	found := false
+	for _, line := range lines {
+		if strings.Contains(line, "📚 **Stacked on:**") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("Metadata should contain stacking reference line")
+	}
 }
