@@ -121,15 +121,19 @@ So we've come up with a "simple as a rock" (is that a thing? 🤔) solution to b
 
 ## Configuration
 
-`gh-arc` can be configured using a JSON configuration file. The extension looks for configuration files in the following locations (in order of precedence):
+`gh-arc` can be configured using either JSON or YAML configuration files. The extension looks for configuration files in the following locations (in order of precedence):
 
-1. `./.arc.json` - Project-specific configuration (current directory)
-2. `~/.config/gh-arc/.arc.json` - User configuration
-3. `/etc/gh-arc/.arc.json` - System-wide configuration
+1. Current directory: `./.arc.json`, `./.arc.yaml`, or `./.arc.yml`
+2. User config: `~/.config/gh-arc/.arc.json`, `~/.config/gh-arc/.arc.yaml`, or `~/.config/gh-arc/.arc.yml`
+3. System-wide: `/etc/gh-arc/.arc.json`, `/etc/gh-arc/.arc.yaml`, or `/etc/gh-arc/.arc.yml`
+
+Within each directory, JSON files take precedence over YAML files (`.arc.json` > `.arc.yaml` > `.arc.yml`).
 
 ### Configuration Format
 
-Create a `.arc.json` file in your project root or user config directory:
+Create a `.arc.json` or `.arc.yaml` file in your project root or user config directory:
+
+**JSON format (`.arc.json`):**
 
 ```json
 {
@@ -164,6 +168,40 @@ Create a `.arc.json` file in your project root or user config directory:
     "color": true
   }
 }
+```
+
+**YAML format (`.arc.yaml` or `.arc.yml`):**
+
+```yaml
+github:
+  defaultBranch: main
+  defaultReviewer: ""
+  autoAssignReviewer: false
+
+diff:
+  createAsDraft: true
+  autoUpdatePR: true
+  includeCommitMessages: true
+  enableStacking: true
+  defaultBase: ""
+  showStackingWarnings: true
+  templatePath: ""
+  requireTestPlan: true
+  linearEnabled: false
+  linearDefaultProject: ""
+
+land:
+  defaultMergeMethod: squash
+  deleteLocalBranch: true
+  deleteRemoteBranch: true
+  requireApproval: true
+  requireCI: true
+
+output:
+  verbose: false
+  quiet: false
+  json: false
+  color: true
 ```
 
 ### Configuration Options
@@ -268,6 +306,8 @@ Configure custom linters:
 
 For most projects, you only need to override a few settings:
 
+**JSON (`.arc.json`):**
+
 ```json
 {
   "diff": {
@@ -275,6 +315,14 @@ For most projects, you only need to override a few settings:
     "requireTestPlan": false
   }
 }
+```
+
+**YAML (`.arc.yaml`):**
+
+```yaml
+diff:
+  createAsDraft: false
+  requireTestPlan: false
 ```
 
 This configuration:

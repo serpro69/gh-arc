@@ -45,7 +45,7 @@ func TestLoad(t *testing.T) {
 		tmpDir := t.TempDir()
 		os.Chdir(tmpDir)
 
-		// Create a test config file
+		// Create a test config file with explicit .json extension
 		configContent := `{
 			"github": {
 				"defaultBranch": "develop",
@@ -56,7 +56,7 @@ func TestLoad(t *testing.T) {
 			}
 		}`
 
-		err := os.WriteFile(".arc", []byte(configContent), 0644)
+		err := os.WriteFile(".arc.json", []byte(configContent), 0644)
 		if err != nil {
 			t.Fatalf("Failed to write config file: %v", err)
 		}
@@ -77,11 +77,11 @@ func TestLoad(t *testing.T) {
 		}
 	})
 
-	t.Run("load from YAML config file", func(t *testing.T) {
+	t.Run("load from YAML config file (.yaml)", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		os.Chdir(tmpDir)
 
-		// Create a YAML test config file
+		// Create a YAML test config file with explicit .yaml extension
 		configContent := `
 github:
   defaultBranch: feature
@@ -89,16 +89,58 @@ github:
 diff:
   createAsDraft: false
 `
-		// Note: Viper expects .arc with SetConfigType("json") or .arc.yaml
 		err := os.WriteFile(".arc.yaml", []byte(configContent), 0644)
 		if err != nil {
 			t.Fatalf("Failed to write config file: %v", err)
 		}
 
-		// Need to adjust viper config type for this test
-		// For now, we'll skip YAML test as it requires more setup
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
 
-		t.Skip("YAML test requires additional viper configuration")
+		if cfg.GitHub.DefaultBranch != "feature" {
+			t.Errorf("Expected branch 'feature', got '%s'", cfg.GitHub.DefaultBranch)
+		}
+		if !cfg.GitHub.AutoAssignReviewer {
+			t.Error("Expected autoAssignReviewer to be true")
+		}
+		if cfg.Diff.CreateAsDraft {
+			t.Error("Expected createAsDraft to be false")
+		}
+	})
+
+	t.Run("load from YAML config file (.yml)", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		os.Chdir(tmpDir)
+
+		// Create a YAML test config file with alternate .yml extension
+		configContent := `
+land:
+  defaultMergeMethod: rebase
+  deleteLocalBranch: false
+output:
+  verbose: true
+`
+		err := os.WriteFile(".arc.yml", []byte(configContent), 0644)
+		if err != nil {
+			t.Fatalf("Failed to write config file: %v", err)
+		}
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if cfg.Land.DefaultMergeMethod != "rebase" {
+			t.Errorf("Expected merge method 'rebase', got '%s'", cfg.Land.DefaultMergeMethod)
+		}
+		if cfg.Land.DeleteLocalBranch {
+			t.Error("Expected deleteLocalBranch to be false")
+		}
+		if !cfg.Output.Verbose {
+			t.Error("Expected verbose to be true")
+		}
 	})
 
 	t.Run("load with environment variables", func(t *testing.T) {
