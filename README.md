@@ -118,3 +118,167 @@ So we've come up with a "simple as a rock" (is that a thing? 🤔) solution to b
 - Then try typing `arc <TAB>` ...you should see the command completion for the extension; and as an added bonus, you've shortened the overall `gh ...` command as well... 🤯 Who said ingenious can't be simple?
 
 - Profit... ⏱️
+
+## Configuration
+
+`gh-arc` can be configured using a JSON configuration file. The extension looks for configuration files in the following locations (in order of precedence):
+
+1. `./.arc.json` - Project-specific configuration (current directory)
+2. `~/.config/gh-arc/.arc.json` - User configuration
+3. `/etc/gh-arc/.arc.json` - System-wide configuration
+
+### Configuration Format
+
+Create a `.arc.json` file in your project root or user config directory:
+
+```json
+{
+  "github": {
+    "defaultBranch": "main",
+    "defaultReviewer": "",
+    "autoAssignReviewer": false
+  },
+  "diff": {
+    "createAsDraft": true,
+    "autoUpdatePR": true,
+    "includeCommitMessages": true,
+    "enableStacking": true,
+    "defaultBase": "",
+    "showStackingWarnings": true,
+    "templatePath": "",
+    "requireTestPlan": true,
+    "linearEnabled": false,
+    "linearDefaultProject": ""
+  },
+  "land": {
+    "defaultMergeMethod": "squash",
+    "deleteLocalBranch": true,
+    "deleteRemoteBranch": true,
+    "requireApproval": true,
+    "requireCI": true
+  },
+  "output": {
+    "verbose": false,
+    "quiet": false,
+    "json": false,
+    "color": true
+  }
+}
+```
+
+### Configuration Options
+
+#### GitHub Settings
+
+- **`github.defaultBranch`** (string, default: `"main"`): The default base branch for new PRs
+- **`github.defaultReviewer`** (string, default: `""`): Default reviewer to assign to PRs
+- **`github.autoAssignReviewer`** (bool, default: `false`): Automatically assign the default reviewer to new PRs
+
+#### Diff (PR Creation) Settings
+
+- **`diff.createAsDraft`** (bool, default: `true`): Create PRs as drafts by default
+- **`diff.autoUpdatePR`** (bool, default: `true`): Automatically update existing PRs when running `gh arc diff`
+- **`diff.includeCommitMessages`** (bool, default: `true`): Include commit messages in PR description
+- **`diff.enableStacking`** (bool, default: `true`): Enable automatic stacked PR detection
+- **`diff.defaultBase`** (string, default: `""`): Force a specific base branch (empty = auto-detect)
+- **`diff.showStackingWarnings`** (bool, default: `true`): Show warnings when dependent PRs exist
+- **`diff.templatePath`** (string, default: `""`): Path to custom PR template (empty = use built-in)
+- **`diff.requireTestPlan`** (bool, default: `true`): Require test plan in PR template
+- **`diff.linearEnabled`** (bool, default: `false`): Enable Linear issue integration
+- **`diff.linearDefaultProject`** (string, default: `""`): Default Linear project for issue references
+
+#### Land (Merge) Settings
+
+- **`land.defaultMergeMethod`** (string, default: `"squash"`): Default merge method (`squash`, `merge`, or `rebase`)
+- **`land.deleteLocalBranch`** (bool, default: `true`): Delete local branch after landing
+- **`land.deleteRemoteBranch`** (bool, default: `true`): Delete remote branch after landing
+- **`land.requireApproval`** (bool, default: `true`): Require PR approval before landing
+- **`land.requireCI`** (bool, default: `true`): Require CI checks to pass before landing
+
+#### Output Settings
+
+- **`output.verbose`** (bool, default: `false`): Enable verbose output
+- **`output.quiet`** (bool, default: `false`): Suppress non-essential output
+- **`output.json`** (bool, default: `false`): Output results in JSON format
+- **`output.color`** (bool, default: `true`): Enable colored output
+
+### Environment Variables
+
+All configuration options can be overridden using environment variables with the `GHARC_` prefix. Use underscores to separate nested keys:
+
+```bash
+# Override diff.createAsDraft
+export GHARC_DIFF_CREATEASDRAFT=false
+
+# Override github.defaultBranch
+export GHARC_GITHUB_DEFAULTBRANCH=master
+
+# Override land.defaultMergeMethod
+export GHARC_LAND_DEFAULTMERGEMETHOD=merge
+```
+
+### Advanced Configuration
+
+#### Test Runners
+
+Configure custom test runners in your `.arc.json`:
+
+```json
+{
+  "test": {
+    "runners": [
+      {
+        "name": "go-test",
+        "command": "go",
+        "args": ["test", "./..."],
+        "workingDir": "",
+        "timeout": "5m"
+      }
+    ]
+  }
+}
+```
+
+#### Lint Runners
+
+Configure custom linters:
+
+```json
+{
+  "lint": {
+    "runners": [
+      {
+        "name": "golangci-lint",
+        "command": "golangci-lint",
+        "args": ["run"],
+        "workingDir": "",
+        "autoFix": true
+      }
+    ],
+    "megaLinter": {
+      "enabled": "auto",
+      "config": ".mega-linter.yml",
+      "fixIssues": false
+    }
+  }
+}
+```
+
+### Example: Minimal Configuration
+
+For most projects, you only need to override a few settings:
+
+```json
+{
+  "diff": {
+    "createAsDraft": false,
+    "requireTestPlan": false
+  }
+}
+```
+
+This configuration:
+- Creates PRs as ready-for-review by default
+- Makes the test plan field optional
+
+All other settings will use their default values.
