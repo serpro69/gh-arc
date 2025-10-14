@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/viper"
 )
@@ -105,26 +106,37 @@ func Load() (*Config, error) {
 	// Set defaults
 	setDefaults(v)
 
-	// Set config name and type
-	v.SetConfigName(".arc")
-	v.SetConfigType("json")
+	// Add config search paths (expand environment variables)
+	searchPaths := []string{
+		".",                                          // Current directory
+		os.ExpandEnv("$HOME/.config/gh-arc"),        // User config directory
+		"/etc/gh-arc",                                // System-wide config
+	}
 
-	// Add config search paths
-	v.AddConfigPath(".")                    // Current directory
-	v.AddConfigPath("$HOME/.config/gh-arc") // User config directory
-	v.AddConfigPath("/etc/gh-arc")          // System-wide config
+	// Try to find config file with explicit extensions (for IDE-friendliness)
+	// Precedence: .arc.json > .arc.yaml > .arc.yml in each directory
+	configNames := []string{".arc.json", ".arc.yaml", ".arc.yml"}
+
+	var configFound bool
+	for _, path := range searchPaths {
+		for _, configName := range configNames {
+			configPath := filepath.Join(path, configName)
+			v.SetConfigFile(configPath)
+			if err := v.ReadInConfig(); err == nil {
+				configFound = true
+				break
+			}
+		}
+		if configFound {
+			break
+		}
+	}
 
 	// Read in environment variables with GHARC_ prefix
 	v.SetEnvPrefix("GHARC")
 	v.AutomaticEnv()
 
-	// Try to read config file (ignore error if not found)
-	if err := v.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			return nil, fmt.Errorf("failed to read config file: %w", err)
-		}
-		// Config file not found; using defaults
-	}
+	// If no config file found, we'll use defaults (not an error)
 
 	// Unmarshal config into struct
 	cfg = &Config{}
