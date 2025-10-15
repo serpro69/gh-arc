@@ -172,7 +172,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("github.autoAssignReviewer", false)
 
 	// Diff defaults
-	v.SetDefault("diff.createAsDraft", true)
+	v.SetDefault("diff.createAsDraft", false)
 	v.SetDefault("diff.autoUpdatePR", true)
 	v.SetDefault("diff.includeCommitMessages", true)
 	v.SetDefault("diff.enableStacking", true)        // Opt-out (enabled by default)

@@ -107,11 +107,8 @@ func generateFromSingleCommit(commitMessage string) (title, summary string) {
 		title = "Update code"
 	}
 
-	// Use commit body as summary, or use title if body is empty
+	// Use commit body as summary, leave empty if no body exists
 	summary = parsed.Body
-	if summary == "" {
-		summary = parsed.Title
-	}
 
 	return title, summary
 }

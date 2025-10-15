@@ -24,8 +24,8 @@ func TestLoad(t *testing.T) {
 		if cfg.Land.DefaultMergeMethod != "squash" {
 			t.Errorf("Expected default merge method 'squash', got '%s'", cfg.Land.DefaultMergeMethod)
 		}
-		if !cfg.Diff.CreateAsDraft {
-			t.Error("Expected createAsDraft to be true by default")
+		if cfg.Diff.CreateAsDraft {
+			t.Error("Expected createAsDraft to be false by default")
 		}
 		if !cfg.Diff.EnableStacking {
 			t.Error("Expected enableStacking to be true by default")
