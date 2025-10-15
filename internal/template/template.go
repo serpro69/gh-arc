@@ -141,6 +141,8 @@ func (g *TemplateGenerator) writeFields(sb *strings.Builder) {
 	sb.WriteString(markerSummary + "\n")
 	if g.analysis != nil && g.analysis.Summary != "" {
 		sb.WriteString(g.analysis.Summary + "\n")
+	} else {
+		sb.WriteString("# Optional summary of the changes\n")
 	}
 	sb.WriteString("\n")
 
