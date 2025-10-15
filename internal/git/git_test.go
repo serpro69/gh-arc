@@ -1784,8 +1784,62 @@ func TestPush(t *testing.T) {
 		err = repo.Push(ctx, "master")
 		assert.Error(t, err)
 		// Error message could be either "timed out" or "cancelled" depending on timing
-		assert.True(t, 
+		assert.True(t,
 			strings.Contains(err.Error(), "timed out") || strings.Contains(err.Error(), "cancelled"),
 			"expected error to contain 'timed out' or 'cancelled', got: %v", err)
+	})
+}
+
+// TestHasUnpushedCommits tests checking for unpushed commits
+func TestHasUnpushedCommits(t *testing.T) {
+	t.Run("empty branch name returns error", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		_, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Check with empty branch name should fail
+		_, err = repo.HasUnpushedCommits("")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "branch name cannot be empty")
+	})
+
+	t.Run("remote branch doesn't exist - all commits unpushed", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create initial commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("test"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("initial commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		branch, err := repo.GetCurrentBranch()
+		require.NoError(t, err)
+
+		// Check for unpushed commits - should return true since remote doesn't exist
+		hasUnpushed, err := repo.HasUnpushedCommits(branch)
+		require.NoError(t, err)
+		assert.True(t, hasUnpushed, "should have unpushed commits when remote branch doesn't exist")
 	})
 }

@@ -942,6 +942,36 @@ func (r *Repository) GetMergeBase(ref1, ref2 string) (string, error) {
 	return sha, nil
 }
 
+// HasUnpushedCommits checks if the local branch has commits that haven't been pushed to remote.
+// Returns true if there are unpushed commits, false otherwise.
+// If the remote branch doesn't exist yet, returns true (all local commits are "unpushed").
+func (r *Repository) HasUnpushedCommits(branchName string) (bool, error) {
+	if branchName == "" {
+		return false, fmt.Errorf("branch name cannot be empty")
+	}
+
+	// Check if remote branch exists
+	remoteBranch := fmt.Sprintf("origin/%s", branchName)
+	cmd := exec.Command("git", "rev-parse", "--verify", remoteBranch)
+	cmd.Dir = r.path
+	if err := cmd.Run(); err != nil {
+		// Remote branch doesn't exist, so all local commits are unpushed
+		return true, nil
+	}
+
+	// Count commits that are in local branch but not in remote
+	cmd = exec.Command("git", "rev-list", "--count", fmt.Sprintf("%s..%s", remoteBranch, branchName))
+	cmd.Dir = r.path
+
+	output, err := cmd.Output()
+	if err != nil {
+		return false, fmt.Errorf("failed to count unpushed commits: %w", err)
+	}
+
+	count := strings.TrimSpace(string(output))
+	return count != "0", nil
+}
+
 // Push pushes commits from the specified branch to its remote tracking branch.
 // If the branch has no remote tracking branch, it pushes to origin with the same name.
 // Uses context for cancellation support.
