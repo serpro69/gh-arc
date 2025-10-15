@@ -13,6 +13,7 @@ import (
 // PullRequest represents a GitHub pull request with all relevant information
 type PullRequest struct {
 	Number    int       `json:"number"`
+	NodeID    string    `json:"node_id"` // GraphQL global node ID
 	Title     string    `json:"title"`
 	State     string    `json:"state"` // open, closed
 	Draft     bool      `json:"draft"`
@@ -761,6 +762,75 @@ func (c *Client) UpdatePRBaseForCurrentRepo(ctx context.Context, number int, new
 	}
 
 	return c.UpdatePRBase(ctx, c.repo.Owner, c.repo.Name, number, newBase)
+}
+
+// MarkPRReadyForReview marks a draft pull request as ready for review
+// This uses the GitHub GraphQL API since there's no REST endpoint for this
+// Requires the PR to have a NodeID populated
+func (c *Client) MarkPRReadyForReview(ctx context.Context, owner, repo string, pr *PullRequest) (*PullRequest, error) {
+	if pr == nil {
+		return nil, fmt.Errorf("pull request is nil")
+	}
+
+	if pr.NodeID == "" {
+		return nil, fmt.Errorf("pull request NodeID is required for GraphQL mutation")
+	}
+
+	logger.Info().
+		Int("pr", pr.Number).
+		Str("nodeId", pr.NodeID).
+		Msg("Marking draft PR as ready for review using GraphQL")
+
+	// Get GraphQL client
+	client := c.GraphQL()
+
+	// Define the mutation structure
+	var mutation struct {
+		MarkPullRequestReadyForReview struct {
+			PullRequest struct {
+				ID      string `graphql:"id"`
+				IsDraft bool   `graphql:"isDraft"`
+				Number  int    `graphql:"number"`
+			} `graphql:"pullRequest"`
+		} `graphql:"markPullRequestReadyForReview(input: $input)"`
+	}
+
+	// Define the input type
+	type MarkPullRequestReadyForReviewInput struct {
+		PullRequestID string `json:"pullRequestId"`
+	}
+
+	// Prepare variables
+	variables := map[string]interface{}{
+		"input": MarkPullRequestReadyForReviewInput{
+			PullRequestID: pr.NodeID,
+		},
+	}
+
+	// Execute the mutation
+	err := client.Mutate("MarkPullRequestReadyForReview", &mutation, variables)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute GraphQL mutation: %w", err)
+	}
+
+	logger.Info().
+		Int("pr", mutation.MarkPullRequestReadyForReview.PullRequest.Number).
+		Bool("isDraft", mutation.MarkPullRequestReadyForReview.PullRequest.IsDraft).
+		Msg("Successfully marked PR as ready for review")
+
+	// Update the PR object with the new draft status
+	pr.Draft = mutation.MarkPullRequestReadyForReview.PullRequest.IsDraft
+
+	return pr, nil
+}
+
+// MarkPRReadyForReviewForCurrentRepo marks a draft PR as ready in the current repository
+func (c *Client) MarkPRReadyForReviewForCurrentRepo(ctx context.Context, pr *PullRequest) (*PullRequest, error) {
+	if c.repo == nil {
+		return nil, fmt.Errorf("no repository context set")
+	}
+
+	return c.MarkPRReadyForReview(ctx, c.repo.Owner, c.repo.Name, pr)
 }
 
 // FindDependentPRs finds all pull requests that target the given branch as their base

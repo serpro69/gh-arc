@@ -232,6 +232,13 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		fmt.Printf("✓ PR #%d already exists\n", existingPR.Number)
 		fmt.Printf("  %s\n", existingPR.HTMLURL)
 
+		// Debug: Log PR draft status
+		logger.Debug().
+			Bool("prIsDraft", existingPR.Draft).
+			Bool("readyFlag", diffReady).
+			Bool("draftFlag", diffDraft).
+			Msg("Current PR status and flags")
+
 		// Check for unpushed commits
 		hasUnpushed, err := gitRepo.HasUnpushedCommits(currentBranch)
 		if err != nil {
@@ -252,21 +259,33 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		}
 
 		// Handle draft status changes from flags
-		needsDraftUpdate := false
-		var newDraftStatus bool
 		if diffReady && existingPR.Draft {
-			needsDraftUpdate = true
-			newDraftStatus = false
+			// Mark draft PR as ready for review
 			fmt.Println("\n✓ Marking PR as ready for review...")
-		} else if diffDraft && !existingPR.Draft {
-			needsDraftUpdate = true
-			newDraftStatus = true
-			fmt.Println("\n✓ Converting PR to draft...")
-		}
+			logger.Debug().Msg("Will update PR from draft to ready using GraphQL")
 
-		if needsDraftUpdate {
-			// Pass empty strings for title and body to only update draft status
-			_, err := client.UpdatePullRequestForCurrentRepo(
+			updatedPR, err := client.MarkPRReadyForReviewForCurrentRepo(ctx, existingPR)
+			if err != nil {
+				logger.Error().
+					Err(err).
+					Int("prNumber", existingPR.Number).
+					Msg("Failed to mark PR as ready")
+				return fmt.Errorf("failed to mark PR as ready: %w", err)
+			}
+
+			logger.Debug().
+				Int("prNumber", updatedPR.Number).
+				Bool("resultDraft", updatedPR.Draft).
+				Msg("PR marked as ready successfully")
+
+			fmt.Println("  ✓ PR status updated")
+		} else if diffDraft && !existingPR.Draft {
+			// Convert ready PR to draft using PATCH
+			fmt.Println("\n✓ Converting PR to draft...")
+			logger.Debug().Msg("Will update PR from ready to draft using PATCH")
+
+			newDraftStatus := true
+			updatedPR, err := client.UpdatePullRequestForCurrentRepo(
 				ctx,
 				existingPR.Number,
 				"",
@@ -275,9 +294,25 @@ func runDiff(cmd *cobra.Command, args []string) error {
 				baseResult.ParentPR,
 			)
 			if err != nil {
-				return fmt.Errorf("failed to update PR draft status: %w", err)
+				logger.Error().
+					Err(err).
+					Int("prNumber", existingPR.Number).
+					Msg("Failed to convert PR to draft")
+				return fmt.Errorf("failed to convert PR to draft: %w", err)
 			}
+
+			logger.Debug().
+				Int("prNumber", updatedPR.Number).
+				Bool("resultDraft", updatedPR.Draft).
+				Msg("PR converted to draft successfully")
+
 			fmt.Println("  ✓ PR status updated")
+		} else {
+			logger.Debug().
+				Bool("diffReady", diffReady).
+				Bool("existingPRDraft", existingPR.Draft).
+				Bool("diffDraft", diffDraft).
+				Msg("No draft status update needed")
 		}
 
 		// Push new commits if they exist
@@ -287,7 +322,8 @@ func runDiff(cmd *cobra.Command, args []string) error {
 				return fmt.Errorf("failed to push commits: %w", err)
 			}
 			fmt.Println("  ✓ Commits pushed successfully")
-		} else if !needsDraftUpdate {
+		} else if !diffReady && !diffDraft {
+			// Only show "no new commits" if we're not updating draft status
 			fmt.Println("\n✓ No new commits to push")
 		}
 
@@ -469,17 +505,45 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		// Update existing PR
 		fmt.Printf("\n✓ Updating PR #%d...\n", existingPR.Number)
 
-		draftPtr := &isDraft
-		pr, err = client.UpdatePullRequestForCurrentRepo(
-			ctx,
-			existingPR.Number,
-			prTitle,
-			prBody,
-			draftPtr,
-			baseResult.ParentPR,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to update PR: %w", err)
+		// Handle draft→ready transition specially (requires GraphQL)
+		if existingPR.Draft && !isDraft {
+			// First, update title/body/etc with PATCH (keep as draft)
+			if prTitle != "" || prBody != "" {
+				logger.Debug().Msg("Updating PR title/body before marking ready")
+				tempDraft := true
+				_, err = client.UpdatePullRequestForCurrentRepo(
+					ctx,
+					existingPR.Number,
+					prTitle,
+					prBody,
+					&tempDraft,
+					baseResult.ParentPR,
+				)
+				if err != nil {
+					return fmt.Errorf("failed to update PR metadata: %w", err)
+				}
+			}
+
+			// Then mark as ready using GraphQL
+			logger.Debug().Msg("Marking PR as ready for review using GraphQL")
+			pr, err = client.MarkPRReadyForReviewForCurrentRepo(ctx, existingPR)
+			if err != nil {
+				return fmt.Errorf("failed to mark PR as ready: %w", err)
+			}
+		} else {
+			// Normal update (ready→draft or any other change)
+			draftPtr := &isDraft
+			pr, err = client.UpdatePullRequestForCurrentRepo(
+				ctx,
+				existingPR.Number,
+				prTitle,
+				prBody,
+				draftPtr,
+				baseResult.ParentPR,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to update PR: %w", err)
+			}
 		}
 
 		fmt.Printf("  %s\n", pr.HTMLURL)
