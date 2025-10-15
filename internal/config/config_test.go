@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -49,14 +50,14 @@ func TestLoad(t *testing.T) {
 		configContent := `{
 			"github": {
 				"defaultBranch": "develop",
-				"defaultReviewer": "testuser"
+				"defaultReviewers": ["testuser"]
 			},
 			"land": {
 				"defaultMergeMethod": "merge"
 			}
 		}`
 
-		err := os.WriteFile(".arc.json", []byte(configContent), 0644)
+		err := os.WriteFile(".arc.json", []byte(configContent), 0o644)
 		if err != nil {
 			t.Fatalf("Failed to write config file: %v", err)
 		}
@@ -69,8 +70,11 @@ func TestLoad(t *testing.T) {
 		if cfg.GitHub.DefaultBranch != "develop" {
 			t.Errorf("Expected branch 'develop', got '%s'", cfg.GitHub.DefaultBranch)
 		}
-		if cfg.GitHub.DefaultReviewer != "testuser" {
-			t.Errorf("Expected reviewer 'testuser', got '%s'", cfg.GitHub.DefaultReviewer)
+		if !slices.Contains(cfg.GitHub.DefaultReviewers, "testuser") {
+			t.Errorf("Expected to contain 'testuser', got '%v'", cfg.GitHub.DefaultReviewers)
+		}
+		if len(cfg.GitHub.DefaultReviewers) != 1 {
+			t.Errorf("Expected '%v' to have len 1, got '%d'", cfg.GitHub.DefaultReviewers, len(cfg.GitHub.DefaultReviewers))
 		}
 		if cfg.Land.DefaultMergeMethod != "merge" {
 			t.Errorf("Expected merge method 'merge', got '%s'", cfg.Land.DefaultMergeMethod)
@@ -89,7 +93,7 @@ github:
 diff:
   createAsDraft: false
 `
-		err := os.WriteFile(".arc.yaml", []byte(configContent), 0644)
+		err := os.WriteFile(".arc.yaml", []byte(configContent), 0o644)
 		if err != nil {
 			t.Fatalf("Failed to write config file: %v", err)
 		}
@@ -122,7 +126,7 @@ land:
 output:
   verbose: true
 `
-		err := os.WriteFile(".arc.yml", []byte(configContent), 0644)
+		err := os.WriteFile(".arc.yml", []byte(configContent), 0o644)
 		if err != nil {
 			t.Fatalf("Failed to write config file: %v", err)
 		}
@@ -373,7 +377,7 @@ func TestGetMegaLinterConfigPath(t *testing.T) {
 		os.Chdir(tmpDir)
 
 		configFile := filepath.Join(tmpDir, "custom-mega-linter.yml")
-		err := os.WriteFile(configFile, []byte("test"), 0644)
+		err := os.WriteFile(configFile, []byte("test"), 0o644)
 		if err != nil {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
@@ -403,7 +407,7 @@ func TestGetMegaLinterConfigPath(t *testing.T) {
 		os.Chdir(tmpDir)
 
 		defaultFile := ".mega-linter.yml"
-		err := os.WriteFile(defaultFile, []byte("test"), 0644)
+		err := os.WriteFile(defaultFile, []byte("test"), 0o644)
 		if err != nil {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
