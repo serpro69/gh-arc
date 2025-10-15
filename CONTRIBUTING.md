@@ -155,43 +155,7 @@ We follow TDD principles:
 
 ### Frequent Commits
 
-- Commit often with clear, descriptive messages
-- Each commit should represent a logical unit of work
-- Use conventional commit format: `type(scope): description`
-  - Types: `feat`, `fix`, `docs`, `test`, `refactor`, `chore`
-  - Example: `feat(diff): add PR stacking support`
-
-### Typical Development Flow
-
-```bash
-# 1. Create a feature branch from master
-git checkout -b feature/my-feature
-
-# 2. Write tests first (TDD)
-# Create or modify *_test.go files
-
-# 3. Run tests (they should fail)
-go test ./...
-
-# 4. Implement the feature
-# Edit source files
-
-# 5. Run tests until they pass
-go test ./...
-
-# 6. Run all tests and checks
-go test ./...
-go vet ./...
-go fmt ./...
-
-# 7. Commit your changes
-git add .
-git commit -m "feat(scope): add feature description"
-
-# 8. Push and create a PR
-git push origin feature/my-feature
-gh pr create
-```
+- Each code change should represent a logical unit of work
 
 ## Code Style and Standards
 
@@ -295,7 +259,7 @@ go test -v ./...
 
 ### Writing Tests
 
-See [docs/contributing/TESTING.md](docs/contributing/TESTING.md) for detailed testing guidelines and examples.
+See [docs/contributing/TESTING.md](./docs/contributing/TESTING.md) for detailed testing guidelines and examples.
 
 ## Pull Request Process
 
@@ -311,8 +275,8 @@ See [docs/contributing/TESTING.md](docs/contributing/TESTING.md) for detailed te
 
 ### PR Guidelines
 
-1. **Title**: Use conventional commit format
-   - Example: `feat(diff): add support for Linear integration`
+1. **Title**: Use [writing good commit messages](https://cbea.ms/git-commit/) guidelines
+   - Example: `Add support for diff with Linear integration`
 
 2. **Description**: Include:
    - What changed and why

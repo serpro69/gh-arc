@@ -29,16 +29,16 @@ We follow TDD principles:
 ### Testing Pyramid
 
 ```
-        /\
-       /  \
-      / E2E\      Few, slow, expensive
-     /______\
-    /        \
-   /  Integ  \    More, moderate speed
-  /__________\
- /            \
-/    Unit      \  Many, fast, cheap
-/_______________\
+         / \
+        /   \
+       / E2E \        Few, slow, expensive
+      /_______\
+     /         \
+    /Integration\     More, moderate speed
+   /_____________\
+  /               \
+ /      Unit       \  Many, fast, cheap
+/___________________\
 ```
 
 - **Unit Tests**: Test individual functions/methods in isolation (80%)
