@@ -833,6 +833,75 @@ func (c *Client) MarkPRReadyForReviewForCurrentRepo(ctx context.Context, pr *Pul
 	return c.MarkPRReadyForReview(ctx, c.repo.Owner, c.repo.Name, pr)
 }
 
+// ConvertPRToDraft converts a ready pull request to draft status
+// This uses the GitHub GraphQL API since there's no REST endpoint for this
+// Requires the PR to have a NodeID populated
+func (c *Client) ConvertPRToDraft(ctx context.Context, owner, repo string, pr *PullRequest) (*PullRequest, error) {
+	if pr == nil {
+		return nil, fmt.Errorf("pull request is nil")
+	}
+
+	if pr.NodeID == "" {
+		return nil, fmt.Errorf("pull request NodeID is required for GraphQL mutation")
+	}
+
+	logger.Info().
+		Int("pr", pr.Number).
+		Str("nodeId", pr.NodeID).
+		Msg("Converting PR to draft using GraphQL")
+
+	// Get GraphQL client
+	client := c.GraphQL()
+
+	// Define the mutation structure
+	var mutation struct {
+		ConvertPullRequestToDraft struct {
+			PullRequest struct {
+				ID      string `graphql:"id"`
+				IsDraft bool   `graphql:"isDraft"`
+				Number  int    `graphql:"number"`
+			} `graphql:"pullRequest"`
+		} `graphql:"convertPullRequestToDraft(input: $input)"`
+	}
+
+	// Define the input type
+	type ConvertPullRequestToDraftInput struct {
+		PullRequestID string `json:"pullRequestId"`
+	}
+
+	// Prepare variables
+	variables := map[string]interface{}{
+		"input": ConvertPullRequestToDraftInput{
+			PullRequestID: pr.NodeID,
+		},
+	}
+
+	// Execute the mutation
+	err := client.Mutate("ConvertPullRequestToDraft", &mutation, variables)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute GraphQL mutation: %w", err)
+	}
+
+	logger.Info().
+		Int("pr", mutation.ConvertPullRequestToDraft.PullRequest.Number).
+		Bool("isDraft", mutation.ConvertPullRequestToDraft.PullRequest.IsDraft).
+		Msg("Successfully converted PR to draft")
+
+	// Update the PR object with the new draft status
+	pr.Draft = mutation.ConvertPullRequestToDraft.PullRequest.IsDraft
+
+	return pr, nil
+}
+
+// ConvertPRToDraftForCurrentRepo converts a ready PR to draft in the current repository
+func (c *Client) ConvertPRToDraftForCurrentRepo(ctx context.Context, pr *PullRequest) (*PullRequest, error) {
+	if c.repo == nil {
+		return nil, fmt.Errorf("no repository context set")
+	}
+
+	return c.ConvertPRToDraft(ctx, c.repo.Owner, c.repo.Name, pr)
+}
+
 // FindDependentPRs finds all pull requests that target the given branch as their base
 // These are "child" PRs in a stacked PR workflow - PRs that depend on the given branch
 func (c *Client) FindDependentPRs(ctx context.Context, owner, repo, baseBranch string) ([]*PullRequest, error) {

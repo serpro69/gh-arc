@@ -280,19 +280,11 @@ func runDiff(cmd *cobra.Command, args []string) error {
 
 			fmt.Println("  ✓ PR status updated")
 		} else if diffDraft && !existingPR.Draft {
-			// Convert ready PR to draft using PATCH
+			// Convert ready PR to draft using GraphQL
 			fmt.Println("\n✓ Converting PR to draft...")
-			logger.Debug().Msg("Will update PR from ready to draft using PATCH")
+			logger.Debug().Msg("Will convert PR from ready to draft using GraphQL")
 
-			newDraftStatus := true
-			updatedPR, err := client.UpdatePullRequestForCurrentRepo(
-				ctx,
-				existingPR.Number,
-				"",
-				"",
-				&newDraftStatus,
-				baseResult.ParentPR,
-			)
+			updatedPR, err := client.ConvertPRToDraftForCurrentRepo(ctx, existingPR)
 			if err != nil {
 				logger.Error().
 					Err(err).
@@ -530,8 +522,33 @@ func runDiff(cmd *cobra.Command, args []string) error {
 			if err != nil {
 				return fmt.Errorf("failed to mark PR as ready: %w", err)
 			}
+		} else if !existingPR.Draft && isDraft {
+			// Handle ready→draft transition (requires GraphQL)
+			// First, update title/body/etc with PATCH (keep as ready)
+			if prTitle != "" || prBody != "" {
+				logger.Debug().Msg("Updating PR title/body before converting to draft")
+				tempDraft := false
+				_, err = client.UpdatePullRequestForCurrentRepo(
+					ctx,
+					existingPR.Number,
+					prTitle,
+					prBody,
+					&tempDraft,
+					baseResult.ParentPR,
+				)
+				if err != nil {
+					return fmt.Errorf("failed to update PR metadata: %w", err)
+				}
+			}
+
+			// Then convert to draft using GraphQL
+			logger.Debug().Msg("Converting PR to draft using GraphQL")
+			pr, err = client.ConvertPRToDraftForCurrentRepo(ctx, existingPR)
+			if err != nil {
+				return fmt.Errorf("failed to convert PR to draft: %w", err)
+			}
 		} else {
-			// Normal update (ready→draft or any other change)
+			// Normal update (no draft status change)
 			draftPtr := &isDraft
 			pr, err = client.UpdatePullRequestForCurrentRepo(
 				ctx,
