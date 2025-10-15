@@ -325,6 +325,14 @@ func runDiff(cmd *cobra.Command, args []string) error {
 				Msg("Generated reviewer suggestions from CODEOWNERS")
 		}
 
+		// Determine default draft value for template: flags > config
+		templateDraftDefault := cfg.Diff.CreateAsDraft
+		if diffDraft {
+			templateDraftDefault = true
+		} else if diffReady {
+			templateDraftDefault = false
+		}
+
 		// Create template generator
 		gen := template.NewTemplateGenerator(
 			&template.StackingContext{
@@ -338,7 +346,7 @@ func runDiff(cmd *cobra.Command, args []string) error {
 			analysis,
 			reviewerSuggestions,
 			cfg.Diff.LinearEnabled,
-			cfg.Diff.CreateAsDraft,
+			templateDraftDefault,
 		)
 
 		templateContent = gen.Generate()
@@ -396,13 +404,8 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	// Step 8: Create or update PR
 	var pr *github.PullRequest
 
-	// Determine draft status with precedence: flags > template > config
-	isDraft := parsedFields.Draft // Use template value (which defaults to config value)
-	if diffDraft {
-		isDraft = true // Flag overrides template
-	} else if diffReady {
-		isDraft = false // Flag overrides template
-	}
+	// Use draft status from template (flags were already applied when generating template)
+	isDraft := parsedFields.Draft
 
 	// Build PR title and body from template
 	prTitle := parsedFields.Title
