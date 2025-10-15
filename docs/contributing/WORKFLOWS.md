@@ -828,17 +828,6 @@ git push origin feature/my-feature
 gh pr create
 ```
 
-### Commit Message Types
-
-- `feat`: New feature
-- `fix`: Bug fix
-- `docs`: Documentation changes
-- `test`: Adding/updating tests
-- `refactor`: Code refactoring
-- `chore`: Maintenance tasks
-- `style`: Code style changes (formatting)
-- `perf`: Performance improvements
-
 ---
 
 These workflows should cover most common development tasks. For more complex scenarios, refer to the [Architecture Guide](ARCHITECTURE.md) or ask in PR discussions.
