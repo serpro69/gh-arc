@@ -20,9 +20,9 @@ type Config struct {
 
 // GitHubConfig contains GitHub-related settings
 type GitHubConfig struct {
-	DefaultBranch      string `mapstructure:"defaultBranch"`
-	DefaultReviewer    string `mapstructure:"defaultReviewer"`
-	AutoAssignReviewer bool   `mapstructure:"autoAssignReviewer"`
+	DefaultBranch      string   `mapstructure:"defaultBranch"`
+	DefaultReviewers   []string `mapstructure:"defaultReviewers"`
+	AutoAssignReviewer bool     `mapstructure:"autoAssignReviewer"`
 }
 
 // DiffConfig contains PR creation settings
@@ -64,7 +64,7 @@ type TestRunner struct {
 
 // LintConfig contains linting settings
 type LintConfig struct {
-	Runners    []LintRunner    `mapstructure:"runners"`
+	Runners    []LintRunner     `mapstructure:"runners"`
 	MegaLinter MegaLinterConfig `mapstructure:"megaLinter"`
 }
 
@@ -108,9 +108,9 @@ func Load() (*Config, error) {
 
 	// Add config search paths (expand environment variables)
 	searchPaths := []string{
-		".",                                          // Current directory
-		os.ExpandEnv("$HOME/.config/gh-arc"),        // User config directory
-		"/etc/gh-arc",                                // System-wide config
+		".",                                  // Current directory
+		os.ExpandEnv("$HOME/.config/gh-arc"), // User config directory
+		"/etc/gh-arc",                        // System-wide config
 	}
 
 	// Try to find config file with explicit extensions (for IDE-friendliness)
@@ -168,20 +168,20 @@ func GetConfigFilePath() string {
 func setDefaults(v *viper.Viper) {
 	// GitHub defaults
 	v.SetDefault("github.defaultBranch", "main")
-	v.SetDefault("github.defaultReviewer", "")
+	v.SetDefault("github.defaultReviewers", []string{})
 	v.SetDefault("github.autoAssignReviewer", false)
 
 	// Diff defaults
 	v.SetDefault("diff.createAsDraft", false)
 	v.SetDefault("diff.autoUpdatePR", true)
 	v.SetDefault("diff.includeCommitMessages", true)
-	v.SetDefault("diff.enableStacking", true)        // Opt-out (enabled by default)
-	v.SetDefault("diff.defaultBase", "")             // Empty = auto-detect from git
+	v.SetDefault("diff.enableStacking", true) // Opt-out (enabled by default)
+	v.SetDefault("diff.defaultBase", "")      // Empty = auto-detect from git
 	v.SetDefault("diff.showStackingWarnings", true)
-	v.SetDefault("diff.templatePath", "")            // Empty = use built-in template
-	v.SetDefault("diff.requireTestPlan", true)       // Enforce test plan by default
-	v.SetDefault("diff.linearEnabled", false)        // Linear integration disabled by default
-	v.SetDefault("diff.linearDefaultProject", "")    // No default Linear project
+	v.SetDefault("diff.templatePath", "")         // Empty = use built-in template
+	v.SetDefault("diff.requireTestPlan", true)    // Enforce test plan by default
+	v.SetDefault("diff.linearEnabled", false)     // Linear integration disabled by default
+	v.SetDefault("diff.linearDefaultProject", "") // No default Linear project
 
 	// Land defaults
 	v.SetDefault("land.defaultMergeMethod", "squash")

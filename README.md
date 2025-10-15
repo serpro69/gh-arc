@@ -139,7 +139,7 @@ Create a `.arc.json` or `.arc.yaml` file in your project root or user config dir
 {
   "github": {
     "defaultBranch": "main",
-    "defaultReviewer": "",
+    "defaultReviewers": [],
     "autoAssignReviewer": false
   },
   "diff": {
@@ -175,7 +175,7 @@ Create a `.arc.json` or `.arc.yaml` file in your project root or user config dir
 ```yaml
 github:
   defaultBranch: main
-  defaultReviewer: ""
+  defaultReviewers: []
   autoAssignReviewer: false
 
 diff:

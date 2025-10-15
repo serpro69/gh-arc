@@ -333,8 +333,10 @@ func runDiff(cmd *cobra.Command, args []string) error {
 
 		// Find saved templates
 		savedTemplates, err := template.FindSavedTemplates()
-		if err != nil || len(savedTemplates) == 0 {
-			return fmt.Errorf("no saved template found (use 'gh arc diff --edit' to start fresh): %w", err)
+		if err != nil {
+			return fmt.Errorf("failed to find saved template (use 'gh arc diff --edit' to start fresh): %w", err)
+		} else if len(savedTemplates) == 0 {
+			return fmt.Errorf("no saved template found (use 'gh arc diff --edit' to start fresh)")
 		}
 
 		// Use the most recent saved template
@@ -359,8 +361,9 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		// Generate fresh template
 		logger.Debug().Msg("Generating fresh template")
 
-		// Get CODEOWNERS reviewer suggestions
 		var reviewerSuggestions []string
+
+		// Get CODEOWNERS reviewer suggestions
 		co, err := codeowners.ParseCodeowners(".")
 		if err != nil {
 			logger.Warn().Err(err).Msg("Failed to parse CODEOWNERS file")
@@ -392,6 +395,16 @@ func runDiff(cmd *cobra.Command, args []string) error {
 				Strs("reviewers", reviewerSuggestions).
 				Msg("Generated reviewer suggestions from CODEOWNERS")
 		}
+
+		// Append default reviewers from config, if any
+		reviewerSuggestions = append(reviewerSuggestions, cfg.GitHub.DefaultReviewers...)
+		logger.Info().
+			Int("count", len(cfg.GitHub.DefaultReviewers)).
+			Strs("reviewers", reviewerSuggestions).
+			Msg("Appended defaultReviewers from configuration")
+
+		// Remove duplicates from final reviewers array
+		reviewerSuggestions = codeowners.DeduplicateReviewers(reviewerSuggestions)
 
 		// Determine default draft value for template: flags > config
 		templateDraftDefault := cfg.Diff.CreateAsDraft

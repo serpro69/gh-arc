@@ -10,12 +10,12 @@ import (
 
 // CommitAnalysis represents the result of analyzing commits for template pre-filling
 type CommitAnalysis struct {
-	Title          string   // Suggested PR title
-	Summary        string   // Suggested PR summary/body
-	BaseBranch     string   // Base branch used for analysis
-	CommitCount    int      // Number of commits analyzed
-	CommitMessages []string // All commit messages
-	HasMergeCommits bool    // Whether merge commits were found
+	Title           string   // Suggested PR title
+	Summary         string   // Suggested PR summary/body
+	BaseBranch      string   // Base branch used for analysis
+	CommitCount     int      // Number of commits analyzed
+	CommitMessages  []string // All commit messages
+	HasMergeCommits bool     // Whether merge commits were found
 }
 
 // TemplateFields represents the fields to be filled in the PR template
@@ -23,7 +23,7 @@ type TemplateFields struct {
 	Title      string // PR title
 	Summary    string // PR description/body
 	TestPlan   string // Test plan (empty, to be filled by user)
-	Reviewers  string // Suggested reviewers (to be populated from CODEOWNERS)
+	Reviewers  string // Suggested reviewers (to be populated from CODEOWNERS and configuration)
 	Ref        string // Linear issue references (empty, to be filled by user)
 	BaseBranch string // Base branch (read-only display)
 }
@@ -91,7 +91,7 @@ func GenerateTemplateContent(analysis *CommitAnalysis) *TemplateFields {
 		Title:      analysis.Title,
 		Summary:    analysis.Summary,
 		TestPlan:   "", // Empty, must be filled by user
-		Reviewers:  "", // To be populated from CODEOWNERS
+		Reviewers:  "", // Will be populated from CODEOWNERS and configuration
 		Ref:        "", // Empty, to be filled by user
 		BaseBranch: analysis.BaseBranch,
 	}
