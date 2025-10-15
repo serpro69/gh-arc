@@ -227,10 +227,17 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		Bool("skipEditor", skipEditor).
 		Msg("Determined workflow path")
 
-	// If existing PR and no --edit flag, just push commits (fast path)
+	// If existing PR and no --edit flag, handle fast path (push commits and/or update draft status)
 	if existingPR != nil && !diffEdit {
-		fmt.Printf("✓ PR #%d already exists, pushing new commits\n", existingPR.Number)
+		fmt.Printf("✓ PR #%d already exists\n", existingPR.Number)
 		fmt.Printf("  %s\n", existingPR.HTMLURL)
+
+		// Check for unpushed commits
+		hasUnpushed, err := gitRepo.HasUnpushedCommits(currentBranch)
+		if err != nil {
+			logger.Warn().Err(err).Msg("Failed to check for unpushed commits")
+			hasUnpushed = true // Assume unpushed on error to be safe
+		}
 
 		// Check if base changed and update if needed
 		if github.DetectBaseChanged(existingPR, baseResult.Base) {
@@ -244,12 +251,45 @@ func runDiff(cmd *cobra.Command, args []string) error {
 			fmt.Println("   ✓ Base branch updated")
 		}
 
-		// Push new commits to remote
-		fmt.Println("\n✓ Pushing new commits...")
-		if err := gitRepo.Push(ctx, currentBranch); err != nil {
-			return fmt.Errorf("failed to push commits: %w", err)
+		// Handle draft status changes from flags
+		needsDraftUpdate := false
+		var newDraftStatus bool
+		if diffReady && existingPR.Draft {
+			needsDraftUpdate = true
+			newDraftStatus = false
+			fmt.Println("\n✓ Marking PR as ready for review...")
+		} else if diffDraft && !existingPR.Draft {
+			needsDraftUpdate = true
+			newDraftStatus = true
+			fmt.Println("\n✓ Converting PR to draft...")
 		}
-		fmt.Println("  ✓ Commits pushed successfully")
+
+		if needsDraftUpdate {
+			// Pass empty strings for title and body to only update draft status
+			_, err := client.UpdatePullRequestForCurrentRepo(
+				ctx,
+				existingPR.Number,
+				"",
+				"",
+				&newDraftStatus,
+				baseResult.ParentPR,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to update PR draft status: %w", err)
+			}
+			fmt.Println("  ✓ PR status updated")
+		}
+
+		// Push new commits if they exist
+		if hasUnpushed {
+			fmt.Println("\n✓ Pushing new commits...")
+			if err := gitRepo.Push(ctx, currentBranch); err != nil {
+				return fmt.Errorf("failed to push commits: %w", err)
+			}
+			fmt.Println("  ✓ Commits pushed successfully")
+		} else if !needsDraftUpdate {
+			fmt.Println("\n✓ No new commits to push")
+		}
 
 		return nil
 	}
