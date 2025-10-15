@@ -164,45 +164,71 @@ func TestSomething(t *testing.T) {
 
 ## Writing Tests
 
-### Using testify Assertions
+### Using Standard Library Testing
 
-We use `testify` for clearer assertions:
+We use Go's standard library `testing` package for all assertions:
 
 ```go
 import (
     "testing"
-    "github.com/stretchr/testify/assert"
-    "github.com/stretchr/testify/require"
 )
 
 func TestExample(t *testing.T) {
     result, err := SomeFunction()
 
-    // require stops execution if assertion fails
-    require.NoError(t, err)
-    require.NotNil(t, result)
+    // Check for errors first (stops execution on fatal errors)
+    if err != nil {
+        t.Fatalf("SomeFunction() returned error: %v", err)
+    }
+    if result == nil {
+        t.Fatalf("SomeFunction() returned nil result")
+    }
 
-    // assert continues execution after failure
-    assert.Equal(t, "expected", result.Value)
-    assert.True(t, result.IsValid)
-    assert.Contains(t, result.Items, "item1")
+    // Check individual properties
+    if result.Value != "expected" {
+        t.Errorf("result.Value = %s, expected 'expected'", result.Value)
+    }
+    if !result.IsValid {
+        t.Error("result.IsValid = false, expected true")
+    }
+
+    found := false
+    for _, item := range result.Items {
+        if item == "item1" {
+            found = true
+            break
+        }
+    }
+    if !found {
+        t.Errorf("result.Items does not contain 'item1'")
+    }
 }
 ```
 
-### When to Use `require` vs `assert`
+### When to Use `t.Fatalf()` vs `t.Errorf()`
 
 ```go
 func TestConfig(t *testing.T) {
     cfg, err := config.Load()
 
-    // Use require when continuing is pointless
-    require.NoError(t, err)  // If Load fails, nothing else matters
-    require.NotNil(t, cfg)   // Can't test nil config
+    // Use t.Fatalf when continuing is pointless
+    if err != nil {
+        t.Fatalf("config.Load() failed: %v", err)  // If Load fails, nothing else matters
+    }
+    if cfg == nil {
+        t.Fatalf("config.Load() returned nil")  // Can't test nil config
+    }
 
-    // Use assert for independent checks
-    assert.Equal(t, "main", cfg.GitHub.DefaultBranch)
-    assert.True(t, cfg.Diff.EnableStacking)
-    assert.False(t, cfg.Diff.CreateAsDraft)
+    // Use t.Errorf for independent checks (test continues)
+    if cfg.GitHub.DefaultBranch != "main" {
+        t.Errorf("GitHub.DefaultBranch = %s, expected 'main'", cfg.GitHub.DefaultBranch)
+    }
+    if !cfg.Diff.EnableStacking {
+        t.Error("Diff.EnableStacking = false, expected true")
+    }
+    if cfg.Diff.CreateAsDraft {
+        t.Error("Diff.CreateAsDraft = true, expected false")
+    }
 }
 ```
 
@@ -247,9 +273,15 @@ func TestParseConfigKey(t *testing.T) {
     for _, tc := range testCases {
         t.Run(tc.name, func(t *testing.T) {
             section, subsection, option := parseConfigKey(tc.key)
-            assert.Equal(t, tc.expSection, section)
-            assert.Equal(t, tc.expSubsection, subsection)
-            assert.Equal(t, tc.expOption, option)
+            if section != tc.expSection {
+                t.Errorf("section = %s, expected %s", section, tc.expSection)
+            }
+            if subsection != tc.expSubsection {
+                t.Errorf("subsection = %s, expected %s", subsection, tc.expSubsection)
+            }
+            if option != tc.expOption {
+                t.Errorf("option = %s, expected %s", option, tc.expOption)
+            }
         })
     }
 }
@@ -281,8 +313,12 @@ func TestWithMaxRetries(t *testing.T) {
             client := &Client{config: DefaultConfig()}
             opt := WithMaxRetries(tt.input)
 
-            require.NoError(t, opt(client))
-            assert.Equal(t, tt.expected, client.config.MaxRetries)
+            if err := opt(client); err != nil {
+                t.Fatalf("WithMaxRetries() failed: %v", err)
+            }
+            if client.config.MaxRetries != tt.expected {
+                t.Errorf("MaxRetries = %d, expected %d", client.config.MaxRetries, tt.expected)
+            }
         })
     }
 }
@@ -320,15 +356,23 @@ func TestValidate(t *testing.T) {
             err := tt.config.Validate()
 
             if tt.wantErr {
-                require.Error(t, err)
-                if tt.errMsg != "" {
-                    assert.Contains(t, err.Error(), tt.errMsg)
+                if err == nil {
+                    t.Error("Expected error, got nil")
+                } else if tt.errMsg != "" && !contains(err.Error(), tt.errMsg) {
+                    t.Errorf("Expected error containing '%s', got '%s'", tt.errMsg, err.Error())
                 }
             } else {
-                require.NoError(t, err)
+                if err != nil {
+                    t.Errorf("Expected no error, got: %v", err)
+                }
             }
         })
     }
+}
+
+// Helper function for substring checking
+func contains(s, substr string) bool {
+    return strings.Contains(s, substr)
 }
 ```
 
@@ -369,8 +413,12 @@ func TestParseCommitMessage(t *testing.T) {
     for _, tc := range testCases {
         t.Run(tc.name, func(t *testing.T) {
             parsed := ParseCommitMessage(tc.message)
-            assert.Equal(t, tc.expTitle, parsed.Title)
-            assert.Equal(t, tc.expBody, parsed.Body)
+            if parsed.Title != tc.expTitle {
+                t.Errorf("Title = %s, expected %s", parsed.Title, tc.expTitle)
+            }
+            if parsed.Body != tc.expBody {
+                t.Errorf("Body = %s, expected %s", parsed.Body, tc.expBody)
+            }
         })
     }
 }
@@ -394,14 +442,20 @@ func TestLoad(t *testing.T) {
             }
         }`
         err := os.WriteFile(".arc.json", []byte(configContent), 0644)
-        require.NoError(t, err)
+        if err != nil {
+            t.Fatalf("Failed to write config file: %v", err)
+        }
 
         // Act: Load configuration
         cfg, err := Load()
 
         // Assert: Verify loaded correctly
-        require.NoError(t, err)
-        assert.Equal(t, "develop", cfg.GitHub.DefaultBranch)
+        if err != nil {
+            t.Fatalf("Expected no error, got: %v", err)
+        }
+        if cfg.GitHub.DefaultBranch != "develop" {
+            t.Errorf("Expected branch 'develop', got '%s'", cfg.GitHub.DefaultBranch)
+        }
     })
 }
 ```
@@ -430,7 +484,9 @@ func TestRepositoryString(t *testing.T) {
     for _, tt := range tests {
         t.Run(tt.name, func(t *testing.T) {
             got := tt.repo.String()
-            assert.Equal(t, tt.expected, got)
+            if got != tt.expected {
+                t.Errorf("Repository.String() = %s, expected %s", got, tt.expected)
+            }
         })
     }
 }
@@ -442,8 +498,12 @@ func TestRepositoryString(t *testing.T) {
 func TestOpenRepository(t *testing.T) {
     t.Run("open current repository", func(t *testing.T) {
         repo, err := OpenRepository("../..")
-        require.NoError(t, err)
-        assert.NotNil(t, repo)
+        if err != nil {
+            t.Fatalf("OpenRepository() failed: %v", err)
+        }
+        if repo == nil {
+            t.Fatal("OpenRepository() returned nil")
+        }
     })
 
     t.Run("non-existent repository", func(t *testing.T) {
@@ -451,7 +511,9 @@ func TestOpenRepository(t *testing.T) {
         _, err := OpenRepository(tmpDir)
 
         // Check for specific error type
-        assert.ErrorIs(t, err, ErrNotARepository)
+        if !errors.Is(err, ErrNotARepository) {
+            t.Errorf("Expected ErrNotARepository, got: %v", err)
+        }
     })
 }
 ```
@@ -468,18 +530,26 @@ func TestGetWorkingDirectoryStatus(t *testing.T) {
         // Create temporary git repository
         tmpDir := t.TempDir()
         gitRepo, err := git.PlainInit(tmpDir, false)
-        require.NoError(t, err)
+        if err != nil {
+            t.Fatalf("Failed to init repository: %v", err)
+        }
 
         worktree, err := gitRepo.Worktree()
-        require.NoError(t, err)
+        if err != nil {
+            t.Fatalf("Failed to get worktree: %v", err)
+        }
 
         // Create initial commit
         testFile := filepath.Join(tmpDir, "test.txt")
         err = os.WriteFile(testFile, []byte("initial content"), 0644)
-        require.NoError(t, err)
+        if err != nil {
+            t.Fatalf("Failed to write test file: %v", err)
+        }
 
         _, err = worktree.Add("test.txt")
-        require.NoError(t, err)
+        if err != nil {
+            t.Fatalf("Failed to add file: %v", err)
+        }
 
         _, err = worktree.Commit("initial commit", &git.CommitOptions{
             Author: &object.Signature{
@@ -488,23 +558,42 @@ func TestGetWorkingDirectoryStatus(t *testing.T) {
                 When:  time.Now(),
             },
         })
-        require.NoError(t, err)
+        if err != nil {
+            t.Fatalf("Failed to commit: %v", err)
+        }
 
         // Add untracked file
         untrackedFile := filepath.Join(tmpDir, "untracked.txt")
         err = os.WriteFile(untrackedFile, []byte("untracked"), 0644)
-        require.NoError(t, err)
+        if err != nil {
+            t.Fatalf("Failed to write untracked file: %v", err)
+        }
 
         // Test the functionality
         repo, err := OpenRepository(tmpDir)
-        require.NoError(t, err)
+        if err != nil {
+            t.Fatalf("Failed to open repository: %v", err)
+        }
 
         status, err := repo.GetWorkingDirectoryStatus()
-        require.NoError(t, err)
+        if err != nil {
+            t.Fatalf("Failed to get status: %v", err)
+        }
 
         // Verify results
-        assert.False(t, status.IsClean)
-        assert.Contains(t, status.UntrackedFiles, "untracked.txt")
+        if status.IsClean {
+            t.Error("Expected status.IsClean to be false")
+        }
+        found := false
+        for _, file := range status.UntrackedFiles {
+            if file == "untracked.txt" {
+                found = true
+                break
+            }
+        }
+        if !found {
+            t.Error("Expected status.UntrackedFiles to contain 'untracked.txt'")
+        }
     })
 }
 ```
@@ -516,18 +605,28 @@ func TestFindRepositoryRoot(t *testing.T) {
     t.Run("find root from subdirectory", func(t *testing.T) {
         // Get current working directory
         cwd, err := os.Getwd()
-        require.NoError(t, err)
+        if err != nil {
+            t.Fatalf("Failed to get working directory: %v", err)
+        }
 
         // Find repository root
         root, err := FindRepositoryRoot(cwd)
-        require.NoError(t, err)
-        assert.NotEmpty(t, root)
+        if err != nil {
+            t.Fatalf("Failed to find repository root: %v", err)
+        }
+        if root == "" {
+            t.Fatal("FindRepositoryRoot returned empty string")
+        }
 
         // Verify .git exists in root
         gitDir := filepath.Join(root, ".git")
         info, err := os.Stat(gitDir)
-        require.NoError(t, err)
-        assert.True(t, info.IsDir())
+        if err != nil {
+            t.Fatalf("Failed to stat .git directory: %v", err)
+        }
+        if !info.IsDir() {
+            t.Error(".git is not a directory")
+        }
     })
 }
 ```
@@ -543,18 +642,26 @@ func createTestRepo(t *testing.T) (string, *git.Repository) {
 
     tmpDir := t.TempDir()
     gitRepo, err := git.PlainInit(tmpDir, false)
-    require.NoError(t, err)
+    if err != nil {
+        t.Fatalf("Failed to init repository: %v", err)
+    }
 
     // Create initial commit
     worktree, err := gitRepo.Worktree()
-    require.NoError(t, err)
+    if err != nil {
+        t.Fatalf("Failed to get worktree: %v", err)
+    }
 
     testFile := filepath.Join(tmpDir, "README.md")
     err = os.WriteFile(testFile, []byte("# Test"), 0644)
-    require.NoError(t, err)
+    if err != nil {
+        t.Fatalf("Failed to write README: %v", err)
+    }
 
     _, err = worktree.Add("README.md")
-    require.NoError(t, err)
+    if err != nil {
+        t.Fatalf("Failed to add README: %v", err)
+    }
 
     _, err = worktree.Commit("Initial commit", &git.CommitOptions{
         Author: &object.Signature{
@@ -563,7 +670,9 @@ func createTestRepo(t *testing.T) (string, *git.Repository) {
             When:  time.Now(),
         },
     })
-    require.NoError(t, err)
+    if err != nil {
+        t.Fatalf("Failed to commit: %v", err)
+    }
 
     return tmpDir, gitRepo
 }
@@ -619,8 +728,12 @@ func TestSomethingWithMock(t *testing.T) {
     }
 
     pr, err := mock.GetPullRequest(context.Background(), 123)
-    require.NoError(t, err)
-    assert.Equal(t, 123, pr.Number)
+    if err != nil {
+        t.Fatalf("GetPullRequest() failed: %v", err)
+    }
+    if pr.Number != 123 {
+        t.Errorf("pr.Number = %d, expected 123", pr.Number)
+    }
 }
 ```
 
@@ -630,7 +743,9 @@ func TestSomethingWithMock(t *testing.T) {
 func TestPushWithTimeout(t *testing.T) {
     tmpDir, _ := createTestRepo(t)
     repo, err := OpenRepository(tmpDir)
-    require.NoError(t, err)
+    if err != nil {
+        t.Fatalf("Failed to open repository: %v", err)
+    }
 
     // Create context with very short timeout
     ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
@@ -641,8 +756,11 @@ func TestPushWithTimeout(t *testing.T) {
 
     // Push with timed-out context should fail
     err = repo.Push(ctx, "master")
-    assert.Error(t, err)
-    assert.Contains(t, err.Error(), "timed out")
+    if err == nil {
+        t.Error("Expected Push() to fail with timed out context")
+    } else if !strings.Contains(err.Error(), "timed out") {
+        t.Errorf("Expected error to contain 'timed out', got: %v", err)
+    }
 }
 ```
 
@@ -694,7 +812,9 @@ func TestBadExample(t *testing.T) {
     // Testing internal state
     cache := NewCache()
     cache.mu.Lock()  // Testing lock behavior
-    assert.NotNil(t, cache.items)
+    if cache.items == nil {
+        t.Error("items is nil")
+    }
     cache.mu.Unlock()
 }
 ```
@@ -707,8 +827,12 @@ func TestGoodExample(t *testing.T) {
     cache.Set("key", "value", time.Minute)
 
     value, found := cache.Get("key")
-    assert.True(t, found)
-    assert.Equal(t, "value", value)
+    if !found {
+        t.Error("Expected to find cached value")
+    }
+    if value != "value" {
+        t.Errorf("cache.Get() = %v, expected 'value'", value)
+    }
 }
 ```
 
@@ -723,7 +847,9 @@ func TestA(t *testing.T) {
 }
 
 func TestB(t *testing.T) {
-    assert.Equal(t, "value", sharedState)  // Breaks if TestB runs first!
+    if sharedState != "value" {  // Breaks if TestB runs first!
+        t.Errorf("sharedState = %s, expected 'value'", sharedState)
+    }
 }
 ```
 
@@ -758,7 +884,9 @@ func TestGood(t *testing.T) {
 
     // Or use defer
     f, err := os.Create("test.txt")
-    require.NoError(t, err)
+    if err != nil {
+        t.Fatalf("Failed to create file: %v", err)
+    }
     defer os.Remove("test.txt")
     defer f.Close()
 }
@@ -770,7 +898,9 @@ func TestGood(t *testing.T) {
 ```go
 func TestBad(t *testing.T) {
     result, _ := DoSomething()  // Ignores error
-    assert.NotNil(t, result)
+    if result == nil {
+        t.Error("result is nil")
+    }
 }
 ```
 
@@ -778,8 +908,12 @@ func TestBad(t *testing.T) {
 ```go
 func TestGood(t *testing.T) {
     result, err := DoSomething()
-    require.NoError(t, err)
-    assert.NotNil(t, result)
+    if err != nil {
+        t.Fatalf("DoSomething() failed: %v", err)
+    }
+    if result == nil {
+        t.Fatal("DoSomething() returned nil result")
+    }
 }
 ```
 
@@ -791,7 +925,9 @@ func TestBad(t *testing.T) {
     start := time.Now()
     DoWork()
     duration := time.Since(start)
-    assert.Equal(t, 100*time.Millisecond, duration)  // Flaky!
+    if duration != 100*time.Millisecond {  // Flaky!
+        t.Errorf("duration = %v, expected 100ms", duration)
+    }
 }
 ```
 
@@ -799,14 +935,20 @@ func TestBad(t *testing.T) {
 ```go
 func TestGood(t *testing.T) {
     result := DoWork()
-    assert.Equal(t, expectedResult, result)
+    if result != expectedResult {
+        t.Errorf("result = %v, expected %v", result, expectedResult)
+    }
 
     // Or use ranges for timing tests
     start := time.Now()
     DoWork()
     duration := time.Since(start)
-    assert.Less(t, duration, 200*time.Millisecond)
-    assert.Greater(t, duration, 50*time.Millisecond)
+    if duration >= 200*time.Millisecond {
+        t.Errorf("DoWork() took too long: %v", duration)
+    }
+    if duration <= 50*time.Millisecond {
+        t.Errorf("DoWork() too fast: %v", duration)
+    }
 }
 ```
 
@@ -836,11 +978,17 @@ func TestEverything(t *testing.T) {
 // Good: Focused tests
 func TestGetCurrentBranch(t *testing.T) {
     repo, err := OpenRepository(".")
-    require.NoError(t, err)
+    if err != nil {
+        t.Fatalf("OpenRepository() failed: %v", err)
+    }
 
     branch, err := repo.GetCurrentBranch()
-    require.NoError(t, err)
-    assert.NotEmpty(t, branch)
+    if err != nil {
+        t.Fatalf("GetCurrentBranch() failed: %v", err)
+    }
+    if branch == "" {
+        t.Error("GetCurrentBranch() returned empty branch name")
+    }
 }
 ```
 
@@ -866,26 +1014,38 @@ func TestWithTempDir(t *testing.T) {
 
     file := filepath.Join(tmpDir, "test.txt")
     err := os.WriteFile(file, []byte("content"), 0644)
-    require.NoError(t, err)
+    if err != nil {
+        t.Fatalf("Failed to write file: %v", err)
+    }
 
     // No manual cleanup needed!
 }
 ```
 
-### 5. Use require for Fatal Errors, assert for Non-Fatal
+### 5. Use t.Fatalf() for Fatal Errors, t.Errorf() for Non-Fatal
 
 ```go
 func TestExample(t *testing.T) {
     repo, err := OpenRepository(".")
-    require.NoError(t, err)  // Can't continue if this fails
-    require.NotNil(t, repo)
+    if err != nil {
+        t.Fatalf("OpenRepository() failed: %v", err)  // Can't continue if this fails
+    }
+    if repo == nil {
+        t.Fatal("OpenRepository() returned nil")
+    }
 
     branch, err := repo.GetCurrentBranch()
-    require.NoError(t, err)
+    if err != nil {
+        t.Fatalf("GetCurrentBranch() failed: %v", err)
+    }
 
-    // These can fail independently
-    assert.NotEmpty(t, branch)
-    assert.NotContains(t, branch, "refs/heads/")
+    // These can fail independently (test continues)
+    if branch == "" {
+        t.Error("GetCurrentBranch() returned empty branch name")
+    }
+    if strings.Contains(branch, "refs/heads/") {
+        t.Errorf("branch contains 'refs/heads/': %s", branch)
+    }
 }
 ```
 
@@ -917,8 +1077,12 @@ func TestSlow(t *testing.T) {
 ```go
 func TestErrorMessage(t *testing.T) {
     err := ValidateBranchName("invalid branch")
-    require.Error(t, err)
-    assert.Contains(t, err.Error(), "branch name cannot contain spaces")
+    if err == nil {
+        t.Fatal("ValidateBranchName() should return error for invalid branch")
+    }
+    if !strings.Contains(err.Error(), "branch name cannot contain spaces") {
+        t.Errorf("error message = %q, should contain 'branch name cannot contain spaces'", err.Error())
+    }
 }
 ```
 
@@ -927,7 +1091,6 @@ func TestErrorMessage(t *testing.T) {
 ## Additional Resources
 
 - [Go Testing Documentation](https://pkg.go.dev/testing)
-- [testify Documentation](https://github.com/stretchr/testify)
 - [Table Driven Tests](https://github.com/golang/go/wiki/TableDrivenTests)
 - [Go Test Comments](https://github.com/golang/go/wiki/TestComments)
 
