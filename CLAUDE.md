@@ -22,6 +22,49 @@ The `gh-arc` extension is written in Go and uses the `github.com/cli/go-gh/v2` l
 
 !!! THIS SECTION IS **VERY IMPORTANT** AND **MUST BE FOLLOWED DURING ALL DEVELOPMENT WORK** !!!
 
+### Task Analysis and Implementation Plan
+
+**Goal: Before starting the implementation, make sure you understand the requirements and implementation plan.**
+
+#### Ideas and Prototypes
+
+_Use this for ideas that are not fully thought out and do not have a fully-formed PRD/design/specification/implementation-plan._
+
+**For example:** I've got an idea I want to talk through with you before I proceed with the implementation.
+
+**Your task:** Help me turn it into a fully formed design and spec, and eventually an implementation plan.
+
+- Check out the current state of the project in our working directory to understand where we're starting off.
+- Check the contributing guidelines and documentation @./CONTRIBUTING.md and @./docs/contributing
+- Then ask me questions, one at a time, to help refine the idea. 
+- Ideally, the questions would be multiple choice, but open-ended questions are OK, too. Don't forget: only one question per message!
+- Once you believe you understand what we're trying to achieve, stop and describe the whole design to me, in sections of 200-300 words at a time, asking after each section whether it looks right so far.
+- Then document in .md files the entire design and write a comprehensive implementation plan in @./docs/wip/[feature-title]/{design,implementation}/
+    - Assume that the developer who is going to implement the feature has zero context for our codebase.
+    - Document everything the developer may need to know: which files to touch for each task, code structure, testing, any potential docs they might need to check, how to test the functionality. Give them the whole plan as bite-sized tasks. 
+    - Make sure they can follow DRY, YAGNI, TDD, frequent commits principles when following the plan.
+    - Assume the developer is a skilled developer, but knows almost nothing about our toolset, codebase, or problem domain. 
+    - Assume the developer does not know good test design very well.
+- Then create a new task in task-master with a short description of the feature, and links to the relevant design/implementation documentation
+
+#### Existing task-master tasks
+
+_For tasks that already exist in task-master._
+
+**For example:** Let's work on task 6 next.
+
+**Your task:** Make sure the task is well-documented and you understand the requirements and how to implement it. Then implement the task.
+
+- Get the task from task-master
+- Does it have linked documentation for the design and implementation plan?
+    - **YES:**
+        - Read the documentation and understand what needs to be done.
+        - Check the contributing guidelines and documentation @./CONTRIBUTING.md and @./docs/contributing
+        - Then proceed with implementing the task.
+    - **NO:**
+        - Follow the [Ideas and Prototypes](#ideas-and-prototypes) section.
+        - Instead of creating a new task as the last step, update the existing task with necessary information.
+
 ### Working with Dependencies
 
 - Always try to use latest versions for dependencies. To find dependencnes, run:
@@ -50,6 +93,10 @@ Use the following guidelines when working with tests:
 - Property-based testing with gopter
 - End-to-end testing strategies
 - Code coverage analysis and reporting
+
+### Documentation
+
+- After completing a new feature, always see if you need to update the contribution guidelines @./CONTRIBUTING.md and @./docs/contributing/ for other developers, so anyone could easily pick up the work and understand the project and the feature that was added.
 
 ## Development Commands
 
