@@ -275,6 +275,18 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("failed to load saved template (use 'gh arc diff --edit' to start fresh): %w", err)
 		}
+
+		// Open editor to allow fixing validation issues
+		if !skipEditor {
+			templateContent, err = template.OpenEditor(templateContent)
+			if err != nil {
+				if err == template.ErrEditorCancelled {
+					fmt.Println("✗ Editor cancelled, no changes made")
+					return nil
+				}
+				return fmt.Errorf("failed to open editor: %w", err)
+			}
+		}
 	} else {
 		// Generate fresh template
 		logger.Debug().Msg("Generating fresh template")
@@ -392,7 +404,16 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		isDraft = false // Flag overrides template
 	}
 
-	// Build PR body from template
+	// Build PR title and body from template
+	prTitle := parsedFields.Title
+
+	// Append Linear Ref to title if Linear is enabled and Ref values exist
+	if cfg.Diff.LinearEnabled && len(parsedFields.Ref) > 0 {
+		refStr := strings.Join(parsedFields.Ref, ", ")
+		prTitle = fmt.Sprintf("%s [%s]", prTitle, refStr)
+	}
+
+	// Build PR body
 	prBody := parsedFields.Summary
 	if parsedFields.TestPlan != "" {
 		prBody += "\n\n## Test Plan\n" + parsedFields.TestPlan
@@ -409,7 +430,7 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		pr, err = client.UpdatePullRequestForCurrentRepo(
 			ctx,
 			existingPR.Number,
-			parsedFields.Title,
+			prTitle,
 			prBody,
 			draftPtr,
 			baseResult.ParentPR,
@@ -423,9 +444,15 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		// Create new PR
 		fmt.Println("\n✓ Creating new PR...")
 
+		// Push branch to remote first so GitHub can find it
+		fmt.Println("  Pushing branch to remote...")
+		if err := gitRepo.Push(ctx, currentBranch); err != nil {
+			return fmt.Errorf("failed to push branch: %w", err)
+		}
+
 		pr, err = client.CreatePullRequestForCurrentRepo(
 			ctx,
-			parsedFields.Title,
+			prTitle,
 			currentBranch,
 			baseResult.Base,
 			prBody,

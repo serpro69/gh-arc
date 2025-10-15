@@ -352,8 +352,8 @@ func TestGenerateFromSingleCommit_OnlyTitle(t *testing.T) {
 		t.Errorf("expected title 'Fix authentication bug', got '%s'", title)
 	}
 
-	if summary != "Fix authentication bug" {
-		t.Errorf("expected summary to match title when no body present, got '%s'", summary)
+	if summary != "" {
+		t.Errorf("expected summary to be empty when no body present, got '%s'", summary)
 	}
 }
 

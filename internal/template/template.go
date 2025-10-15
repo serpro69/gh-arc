@@ -183,7 +183,12 @@ func (g *TemplateGenerator) writeFields(sb *strings.Builder) {
 func (g *TemplateGenerator) writeFooter(sb *strings.Builder) {
 	sb.WriteString("\n")
 	sb.WriteString(sectionStart + "\n")
-	sb.WriteString("# vim: set filetype=gitcommit:\n")
+
+	// Only add vim modeline if vim/nvim is the editor
+	editor := os.Getenv("EDITOR")
+	if strings.Contains(editor, "vim") || strings.Contains(editor, "nvim") {
+		sb.WriteString("# vim: set filetype=gitcommit:\n")
+	}
 }
 
 // ParseTemplate parses the template content into structured fields
