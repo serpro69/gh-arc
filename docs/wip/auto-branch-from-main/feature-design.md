@@ -433,40 +433,87 @@ This simplified design differs from the original in these key ways:
 
 ### Testing Strategy
 
-#### Unit Tests
+#### Unit Tests (13 tests)
 
 1. **Branch Name Generation**
-   - Test pattern parsing with all placeholders
+   - Test pattern parsing with all placeholders (`{timestamp}`, `{date}`, `{datetime}`, `{username}`, `{random}`)
    - Test default pattern generation
    - Test branch name collision handling
+   - Test pattern combinations
 
-2. **Configuration Loading**
-   - Test default values
+2. **Branch Name Sanitization**
+   - Test sanitization of usernames (spaces, special chars)
+   - Test invalid git characters removed
+   - Test lowercase conversion
+   - Test various edge cases
+
+3. **Configuration Loading**
+   - Test default values (autoCreateBranchFromMain, autoBranchNamePattern, staleRemoteThresholdHours)
    - Test config file loading
-   - Test validation
+   - Test validation (invalid patterns, negative thresholds)
 
-3. **Detection Logic**
+4. **Detection Logic**
    - Test when on main with commits ahead
    - Test when on feature branch (should not trigger)
    - Test when on main but up-to-date (should not trigger)
+   - Test ShouldAutoBranch decision logic
 
-#### Integration Tests
+5. **Error Handling**
+   - Test `errors.Is()` with ErrOperationCancelled
+   - Test `errors.Is()` with ErrStaleRemote
+   - Test wrapped errors are detected correctly
+   - Test sentinel error behavior
 
-1. **Full Auto-Branch Flow**
+6. **Commit List Display**
+   - Test formatting with various message lengths
+   - Test hash truncation to 7 characters
+   - Test message truncation at 80 characters
+
+#### Integration Tests (13 tests covering all error paths)
+
+1. **Happy Path Tests**
+   - Full automatic flow (config enabled)
+   - Flow with prompts (config disabled)
+   - Custom branch name patterns
+   - Commit list display formatting
+
+2. **Error Path Tests**
+   - No commits ahead detection
+   - Stale remote tracking branch detection
+   - Branch name collision (pre-check)
+   - Branch name collision (race condition simulation)
+   - Sentinel error handling
+   - Remote ref age calculation
+   - Push authentication error detection
+   - Multiple placeholder patterns
+   - Branch name sanitization edge cases
+
+3. **End-to-End Flow Tests**
    - Create test repo with commits on main
-   - Run detection and auto-branch flow
-   - Verify branch pushed to remote
-   - Verify local branch created tracking remote
+   - Run complete detection and auto-branch flow
+   - Verify branch pushed to remote (mocked)
+   - Verify local branch created tracking remote (mocked)
    - Verify main unchanged
+   - Verify error recovery paths
 
-2. **Custom Branch Name Pattern**
-   - Test each placeholder type
-   - Verify generated names match patterns
+#### Manual Testing (12 scenarios)
 
-3. **Error Scenarios**
-   - Push failure (stay on main)
-   - PR creation failure (don't create local branch)
-   - Checkout failure (display recovery instructions)
+Covers user interaction, authentication, and real-world scenarios:
+- Happy paths (auto and manual)
+- User cancellations and confirmations
+- Stale remote warnings
+- Authentication failures (push and API)
+- Network failures
+- Race conditions
+- Uncommitted changes preservation
+- Multiple commits display
+
+#### Coverage Goals
+
+- **Unit tests**: 100% coverage (error handling, sanitization, pattern generation)
+- **Integration tests**: 90%+ coverage (detection, preparation, error paths)
+- **Combined**: 85%+ overall coverage for auto-branch module
+- **Critical paths**: 100% coverage (detection, error handling, sentinel errors)
 
 #### Manual Testing Scenarios
 

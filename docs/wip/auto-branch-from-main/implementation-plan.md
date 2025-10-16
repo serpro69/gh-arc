@@ -120,18 +120,18 @@ Add `CountCommitsAhead(branchName, baseBranch string) (int, error)` method to `R
 
 ---
 
-### Task 4: Add Branch Existence Check Helper
+### Task 4: Add Branch Existence Check and Commit Range Methods
 
-**Goal**: Add utility method to check if a branch exists locally or remotely.
+**Goal**: Add utility methods to check if a branch exists and to retrieve commit information.
 
 **Files to modify**:
 - `internal/git/git.go`
 
 **What to implement**:
 
-Add `BranchExists(name string) (bool, error)` method to `Repository` struct:
+Add three methods to `Repository` struct:
 
-1. **Functionality**:
+1. **`BranchExists(name string) (bool, error)`**:
    - Check local branch first: `plumbing.NewBranchReferenceName(name)`
    - If not found locally, check remote: `plumbing.NewRemoteReferenceName("origin", name)`
    - Return true if either exists, false if neither exists
@@ -142,14 +142,33 @@ Add `BranchExists(name string) (bool, error)` method to `Repository` struct:
    - Branch might exist remotely but not checked out locally
    - Both cases count as "exists" for our purposes (prevents duplicate names)
 
-**Use case**:
-- Used in Task 7 to ensure unique branch names
+3. **`GetCommitsBetween(base, head string) ([]CommitInfo, error)`**:
+   - Get commit range using `git log --oneline base..head`
+   - Parse output into structured commit information
+   - Return slice of CommitInfo structs
+
+4. **Define `CommitInfo` struct** (in same file):
+   ```go
+   // CommitInfo represents minimal commit information for display
+   type CommitInfo struct {
+       Hash    string // Full commit hash
+       Message string // Full commit message
+   }
+   ```
+
+**Use cases**:
+- `BranchExists` used in Task 7 to ensure unique branch names
+- `GetCommitsBetween` used in Task 8 to display commits to user
 
 **Testing approach**:
 - Write `TestBranchExists`:
   - Test existing branch (main) returns true
   - Test non-existent branch returns false
   - Test newly created branch returns true
+- Write `TestGetCommitsBetween`:
+  - Create test repo with multiple commits
+  - Verify correct commits are returned
+  - Verify hash and message are populated
 
 ---
 
@@ -165,14 +184,17 @@ Add `BranchExists(name string) (bool, error)` method to `Repository` struct:
 Add two methods to `Repository` struct:
 
 1. **`PushBranch(ctx context.Context, localRef, remoteBranch string) error`**:
-   - Execute `git push origin <localRef>:refs/heads/<remoteBranch>`
+   - Execute `git push origin <localRef>:refs/heads/<remoteBranch>` using `exec.CommandContext`
    - Use context for cancellation support
+   - Capture both stdout and stderr using `cmd.CombinedOutput()` or separate buffers
    - Log operation at Info level
    - **Parse error output** to detect specific failure types:
-     - Check for "remote ref already exists" or "! [rejected]" in stderr
+     - Check stderr for "remote ref already exists" or "! [rejected]" patterns
      - If detected, return custom error type `ErrRemoteBranchExists` (define in git package)
-     - Otherwise, return generic error with full git output
-   - This allows callers to handle race conditions with retry logic
+     - Check stderr for authentication failures (exit code 128 AND patterns like "authentication failed", "Permission denied", "fatal: could not read")
+     - If auth failure detected, return error with authentication context for caller to handle
+     - Otherwise, return generic error with full git output (both stdout and stderr)
+   - This allows callers to handle race conditions and auth failures with appropriate logic
 
 2. **`CheckoutTrackingBranch(branchName, remoteBranch string) error`**:
    - Execute `git checkout -b <branchName> <remoteBranch>`
@@ -712,14 +734,16 @@ Enhance the error handling after `PrepareAutoBranch` call:
 
 ### Task 12: Write Comprehensive Integration Tests
 
-**Goal**: Add end-to-end integration tests for the complete auto-branch flow.
+**Goal**: Add end-to-end integration tests for the complete auto-branch flow, covering all error paths.
 
 **Files to create**:
 - `internal/diff/auto_branch_integration_test.go`
 
 **What to test**:
 
-Create integration test file with sub-tests:
+Create integration test file with sub-tests covering happy paths and all error scenarios:
+
+#### Happy Path Tests
 
 1. **Full automatic flow (config enabled)**:
    - Set up: Create temp git repo with initial commit
@@ -754,22 +778,111 @@ Create integration test file with sub-tests:
    - Execute: Generate branch name
    - Verify: Generated name matches pattern format
 
-5. **Branch name collision**:
+#### Error Path Tests
+
+5. **No commits ahead detection**:
+   - Set up: Create temp git repo on main, no unpushed commits
+   - Execute: Run detection
+   - Verify:
+     - Detection returns 0 commits ahead
+     - ShouldAutoBranch returns false
+     - Flow should exit early
+
+6. **Stale remote tracking branch**:
+   - Set up: Create repo with old origin/main commit (>24h old)
+   - Configure: StaleRemoteThresholdHours = 24
+   - Execute: Run CheckStaleRemote
+   - Verify:
+     - Detects stale remote (age > threshold)
+     - Returns appropriate warning indication
+     - Note: User prompt can't be fully tested, document as "tested manually"
+
+7. **Branch name collision (pre-check)**:
    - Set up: Create branch with name that would be generated
    - Execute: EnsureUniqueBranchName
-   - Verify: Appends counter correctly
+   - Verify: Appends counter correctly (e.g., `-2`, `-3`)
 
-6. **Skip if short mode**:
-   - Add `if testing.Short() { t.Skip() }` to all tests
+8. **Branch name collision (race condition simulation)**:
+   - Set up: Mock scenario where branch exists remotely but not locally
+   - Execute: Simulate ErrRemoteBranchExists error
+   - Verify:
+     - Error is properly detected
+     - Can retry with new name
+     - Retry logic works as expected
+
+9. **Sentinel error handling**:
+   - Test ErrOperationCancelled:
+     - Create mock function that returns ErrOperationCancelled
+     - Verify `errors.Is(err, ErrOperationCancelled)` returns true
+     - Verify wrapped errors are still detected
+   - Test ErrStaleRemote:
+     - Create mock function that returns ErrStaleRemote
+     - Verify `errors.Is(err, ErrStaleRemote)` returns true
+     - Verify wrapped errors are still detected
+
+10. **Remote ref age calculation**:
+    - Set up: Create commit with known timestamp
+    - Execute: GetRemoteRefAge
+    - Verify:
+      - Age calculation is accurate
+      - Returns 0 for non-existent remote
+      - Handles errors gracefully
+
+11. **Push error detection (authentication)**:
+    - Set up: Mock git push failure with auth error
+    - Simulate stderr containing "authentication failed"
+    - Verify:
+      - Error is detected as authentication failure
+      - Appropriate error message would be displayed
+      - Note: Actual push testing requires real credentials, document as "tested manually"
+
+12. **Multiple placeholder patterns**:
+    - Test pattern generation with all placeholders:
+      - `{timestamp}` - verify Unix timestamp format
+      - `{date}` - verify ISO date format (YYYY-MM-DD)
+      - `{datetime}` - verify ISO datetime format
+      - `{username}` - verify sanitization (spaces → hyphens, lowercase)
+      - `{random}` - verify 6 alphanumeric characters
+    - Verify pattern combinations work correctly
+
+13. **Branch name sanitization**:
+    - Test sanitizeBranchName with various inputs:
+      - "John Doe" → "john-doe"
+      - "test..name" → "test-name"
+      - "feature:test" → "featuretest"
+      - "my*branch?" → "mybranch"
+    - Verify all invalid git characters are handled
+
+#### Test Organization
+
+14. **Skip if short mode**:
+    - Add `if testing.Short() { t.Skip("Skipping integration test in short mode") }` to all integration tests
+    - Unit tests (error checking, sanitization, pattern parsing) should NOT skip in short mode
 
 **Test helpers needed**:
-- `createTestRepo(t)` - Set up temp git repo
+- `createTestRepo(t *testing.T) (string, *git.Repository)` - Set up temp git repo
+- `createCommit(t *testing.T, repo *git.Repository, message string)` - Add commit to repo
+- `createOldCommit(t *testing.T, repo *git.Repository, message string, age time.Duration)` - Create commit with specific age
+- `mockRemoteBranch(t *testing.T, repo *git.Repository, branch string)` - Simulate remote branch
 - Use go-git for repository operations
 - Use `t.TempDir()` for automatic cleanup
 
+**Coverage goals**:
+- Unit tests (sanitization, patterns, errors): 100% coverage
+- Integration tests (detection, preparation): 90%+ coverage
+- Combined coverage for auto-branch module: 85%+ overall
+
 **Running tests**:
-- These are integration tests, may be slow
-- Run with: `go test ./internal/diff -v`
+- All tests: `go test ./internal/diff -v`
+- Skip integration (fast): `go test ./internal/diff -v -short`
+- With coverage: `go test ./internal/diff -v -cover -coverprofile=coverage.out`
+- Coverage report: `go tool cover -html=coverage.out`
+
+**Testing strategy**:
+- Integration tests validate end-to-end flows and error paths
+- Unit tests validate individual functions and edge cases
+- Manual testing validates user interaction and authentication flows
+- Combined approach ensures comprehensive coverage of all scenarios from error handling table
 
 ---
 
@@ -896,10 +1009,34 @@ This simplified implementation plan provides 14 tasks organized into 5 phases:
 
 ## Testing Strategy
 
-- **Unit tests**: Tasks 2, 3, 4, 7, 8
-- **Integration tests**: Task 12
-- **Manual testing**: After each phase
+- **Unit tests**: Tasks 2, 3, 4, 5.5, 7, 8 (13 test cases total)
+  - Configuration validation
+  - Git operations (commit counting, ref age, branch checks)
+  - Branch name generation and sanitization
+  - Pattern parsing with all placeholders
+  - Sentinel error behavior
+  - Commit list display formatting
+- **Integration tests**: Task 12 (13 test cases covering all error paths)
+  - Happy path flows (auto and manual)
+  - Error detection and handling
+  - Stale remote checking
+  - Branch collision handling
+  - Authentication error detection
+  - All scenarios from error handling table
+- **Manual testing**: After each phase (12 scenarios)
+  - User interaction flows
+  - Authentication failures
+  - Network issues
+  - Real GitHub operations
 - **End-to-end testing**: After Phase 4
+  - Complete workflow validation
+  - Real git push and PR creation
+  - Error recovery verification
+
+**Coverage Goals**:
+- Unit tests: 100% (critical paths)
+- Integration tests: 90%+ (detection and preparation)
+- Combined: 85%+ overall for auto-branch module
 
 ## Questions or Issues?
 
