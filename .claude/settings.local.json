@@ -42,7 +42,9 @@
       "mcp__zen__codereview"
     ],
     "deny": [
-      "Bash(task-master:*)"
+      "Bash(task-master:*)",
+      "Read(./**/consensus.md)",
+      "Read(./**/review.md)"
     ],
     "ask": []
   },
