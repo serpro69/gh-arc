@@ -43,8 +43,8 @@
     ],
     "deny": [
       "Bash(task-master:*)",
-      "Read(./**/consensus.md)",
-      "Read(./**/review.md)"
+      "Read(./**/consensus*.md)",
+      "Read(./**/review*.md)"
     ],
     "ask": []
   },
