@@ -639,7 +639,7 @@ This simplified implementation plan provides 14 tasks organized into 5 phases:
 
 **Commit Frequently**:
 - Commit after each task (minimum 14 commits)
-- Each commit should be atomic and reversible
+- Each commit should be atomic and reversible, with passing tests
 
 **DRY Principle**:
 - Reuse existing patterns from the codebase
