@@ -69,13 +69,14 @@ _For tasks that already exist in task-master._
 
 ### Working with Dependencies
 
-- Always try to use latest versions for dependencies. To find dependencnes, run:
+- Always try to use latest versions for dependencies. To find dependencnes for go modules, run:
 
 ```bash
 go list -m -versions <module>
 ```
 
-- Before trying alternative methods, always try to use context7 MCP to lookup documentation for dependencies, libraries, SDKs, APIs and other external frameworks and tools. 
+- If you are not sure, **do not make assumptions about how external dependencies work**. Always consult documentation.
+- Before trying alternative methods, always try to **use context7 MCP to lookup documentation for external dependencies** like libraries, SDKs, APIs and other external frameworks, tools, etc.
     - **IMPORTANT! Always make sure that documentation version is the same as declared dependency version itself.**
     - Only revert to web-search or other alternative methods if you can't find documentation in context7.
 
@@ -95,6 +96,8 @@ Use the following guidelines when working with tests:
 - Property-based testing with gopter
 - End-to-end testing strategies
 - Code coverage analysis and reporting
+
+**IMPORTANT!** When you need to test something against a real github repo, ask your human counterpart to do the testing (but provide test cases).
 
 ### Documentation
 
@@ -143,12 +146,7 @@ gh extension install .
 
 ## Architecture
 
-### Current State
-
-The project is in early development. Currently only contains:
-- `main.go`: Entry point with basic GitHub API authentication check
-- Compiled binary `gh-arc` (gitignored)
-- Go module configuration
+See @./docs/contributing/ARCHITECTURE.md for an architecture overview.
 
 ### Planned Features
 
