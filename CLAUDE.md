@@ -97,6 +97,7 @@ Use the following guidelines when working with tests:
 ### Documentation
 
 - After completing a new feature, always see if you need to update the Architecture documentation @./docs/contributing/ARCHITECTURE.md and Test documentation @./docs/contributing/TESTING.md for other developers, so anyone could easily pick up the work and understand the project and the feature that was added.
+- If the code change included prior decision-making out of several alternatives, document an ADR in @./docs/adr for any non-trivial/-obvious decisions that should be preserved.
 
 ## Development Commands
 
