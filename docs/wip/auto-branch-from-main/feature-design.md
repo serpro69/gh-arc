@@ -14,7 +14,7 @@ This feature enables `gh arc diff` to automatically handle the scenario where a 
 
 ## Problem Statement
 
-In trunk-based development workflows, developers should always work on feature branches, not directly on main/master. However, mistakes happen:
+In trunk-based development workflows, developers, unless they bypass code-reviews and directly push to master, should always work on short-lived feature branches (from which Pull-Requests are made), and not directly on main/master. However, mistakes happen:
 
 1. A developer forgets to create a feature branch and commits directly to `main`
 2. They realize the mistake when running `gh arc diff`
