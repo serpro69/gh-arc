@@ -210,6 +210,8 @@ autoBranchNamePattern: "fix/emergency-{random}"           # fix/emergency-a7k3m9
 | No commits ahead | `CountCommitsAhead` returns 0 | Display message: "No changes to diff" and exit |
 | Stale remote tracking (>24h) | Check origin/main ref timestamp | Warn user, recommend `git fetch origin`, prompt to continue or abort |
 | User cancels prompt | Prompt returns false | Abort with clear message: "Operation cancelled by user" |
+| Auth failure (git push) | `git push` exits 128, "authentication failed" | Check `gh auth status`, provide instructions: `gh auth login` or `gh auth refresh` |
+| Auth failure (GitHub API) | API returns 401/403 | Check auth token validity, provide: `gh auth refresh --scopes "repo,user"` |
 | Branch already exists (pre-push) | Check before push | Append counter: `feature/auto-from-main-1697654321-2` |
 | Push collision (race condition) | `git push` fails with "remote ref exists" | Retry with incremented counter (max 3 attempts), abort if all retries fail |
 | Push fails (other reasons) | `git push` exits with other error | Abort immediately, stay on main, display error and recovery instructions |
@@ -338,6 +340,62 @@ Creating PR with base: main
   You are still on the 'main' branch.
 ```
 
+#### Example 6: Authentication Failure During Push
+
+```bash
+$ gh arc diff
+
+⚠️  Warning: You have 2 commits on main
+✓ Creating feature branch: feature/auto-from-main-1697654321
+
+Creating PR with base: main
+
+# ... normal diff flow ...
+
+✗ Failed to push branch to remote: Authentication failed
+
+  It looks like your GitHub credentials have expired or are invalid.
+
+  Check your authentication status:
+    gh auth status
+
+  If needed, refresh your credentials:
+    gh auth refresh --scopes "repo,user"
+
+  Or login again:
+    gh auth login
+
+  You are still on the 'main' branch.
+```
+
+#### Example 7: Authentication Failure During PR Creation
+
+```bash
+$ gh arc diff
+
+⚠️  Warning: You have 2 commits on main
+✓ Creating feature branch: feature/auto-from-main-1697654321
+
+Creating PR with base: main
+
+# ... normal diff flow ...
+
+✓ Pushed branch 'feature/auto-from-main-1697654321' to remote
+
+✗ Failed to create Pull Request: Unauthorized (401)
+
+  It looks like your GitHub API token is invalid or lacks required permissions.
+
+  Refresh your credentials with the required scopes:
+    gh auth refresh --scopes "repo,user"
+
+✓ Branch 'feature/auto-from-main-1697654321' was successfully pushed to remote.
+  You can create the PR manually after refreshing auth:
+    gh pr create --head feature/auto-from-main-1697654321 --base main
+
+  You are still on the 'main' branch.
+```
+
 ### Integration with Existing Code
 
 #### Modified Files
@@ -419,9 +477,11 @@ This simplified design differs from the original in these key ways:
 5. **Branch Name Collision**: Branch already exists with generated name
 6. **Push Collision (Race)**: Another developer pushes same branch name during operation
 7. **Network Failure**: Simulate push failure
-8. **PR Creation Failure After Push**: Push succeeds but API fails, see recovery instructions
-9. **With Uncommitted Changes**: Verify they're preserved (no stash needed)
-10. **Multiple Commits Display**: Test with 1, 5, and 10+ commits to verify formatting
+8. **Push Authentication Failure**: Expired credentials, see auth recovery instructions
+9. **PR Creation Failure After Push**: Push succeeds but API fails, see recovery instructions
+10. **API Authentication Failure**: Invalid token during PR creation, see auth refresh instructions
+11. **With Uncommitted Changes**: Verify they're preserved (no stash needed)
+12. **Multiple Commits Display**: Test with 1, 5, and 10+ commits to verify formatting
 
 ## Security Considerations
 
@@ -430,6 +490,11 @@ This simplified design differs from the original in these key ways:
 3. **Main Unchanged**: Local main branch remains exactly as user left it
 4. **User Control**: Configs allow disabling automatic behavior
 5. **Abort on Error**: Any failure leaves user in safe state (on main branch)
+6. **Authentication**: Relies on existing `gh` CLI authentication infrastructure
+   - Uses user's existing GitHub credentials via `gh auth`
+   - No credential storage or management in this feature
+   - Clear error messages guide users to `gh auth refresh` when needed
+   - Respects existing token scopes and permissions
 
 ## Performance Considerations
 
