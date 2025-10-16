@@ -14,15 +14,13 @@ This feature enables `gh arc diff` to automatically handle the scenario where a 
 
 ## Problem Statement
 
-In trunk-based development workflows, developers should always work on short-lived feature branches, not directly on main/master. However, mistakes happen:
-
 1. A developer forgets to create a feature branch and commits directly to `main`
 2. They realize the mistake when running `gh arc diff`
-3. Currently, `gh arc diff` will fail because it can't create a PR from main to main
+3. Currently, `gh arc diff` will try to create a new diff, but then fail because we can't create a PR from main to main
 4. The developer must manually:
    - Create a feature branch
-   - Push the branch
-   - Create the PR
+   - Re-run `gh arc diff`
+   - Reset the main branch
 
 This manual process interrupts the workflow.
 
@@ -31,7 +29,7 @@ This manual process interrupts the workflow.
 ### Story 1: Accidental Commits to Main
 **As a** developer who accidentally committed to main,
 **I want** `gh arc diff` to automatically create a feature branch and PR,
-**So that** I can continue my workflow without manual git operations.
+**So that** I can continue my workflow without manual git operations during PR creation.
 
 ### Story 2: Configurable Behavior
 **As a** developer with specific preferences,
@@ -53,8 +51,8 @@ This manual process interrupts the workflow.
 
 ## Non-Goals
 
-1. **Automatic Main Reset**: We don't automatically reset main to origin/main (user can do this manually or it syncs on next pull)
-2. **Uncommitted Changes Handling**: Since we're not changing HEAD, uncommitted changes are unaffected and need no special handling
+1. **Automatic Main Reset**: We don't automatically reset main to origin/main (user can do this manually or sync it on `land` or `pull`)
+2. **Uncommitted Changes Handling**: Since we're not changing `HEAD`, uncommitted changes are unaffected and need no special handling
 3. **Remote Sync**: Does not fetch from origin or handle remote sync issues
 4. **Conflict Resolution**: Does not handle merge conflicts or complex git states
 
@@ -66,7 +64,7 @@ The feature activates when all these conditions are met:
 
 1. User runs `gh arc diff`
 2. Current branch is the default branch (main, master, trunk, etc.)
-3. Local default branch has commits ahead of `origin/<default-branch>`
+3. Local default branch has commits ahead of local `origin/<default-branch>`
 
 ```go
 // Pseudo-code for detection
@@ -131,8 +129,10 @@ autoBranchNamePattern: "fix/emergency-{random}"           # fix/emergency-a7k3m9
 
 2. Detect situation
    ├─> On main? YES
-   ├─> Commits ahead? YES (2 commits)
-   └─> Feature enabled? Check config
+   └─> Commits ahead?
+       ├─> NO              → Show message: "No changes to diff" and exit 0.
+       └─> YES (2 commits) → Use default: feature/auto-from-main-<timestamp>
+            └─> Feature enabled? Check config
 
 3. Check config: diff.autoCreateBranchFromMain
    ├─> true  → Proceed
@@ -244,8 +244,7 @@ $ gh arc diff
 
 ✗ Cannot create PR from main to main.
   Please create a feature branch manually:
-    git checkout -b feature/my-branch
-    git push origin feature/my-branch
+    gh arc work feature/my-branch
     gh arc diff
 ```
 
