@@ -96,6 +96,7 @@ diff:
   # New fields for auto-branch from main
   autoCreateBranchFromMain: true        # Auto-create branch when commits on main detected
   autoBranchNamePattern: ""             # Pattern for branch name (empty = default, null = prompt)
+  staleRemoteThresholdHours: 24         # Warn if origin/main is older than this (0 = disable check)
 ```
 
 ### Branch Naming Patterns
@@ -131,10 +132,21 @@ autoBranchNamePattern: "fix/emergency-{random}"           # fix/emergency-a7k3m9
    ├─> On main? YES
    └─> Commits ahead?
        ├─> NO              → Show message: "No changes to diff" and exit 0.
-       └─> YES (2 commits) → Use default: feature/auto-from-main-<timestamp>
-            └─> Feature enabled? Check config
+       └─> YES (2 commits) → Continue to stale remote check
 
-3. Check config: diff.autoCreateBranchFromMain
+3. Check for stale remote tracking branch
+   ├─> Get last update time of origin/main ref
+   ├─> If older than 24 hours (configurable threshold):
+   │   ├─> Display warning:
+   │   │   "⚠️  Warning: Your local view of 'origin/main' was last updated X days/hours ago."
+   │   │   "   It's recommended to run 'git fetch origin' to ensure your new branch"
+   │   │   "   is based on the latest code."
+   │   └─> Prompt: "? Continue anyway? (y/N)"
+   │       ├─> N/n/enter → Abort: "Please run 'git fetch origin' and try again"
+   │       └─> Y/y       → Continue with warning logged
+   └─> If up-to-date or user confirms → Continue
+
+4. Check config: diff.autoCreateBranchFromMain
    ├─> true  → Proceed
    └─> false → Prompt: "Create feature branch automatically? (y/n)"
                ├─> y → Proceed
@@ -151,15 +163,29 @@ autoBranchNamePattern: "fix/emergency-{random}"           # fix/emergency-a7k3m9
 5. Continue normal diff flow
    └─> Generate template, open editor, etc.
 
-6. Push branch to remote
+6. Push branch to remote (BEFORE creating PR)
    ├─> git push origin HEAD:refs/heads/<branch-name>
+   ├─> If push fails due to branch already exists (race condition):
+   │   ├─> Generate new branch name with incremented counter
+   │   ├─> Retry push (max 3 attempts)
+   │   └─> If max retries exceeded: abort with error
+   ├─> If push fails for other reasons: abort, stay on main, display recovery instructions
    └─> Display: "✓ Pushed branch '<branch-name>' to remote"
 
 7. Create Pull Request via GitHub API
-   └─> Create PR: <branch-name> → main
+   ├─> Create PR: <branch-name> → main
+   └─> If PR creation fails (after push succeeded):
+       ├─> Display: "✗ Failed to create Pull Request: <error>"
+       ├─> Display: "✓ Branch '<branch-name>' was successfully pushed to remote."
+       ├─> Provide manual PR creation command:
+       │   └─> "gh pr create --head <branch-name> --base main"
+       ├─> Provide cleanup option:
+       │   └─> "git push origin --delete <branch-name>"
+       └─> Return error, user remains on main
 
 8. Switch to new branch locally
    ├─> git checkout -b <branch-name> origin/<branch-name>
+   ├─> If checkout fails: display error, note PR exists, provide manual checkout command
    └─> Display: "✓ Switched to feature branch '<branch-name>'"
 
 9. Display success message
@@ -176,11 +202,14 @@ autoBranchNamePattern: "fix/emergency-{random}"           # fix/emergency-a7k3m9
 | Error Scenario | Detection | Handling |
 |---------------|-----------|----------|
 | No commits ahead | `CountCommitsAhead` returns 0 | Display message: "No changes to diff" and exit |
+| Stale remote tracking (>24h) | Check origin/main ref timestamp | Warn user, recommend `git fetch origin`, prompt to continue or abort |
 | User cancels prompt | Prompt returns false | Abort with clear message: "Operation cancelled by user" |
-| Branch already exists | Check before push | Append counter: `feature/auto-from-main-1697654321-2` |
-| Push fails | `git push` exits with error | Stay on main, display error, exit with error code |
-| PR creation fails | GitHub API error | Stay on main, don't create local branch, display error |
-| Checkout fails | `git checkout` fails | Display error with manual recovery instructions |
+| Branch already exists (pre-push) | Check before push | Append counter: `feature/auto-from-main-1697654321-2` |
+| Push collision (race condition) | `git push` fails with "remote ref exists" | Retry with incremented counter (max 3 attempts), abort if all retries fail |
+| Push fails (other reasons) | `git push` exits with other error | Abort immediately, stay on main, display error and recovery instructions |
+| PR creation fails (after push) | GitHub API error | Display error, provide manual PR creation command (`gh pr create`), provide cleanup command (`git push origin --delete`) |
+| PR creation fails (before push) | N/A | Push never attempted, no cleanup needed |
+| Checkout fails | `git checkout` fails | Non-fatal: Display error, note PR exists, provide manual checkout command |
 
 ### User Interaction Examples
 
@@ -267,6 +296,32 @@ Creating PR with base: main
     git checkout -b feature/auto-from-main-1697654321
     git push origin feature/auto-from-main-1697654321
     gh arc diff
+```
+
+#### Example 5: PR Creation Failure (After Successful Push)
+
+```bash
+$ gh arc diff
+
+⚠️  Warning: You have 2 commits on main
+✓ Creating feature branch: feature/auto-from-main-1697654321
+
+Creating PR with base: main
+
+# ... normal diff flow ...
+
+✓ Pushed branch 'feature/auto-from-main-1697654321' to remote
+
+✗ Failed to create Pull Request: API rate limit exceeded (403)
+
+✓ Branch 'feature/auto-from-main-1697654321' was successfully pushed to remote.
+  You can create the PR manually by running:
+    gh pr create --head feature/auto-from-main-1697654321 --base main
+
+  Or delete the remote branch and start over:
+    git push origin --delete feature/auto-from-main-1697654321
+
+  You are still on the 'main' branch.
 ```
 
 ### Integration with Existing Code
