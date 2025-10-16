@@ -36,16 +36,19 @@ Before starting implementation:
 1. **Add new fields to DiffConfig struct** (around line 28):
    - `AutoCreateBranchFromMain` (bool): Enable/disable auto-branch creation
    - `AutoBranchNamePattern` (string): Pattern for branch name generation
-   - Both fields need `mapstructure` tags for Viper configuration loading
+   - `StaleRemoteThresholdHours` (int): Warn if origin/main is older than this (0 = disable)
+   - All fields need `mapstructure` tags for Viper configuration loading
 
 2. **Set default values in `setDefaults()` function** (around line 167):
    - `autoCreateBranchFromMain`: true (enabled by default)
    - `autoBranchNamePattern`: "" (empty string = use default pattern)
+   - `staleRemoteThresholdHours`: 24 (warn if older than 24 hours)
 
 **Why these defaults**:
 - Enabled by default for seamless workflow
 - Empty pattern uses safe default: `feature/auto-from-main-{timestamp}`
-- Users can opt-out by setting to false or customizing pattern
+- 24 hour threshold catches most stale scenarios without being annoying
+- Users can opt-out by setting to false or 0, or customizing values
 
 **Testing approach**:
 - Verify config loads with default values
@@ -165,13 +168,23 @@ Add two methods to `Repository` struct:
    - Execute `git push origin <localRef>:refs/heads/<remoteBranch>`
    - Use context for cancellation support
    - Log operation at Info level
-   - Return error with full git output if push fails
+   - **Parse error output** to detect specific failure types:
+     - Check for "remote ref already exists" or "! [rejected]" in stderr
+     - If detected, return custom error type `ErrRemoteBranchExists` (define in git package)
+     - Otherwise, return generic error with full git output
+   - This allows callers to handle race conditions with retry logic
 
 2. **`CheckoutTrackingBranch(branchName, remoteBranch string) error`**:
    - Execute `git checkout -b <branchName> <remoteBranch>`
    - This creates local branch tracking the remote branch
    - Log successful checkout at Debug level
    - Return error if checkout fails
+
+**Error types to define**:
+```go
+// ErrRemoteBranchExists indicates the remote branch already exists
+var ErrRemoteBranchExists = errors.New("remote branch already exists")
+```
 
 **Why use git CLI**:
 - go-git's push implementation can be complex with remote authentication
@@ -185,6 +198,42 @@ Add two methods to `Repository` struct:
 - Write `TestCheckoutTrackingBranch`:
   - Create remote branch, checkout tracking branch
   - Verify tracking relationship is established
+
+---
+
+### Task 5.5: Add Remote Tracking Ref Age Check
+
+**Goal**: Add method to check the age of a remote tracking branch reference.
+
+**Files to modify**:
+- `internal/git/git.go`
+
+**What to implement**:
+
+Add `GetRemoteRefAge(remoteBranch string) (time.Duration, error)` method to `Repository` struct:
+
+1. **Functionality**:
+   - Get the reference for the remote branch: `plumbing.NewRemoteReferenceName("origin", remoteBranch)`
+   - If ref doesn't exist, return 0 duration with no error (might be offline, first commit)
+   - Get the commit object that the ref points to
+   - Extract commit timestamp
+   - Calculate duration: `time.Since(commitTime)`
+   - Return duration
+
+2. **Error handling**:
+   - Return 0 duration if remote ref doesn't exist (not an error - might be offline)
+   - Return error only for actual repository errors
+
+3. **Why check commit time, not ref update time**:
+   - Commit time represents when code was last changed on remote
+   - Ref update time would just be when we last fetched
+   - We want to know if remote has stale code, not just if we fetched recently
+
+**Testing approach**:
+- Write `TestGetRemoteRefAge`:
+  - Create repo with commit from known time
+  - Verify age calculation is correct
+  - Test non-existent remote returns 0
 
 ---
 
@@ -316,7 +365,23 @@ Add prompt utility functions and decision methods:
    - Validate: reject names with spaces, re-prompt if invalid
    - Return (name, error)
 
-3. **`PrepareAutoBranch(ctx context.Context, detection *DetectionResult) (*AutoBranchContext, error)`**:
+3. **`CheckStaleRemote(ctx context.Context, defaultBranch string) (bool, error)`**:
+   - Get config threshold: `cfg.StaleRemoteThresholdHours`
+   - If threshold is 0, skip check (disabled), return (true, nil)
+   - Call `repo.GetRemoteRefAge("origin/" + defaultBranch)`
+   - If age == 0 (remote doesn't exist), skip check, return (true, nil)
+   - Convert threshold to duration: `time.Duration(threshold) * time.Hour`
+   - If age > threshold:
+     - Calculate human-readable time (days/hours)
+     - Display warning about stale remote
+     - Prompt user: "Continue anyway? (y/N)"
+     - If user declines, return (false, error "user declined due to stale remote")
+     - If user accepts, log warning and return (true, nil)
+   - Return (true, nil) if fresh
+
+4. **`PrepareAutoBranch(ctx context.Context, detection *DetectionResult) (*AutoBranchContext, error)`**:
+   - Check stale remote first
+   - If stale check fails/user declines, return error
    - Check if should proceed (config or prompt)
    - If config.AutoCreateBranchFromMain == false, prompt user
    - If user declines, return error "cancelled by user"
@@ -387,58 +452,114 @@ Add prompt utility functions and decision methods:
 
 ---
 
-### Task 10: Add Post-PR Push and Checkout
+### Task 10: Add Pre-PR Push and Post-PR Checkout
 
-**Goal**: After successful PR creation, push branch to remote and checkout locally.
+**Goal**: After template is completed, push branch to remote BEFORE creating PR, then checkout locally after PR creation succeeds.
 
 **Files to modify**:
 - `cmd/diff.go`
 
-**Location**: After PR creation succeeds, before the success message (around line 630).
+**Location**: Split into two parts:
+- **Part A**: After template parsing/validation, before PR creation (around line 580)
+- **Part B**: After PR creation succeeds, before success message (around line 630)
 
 **What to implement**:
 
+**Part A: Push Branch to Remote (BEFORE PR Creation)**
+
 1. **Check if auto-branch was used**:
    - If `autoBranchContext == nil`, skip (normal diff flow)
-   - If not nil, proceed with push and checkout
+   - If not nil, proceed with push
 
-2. **Push branch to remote**:
-   - Call `gitRepo.PushBranch(ctx, "HEAD", autoBranchContext.BranchName)`
-   - If push fails:
-     - Log error
-     - Display error message
-     - Explain that user is still on main
-     - Provide manual recovery instructions
-     - Return error (don't continue)
+2. **Push branch to remote with retry on collision**:
+   - Implement retry loop (max 3 attempts):
+     - Call `gitRepo.PushBranch(ctx, "HEAD", autoBranchContext.BranchName)`
+     - If push succeeds, break out of loop
+     - If error is `git.ErrRemoteBranchExists` (race condition):
+       - Log: "Branch name collision detected, generating new name"
+       - Call `EnsureUniqueBranchName()` again to get new name with incremented counter
+       - Update `autoBranchContext.BranchName` with new name
+       - Retry push with new name
+     - If error is NOT `ErrRemoteBranchExists` (other failure):
+       - Log error with full git output
+       - Display error message: "✗ Failed to push branch to remote"
+       - Explain that user is still on main
+       - Provide manual recovery instructions:
+         ```bash
+         You can create the branch and push manually:
+           git checkout -b {branch-name}
+           git push origin {branch-name}
+           gh arc diff
+         ```
+       - Return error (abort operation)
+   - If max retries exceeded:
+     - Return error: "Failed to push after 3 attempts (branch name collision)"
 
 3. **Display push success**:
    - Print: "✓ Pushed branch '{name}' to remote"
 
-4. **Checkout tracking branch**:
+**Part B: Create PR and Checkout Locally (AFTER PR Creation)**
+
+4. **Create Pull Request via GitHub API** (existing logic, not in this task):
+   - This happens after Part A push succeeds
+   - If PR creation fails after push succeeded, handle specially (see below)
+
+5. **Checkout tracking branch**:
    - Call `gitRepo.CheckoutTrackingBranch(autoBranchContext.BranchName, "origin/"+autoBranchContext.BranchName)`
    - If checkout fails:
-     - Log error
-     - Display error with recovery instructions
-     - Note: PR and remote branch exist, just local tracking failed
-     - Return error
+     - Log error with full git output
+     - Display error with recovery instructions:
+       ```bash
+       ✗ Failed to checkout tracking branch
 
-5. **Display success**:
+       The PR was created successfully, but local checkout failed.
+       You can checkout the branch manually:
+         git checkout -b {branch-name} origin/{branch-name}
+       ```
+     - Note: PR and remote branch exist, just local tracking failed
+     - Still return success (PR was created, this is non-fatal)
+
+6. **Display success**:
    - Print: "✓ Switched to feature branch '{name}'"
 
-6. **Display informational message**:
-   - Print note about main branch still being ahead
-   - Provide manual reset command
-   - Mention it syncs on `gh arc land`
+7. **Display informational message**:
+   - Print note about main branch still being ahead:
+     ```
+     ℹ️  Note: Your local 'main' branch is still ahead of origin/main.
+        You can reset it manually with:
+          git checkout main && git reset --hard origin/main
+        Or it will sync automatically when you run 'gh arc land'.
+     ```
 
-**Error handling**:
-- Push failure is critical (stay on main, provide instructions)
-- Checkout failure is less critical but still needs clear guidance
-- Both should include full git error output for debugging
+**Special Error Handling: Push Succeeded but PR Creation Failed**
+
+Between Part A and Part B, if PR creation fails after push succeeded:
+- Display clear message with recovery path:
+  ```bash
+  ✗ Failed to create Pull Request: <GitHub API Error>
+
+  ✓ Branch '{branch-name}' was successfully pushed to remote.
+    You can create the PR manually by running:
+      gh pr create --head {branch-name} --base main
+
+    Or delete the remote branch and start over:
+      git push origin --delete {branch-name}
+  ```
+- User is still on main branch (safe state)
+- Return error with recovery instructions
+
+**Error handling summary**:
+- Push failure: Critical, abort immediately, user stays on main
+- PR creation failure (after push): Provide manual PR creation command
+- Checkout failure: Non-fatal, PR exists, provide manual checkout command
+- All errors include full output for debugging
 
 **Testing approach**:
 - Verify project builds
 - Manual testing: complete full flow
-- Test push failure scenario (disconnect network)
+- Test push failure scenario (invalid credentials, network issue)
+- Test PR creation failure after push (API error simulation)
+- Test checkout failure scenario (permission issue)
 
 ---
 
