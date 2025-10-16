@@ -1843,3 +1843,54 @@ func TestHasUnpushedCommits(t *testing.T) {
 		assert.True(t, hasUnpushed, "should have unpushed commits when remote branch doesn't exist")
 	})
 }
+
+// TestIsNonFastForwardError tests the isNonFastForwardError helper function
+func TestIsNonFastForwardError(t *testing.T) {
+	testCases := []struct {
+		name     string
+		output   string
+		expected bool
+	}{
+		{
+			name: "non-fast-forward error",
+			output: `To github.com:0xBAD-dev/gh-arc-test.git
+ ! [rejected]        test_diff -> test_diff (non-fast-forward)
+error: failed to push some refs to 'github.com:0xBAD-dev/gh-arc-test.git'
+hint: Updates were rejected because the tip of your current branch is behind
+hint: its remote counterpart.`,
+			expected: true,
+		},
+		{
+			name:     "rejected but not non-fast-forward",
+			output:   "! [rejected]        test_diff -> test_diff (fetch first)",
+			expected: false,
+		},
+		{
+			name:     "non-fast-forward but not rejected",
+			output:   "non-fast-forward update to test_diff",
+			expected: false,
+		},
+		{
+			name:     "success output",
+			output:   "To github.com:test/repo.git\n   abc1234..def5678  main -> main",
+			expected: false,
+		},
+		{
+			name:     "empty output",
+			output:   "",
+			expected: false,
+		},
+		{
+			name:     "other error",
+			output:   "fatal: unable to access 'https://github.com/test/repo.git/': Could not resolve host",
+			expected: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := isNonFastForwardError(tc.output)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}

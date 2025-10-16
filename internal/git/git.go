@@ -16,6 +16,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/serpro69/gh-arc/internal/logger"
 )
 
 var (
@@ -975,6 +976,9 @@ func (r *Repository) HasUnpushedCommits(branchName string) (bool, error) {
 // Push pushes commits from the specified branch to its remote tracking branch.
 // If the branch has no remote tracking branch, it pushes to origin with the same name.
 // Uses context for cancellation support.
+//
+// If a regular push fails due to non-fast-forward (e.g., after rebasing), it automatically
+// retries with --force-with-lease to safely force push the changes.
 func (r *Repository) Push(ctx context.Context, branchName string) error {
 	if branchName == "" {
 		return fmt.Errorf("branch name cannot be empty")
@@ -982,19 +986,64 @@ func (r *Repository) Push(ctx context.Context, branchName string) error {
 
 	// Use git CLI for push operations as go-git's push has authentication complexities
 	// and doesn't integrate well with gh CLI's existing authentication
+	logger.Debug().
+		Str("branch", branchName).
+		Msg("Attempting push to remote")
+
 	cmd := exec.CommandContext(ctx, "git", "push", "origin", branchName)
 	cmd.Dir = r.path
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		// Check for context errors first
 		if ctx.Err() == context.DeadlineExceeded {
 			return fmt.Errorf("push operation timed out")
 		}
 		if ctx.Err() == context.Canceled {
 			return fmt.Errorf("push operation cancelled")
 		}
+
+		// Check if this is a non-fast-forward error (e.g., after rebase)
+		outputStr := string(output)
+		if isNonFastForwardError(outputStr) {
+			logger.Info().
+				Str("branch", branchName).
+				Msg("Non-fast-forward detected (likely after rebase), retrying with --force-with-lease")
+
+			// Retry with --force-with-lease for safer force push
+			cmd = exec.CommandContext(ctx, "git", "push", "--force-with-lease", "origin", branchName)
+			cmd.Dir = r.path
+
+			output, err = cmd.CombinedOutput()
+			if err != nil {
+				if ctx.Err() == context.DeadlineExceeded {
+					return fmt.Errorf("push operation timed out")
+				}
+				if ctx.Err() == context.Canceled {
+					return fmt.Errorf("push operation cancelled")
+				}
+				return fmt.Errorf("failed to force push branch %s: %w\nOutput: %s", branchName, err, string(output))
+			}
+
+			logger.Debug().
+				Str("branch", branchName).
+				Msg("Successfully force-pushed with --force-with-lease")
+			return nil
+		}
+
+		// Not a non-fast-forward error, return original error
 		return fmt.Errorf("failed to push branch %s: %w\nOutput: %s", branchName, err, string(output))
 	}
 
+	logger.Debug().
+		Str("branch", branchName).
+		Msg("Successfully pushed to remote")
 	return nil
+}
+
+// isNonFastForwardError checks if git push output indicates a non-fast-forward rejection.
+// This typically occurs when the remote branch has diverged from local (e.g., after a rebase).
+func isNonFastForwardError(output string) bool {
+	// Git push outputs "[rejected]" and "non-fast-forward" when the remote has diverged
+	return strings.Contains(output, "[rejected]") && strings.Contains(output, "non-fast-forward")
 }

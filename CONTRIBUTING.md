@@ -296,6 +296,7 @@ See [docs/contributing/TESTING.md](./docs/contributing/TESTING.md) for detailed 
    - README.md for user-facing changes
    - Code comments for complex logic
    - CONTRIBUTING.md for development process changes
+   - Consider creating an [ADR](docs/adr/README.md) for significant architectural decisions
 
 ### PR Review Process
 
@@ -319,6 +320,7 @@ See [docs/contributing/TESTING.md](./docs/contributing/TESTING.md) for detailed 
 - [Testing Guide](docs/contributing/TESTING.md) - Comprehensive testing patterns and examples
 - [Workflows Guide](docs/contributing/WORKFLOWS.md) - Common development tasks and workflows
 - [Troubleshooting Guide](docs/contributing/TROUBLESHOOTING.md) - Debugging and problem-solving
+- [Architecture Decision Records (ADRs)](docs/adr/README.md) - Documents of significant architectural decisions
 
 ### External Resources
 
