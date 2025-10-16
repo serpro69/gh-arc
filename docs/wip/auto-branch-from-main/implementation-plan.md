@@ -379,12 +379,24 @@ Add prompt utility functions and decision methods:
      - If user accepts, log warning and return (true, nil)
    - Return (true, nil) if fresh
 
-4. **`PrepareAutoBranch(ctx context.Context, detection *DetectionResult) (*AutoBranchContext, error)`**:
+4. **`displayCommitList(commits []CommitInfo)`**:
+   - Display header: "The following N commit(s) on 'main' will be moved to a new feature branch:"
+   - For each commit, display formatted line:
+     - Format: "  - {short-hash} {commit-message-first-line}"
+     - Use first 7 characters of hash
+     - Truncate message if longer than 80 chars
+   - Add blank line after list
+
+5. **`PrepareAutoBranch(ctx context.Context, detection *DetectionResult) (*AutoBranchContext, error)`**:
    - Check stale remote first
    - If stale check fails/user declines, return error
    - Check if should proceed (config or prompt)
-   - If config.AutoCreateBranchFromMain == false, prompt user
-   - If user declines, return error "cancelled by user"
+   - If config.AutoCreateBranchFromMain == false:
+     - Get commit list from repo: `repo.GetCommitsBetween("origin/main", "main")`
+     - Call `displayCommitList(commits)` to show what will be moved
+     - Then prompt user: "Create feature branch automatically? (Y/n)"
+     - If user declines, return error "cancelled by user"
+   - If config.AutoCreateBranchFromMain == true, proceed without display
    - Get branch name (from pattern or prompt)
    - Ensure branch name is unique
    - Return AutoBranchContext with branch name
@@ -395,11 +407,16 @@ Add prompt utility functions and decision methods:
 - `fmt` for Printf
 
 **Testing approach**:
+- Write `TestDisplayCommitList`:
+  - Test formatting of commit list
+  - Test with 1, 2, and 5 commits
+  - Test long commit messages are truncated
 - Write `TestPrepareAutoBranch`:
-  - Test with config enabled (no prompt)
+  - Test with config enabled (no prompt, no commit display)
+  - Test with config disabled (would prompt and display commits)
   - Document stdin mocking as "tested manually"
   - Test branch name generation logic
-- Manual testing for actual prompts
+- Manual testing for actual prompts and commit display
 
 ---
 
@@ -615,7 +632,7 @@ Enhance the error handling after `PrepareAutoBranch` call:
 
 Create integration test file with sub-tests:
 
-1. **Full automatic flow**:
+1. **Full automatic flow (config enabled)**:
    - Set up: Create temp git repo with initial commit
    - Add commits on main
    - Configure: AutoCreateBranchFromMain = true
@@ -624,18 +641,36 @@ Create integration test file with sub-tests:
      - Detection found commits on main
      - Branch name was generated
      - ShouldProceed is true
+     - Commit list was NOT displayed (auto mode)
 
-2. **Custom branch name pattern**:
+2. **Flow with prompts (config disabled)**:
+   - Set up: Create temp git repo with 2 commits on main
+   - Configure: AutoCreateBranchFromMain = false
+   - Execute: Run detection (prepare would need mocked stdin)
+   - Verify:
+     - Detection found 2 commits on main
+     - Commit list display function can be called
+     - Format matches expected output
+
+3. **Commit list display formatting**:
+   - Set up: Create commits with various message lengths
+   - Execute: Call displayCommitList
+   - Verify:
+     - Short hash is 7 characters
+     - Long messages are truncated to 80 chars
+     - Formatting matches expected pattern
+
+4. **Custom branch name pattern**:
    - Set up: Config with pattern `feature/{username}-{date}`
    - Execute: Generate branch name
    - Verify: Generated name matches pattern format
 
-3. **Branch name collision**:
+5. **Branch name collision**:
    - Set up: Create branch with name that would be generated
    - Execute: EnsureUniqueBranchName
    - Verify: Appends counter correctly
 
-4. **Skip if short mode**:
+6. **Skip if short mode**:
    - Add `if testing.Short() { t.Skip() }` to all tests
 
 **Test helpers needed**:

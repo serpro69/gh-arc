@@ -147,12 +147,18 @@ autoBranchNamePattern: "fix/emergency-{random}"           # fix/emergency-a7k3m9
    └─> If up-to-date or user confirms → Continue
 
 4. Check config: diff.autoCreateBranchFromMain
-   ├─> true  → Proceed
-   └─> false → Prompt: "Create feature branch automatically? (y/n)"
-               ├─> y → Proceed
-               └─> n → Abort: "Cannot create PR from main to main"
+   ├─> true  → Proceed to branch naming
+   └─> false → Show commits and prompt for confirmation:
+               ├─> Display commits that will be included:
+               │   "The following N commit(s) on 'main' will be moved to a new feature branch:"
+               │   "  - a1b2c3d (HEAD -> main) feat: Add new login button"
+               │   "  - d4e5f67 fix: Correct typo in user model"
+               │   ""
+               └─> Prompt: "? Create feature branch automatically? (Y/n)"
+                   ├─> y/Y/enter → Proceed to branch naming
+                   └─> n/N       → Abort: "Cannot create PR from main to main"
 
-4. Determine branch name
+5. Determine branch name
    ├─> Check config: diff.autoBranchNamePattern
    │   ├─> null   → Prompt: "Enter branch name: "
    │   ├─> ""     → Use default: feature/auto-from-main-<timestamp>
@@ -160,10 +166,10 @@ autoBranchNamePattern: "fix/emergency-{random}"           # fix/emergency-a7k3m9
    │
    └─> Ensure branch name is unique (check local and remote)
 
-5. Continue normal diff flow
+6. Continue normal diff flow
    └─> Generate template, open editor, etc.
 
-6. Push branch to remote (BEFORE creating PR)
+7. Push branch to remote (BEFORE creating PR)
    ├─> git push origin HEAD:refs/heads/<branch-name>
    ├─> If push fails due to branch already exists (race condition):
    │   ├─> Generate new branch name with incremented counter
@@ -172,7 +178,7 @@ autoBranchNamePattern: "fix/emergency-{random}"           # fix/emergency-a7k3m9
    ├─> If push fails for other reasons: abort, stay on main, display recovery instructions
    └─> Display: "✓ Pushed branch '<branch-name>' to remote"
 
-7. Create Pull Request via GitHub API
+8. Create Pull Request via GitHub API
    ├─> Create PR: <branch-name> → main
    └─> If PR creation fails (after push succeeded):
        ├─> Display: "✗ Failed to create Pull Request: <error>"
@@ -183,12 +189,12 @@ autoBranchNamePattern: "fix/emergency-{random}"           # fix/emergency-a7k3m9
        │   └─> "git push origin --delete <branch-name>"
        └─> Return error, user remains on main
 
-8. Switch to new branch locally
+9. Switch to new branch locally
    ├─> git checkout -b <branch-name> origin/<branch-name>
    ├─> If checkout fails: display error, note PR exists, provide manual checkout command
    └─> Display: "✓ Switched to feature branch '<branch-name>'"
 
-9. Display success message
+10. Display success message
    ├─> Show PR URL
    └─> Show informational message:
        "ℹ️  Note: Your local 'main' branch is still ahead of origin/main.
@@ -242,6 +248,10 @@ $ gh arc diff
 
 ⚠️  Warning: You have 2 commits on main
 
+The following 2 commit(s) on 'main' will be moved to a new feature branch:
+  - a1b2c3d (HEAD -> main) feat: Add new login button
+  - d4e5f67 fix: Correct typo in user model
+
 ? Create feature branch automatically? (Y/n) y
 
 ? Enter branch name (or press Enter for default): feature/my-fix
@@ -268,6 +278,10 @@ Creating PR with base: main
 $ gh arc diff
 
 ⚠️  Warning: You have 2 commits on main
+
+The following 2 commit(s) on 'main' will be moved to a new feature branch:
+  - a1b2c3d (HEAD -> main) feat: Add new login button
+  - d4e5f67 fix: Correct typo in user model
 
 ? Create feature branch automatically? (Y/n) n
 
@@ -398,11 +412,16 @@ This simplified design differs from the original in these key ways:
 
 #### Manual Testing Scenarios
 
-1. **Happy Path**: Commits on main, auto-branch, create PR, push, switch
-2. **All Prompts Declined**: User says no to everything
-3. **Branch Name Collision**: Branch already exists with generated name
-4. **Network Failure**: Simulate push failure
-5. **With Uncommitted Changes**: Verify they're preserved (no stash needed)
+1. **Happy Path (Auto-enabled)**: Commits on main with auto-branch enabled, create PR, push, switch
+2. **Happy Path (Prompts)**: Commits on main with auto-branch disabled, see commit list, confirm, create PR
+3. **User Declines After Seeing Commits**: Config disabled, see commits, decline creation
+4. **Stale Remote Warning**: Remote >24h old, see warning, choose to continue or abort
+5. **Branch Name Collision**: Branch already exists with generated name
+6. **Push Collision (Race)**: Another developer pushes same branch name during operation
+7. **Network Failure**: Simulate push failure
+8. **PR Creation Failure After Push**: Push succeeds but API fails, see recovery instructions
+9. **With Uncommitted Changes**: Verify they're preserved (no stash needed)
+10. **Multiple Commits Display**: Test with 1, 5, and 10+ commits to verify formatting
 
 ## Security Considerations
 
