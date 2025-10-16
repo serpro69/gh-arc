@@ -284,6 +284,21 @@ Add `GetRemoteRefAge(remoteBranch string) (time.Duration, error)` method to `Rep
 - Import `internal/git` for GitRepository interface
 - Import `internal/logger` for structured logging
 - Import `context` for context propagation
+- Import `errors` for error handling
+
+**Error types to define**:
+Define sentinel errors at package level for reliable error checking:
+
+```go
+// Sentinel errors for error type checking with errors.Is()
+var (
+    // ErrOperationCancelled indicates user cancelled the operation
+    ErrOperationCancelled = errors.New("operation cancelled by user")
+
+    // ErrStaleRemote indicates user declined to continue with stale remote
+    ErrStaleRemote = errors.New("operation declined due to stale remote")
+)
+```
 
 ---
 
@@ -375,7 +390,7 @@ Add prompt utility functions and decision methods:
      - Calculate human-readable time (days/hours)
      - Display warning about stale remote
      - Prompt user: "Continue anyway? (y/N)"
-     - If user declines, return (false, error "user declined due to stale remote")
+     - If user declines, return (false, ErrStaleRemote)
      - If user accepts, log warning and return (true, nil)
    - Return (true, nil) if fresh
 
@@ -389,13 +404,13 @@ Add prompt utility functions and decision methods:
 
 5. **`PrepareAutoBranch(ctx context.Context, detection *DetectionResult) (*AutoBranchContext, error)`**:
    - Check stale remote first
-   - If stale check fails/user declines, return error
+   - If stale check fails/user declines, return the error (will be ErrStaleRemote)
    - Check if should proceed (config or prompt)
    - If config.AutoCreateBranchFromMain == false:
      - Get commit list from repo: `repo.GetCommitsBetween("origin/main", "main")`
      - Call `displayCommitList(commits)` to show what will be moved
      - Then prompt user: "Create feature branch automatically? (Y/n)"
-     - If user declines, return error "cancelled by user"
+     - If user declines, return ErrOperationCancelled
    - If config.AutoCreateBranchFromMain == true, proceed without display
    - Get branch name (from pattern or prompt)
    - Ensure branch name is unique
@@ -498,16 +513,32 @@ Add prompt utility functions and decision methods:
        - Update `autoBranchContext.BranchName` with new name
        - Retry push with new name
      - If error is NOT `ErrRemoteBranchExists` (other failure):
-       - Log error with full git output
-       - Display error message: "✗ Failed to push branch to remote"
-       - Explain that user is still on main
-       - Provide manual recovery instructions:
-         ```bash
-         You can create the branch and push manually:
-           git checkout -b {branch-name}
-           git push origin {branch-name}
-           gh arc diff
-         ```
+       - **Check if authentication error** (exit code 128 or stderr contains "authentication failed", "Permission denied", "fatal: could not read"):
+         - Display error message: "✗ Failed to push branch to remote: Authentication failed"
+         - Display helpful auth recovery:
+           ```bash
+           It looks like your GitHub credentials have expired or are invalid.
+
+           Check your authentication status:
+             gh auth status
+
+           If needed, refresh your credentials:
+             gh auth refresh --scopes "repo,user"
+
+           Or login again:
+             gh auth login
+           ```
+       - **Otherwise**, display generic push error:
+         - Log error with full git output
+         - Display error message: "✗ Failed to push branch to remote"
+         - Explain that user is still on main
+         - Provide manual recovery instructions:
+           ```bash
+           You can create the branch and push manually:
+             git checkout -b {branch-name}
+             git push origin {branch-name}
+             gh arc diff
+           ```
        - Return error (abort operation)
    - If max retries exceeded:
      - Return error: "Failed to push after 3 attempts (branch name collision)"
@@ -551,17 +582,35 @@ Add prompt utility functions and decision methods:
 **Special Error Handling: Push Succeeded but PR Creation Failed**
 
 Between Part A and Part B, if PR creation fails after push succeeded:
-- Display clear message with recovery path:
-  ```bash
-  ✗ Failed to create Pull Request: <GitHub API Error>
 
-  ✓ Branch '{branch-name}' was successfully pushed to remote.
-    You can create the PR manually by running:
-      gh pr create --head {branch-name} --base main
+1. **Check if authentication/permission error**:
+   - Check if GitHub API error is 401 (Unauthorized) or 403 (Forbidden with "Bad credentials")
+   - If authentication error, display:
+     ```bash
+     ✗ Failed to create Pull Request: Unauthorized (401)
 
-    Or delete the remote branch and start over:
-      git push origin --delete {branch-name}
-  ```
+     It looks like your GitHub API token is invalid or lacks required permissions.
+
+     Refresh your credentials with the required scopes:
+       gh auth refresh --scopes "repo,user"
+
+     ✓ Branch '{branch-name}' was successfully pushed to remote.
+       You can create the PR manually after refreshing auth:
+         gh pr create --head {branch-name} --base main
+     ```
+
+2. **Otherwise** (rate limit, API error, etc.), display generic message:
+   ```bash
+   ✗ Failed to create Pull Request: <GitHub API Error>
+
+   ✓ Branch '{branch-name}' was successfully pushed to remote.
+     You can create the PR manually by running:
+       gh pr create --head {branch-name} --base main
+
+     Or delete the remote branch and start over:
+       git push origin --delete {branch-name}
+   ```
+
 - User is still on main branch (safe state)
 - Return error with recovery instructions
 
@@ -574,9 +623,16 @@ Between Part A and Part B, if PR creation fails after push succeeded:
 **Testing approach**:
 - Verify project builds
 - Manual testing: complete full flow
-- Test push failure scenario (invalid credentials, network issue)
-- Test PR creation failure after push (API error simulation)
+- Test push failure scenarios:
+  - Invalid credentials (authentication failure)
+  - Network issue (connectivity failure)
+  - Permission denied (SSH key issue)
+- Test PR creation failure scenarios:
+  - API authentication error (401/403)
+  - API rate limit (403 with rate limit message)
+  - Generic API error
 - Test checkout failure scenario (permission issue)
+- Verify error messages are helpful and actionable
 
 ---
 
@@ -593,29 +649,62 @@ Between Part A and Part B, if PR creation fails after push succeeded:
 
 Enhance the error handling after `PrepareAutoBranch` call:
 
-1. **Check for user cancellation**:
-   - Use `strings.Contains(err.Error(), "cancelled by user")`
+1. **Import requirements**:
+   - Ensure `errors` package is imported for error checking
+   - Import `internal/diff` package for sentinel errors
+
+2. **Check for user cancellation** (idiomatic Go error checking):
+   ```go
+   if errors.Is(err, diff.ErrOperationCancelled) {
+       // Handle cancellation
+   }
+   ```
    - If cancelled, print helpful message:
      - "\n✗ Cannot create PR from main to main."
      - "Please create a feature branch manually:"
      - Step-by-step commands using actual branch names
-     - Include: checkout -b, push, gh arc diff
+     - Include: `gh arc work feature/my-branch`, then `gh arc diff`
    - Return error "operation cancelled"
 
-2. **For other errors**:
-   - Return error with context: "auto-branch preparation failed: {error}"
-   - Preserve specific error information for troubleshooting
+3. **Check for stale remote rejection**:
+   ```go
+   if errors.Is(err, diff.ErrStaleRemote) {
+       // Handle stale remote
+   }
+   ```
+   - If stale remote, print helpful message:
+     - "\n✗ Operation aborted due to stale remote tracking branch."
+     - "Please update your local repository:"
+     - Command: `git fetch origin`
+     - Then: `gh arc diff`
+   - Return error "stale remote"
 
-**Why distinguish cancellation**:
+4. **For other errors**:
+   - Return error with context: `fmt.Errorf("auto-branch preparation failed: %w", err)`
+   - Preserve specific error information for troubleshooting
+   - Use `%w` to wrap errors for proper error chain
+
+**Why use errors.Is()**:
+- Robust: doesn't break if error message wording changes
+- Idiomatic: standard Go error handling pattern
+- Type-safe: compile-time checking
+- Chainable: works with wrapped errors using `%w`
+
+**Why distinguish error types**:
 - User cancellation is expected behavior, not a failure
+- Stale remote is a safety check that needs specific action
 - Other errors (git failures, name conflicts) are unexpected
-- Cancellation needs manual instructions
-- Other errors need error details
+- Each error type needs different user guidance
 
 **Testing approach**:
-- Verify project builds
-- Manual testing: decline auto-branch prompt
-- Verify helpful message with correct commands
+- Write `TestErrorHandling` in `cmd/diff_test.go`:
+  - Test `errors.Is()` correctly identifies ErrOperationCancelled
+  - Test `errors.Is()` correctly identifies ErrStaleRemote
+  - Verify wrapped errors are still detected
+- Manual testing:
+  - Decline auto-branch prompt
+  - Decline stale remote prompt
+  - Verify helpful messages with correct commands
 
 ---
 
