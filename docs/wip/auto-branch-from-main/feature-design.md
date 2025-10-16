@@ -433,7 +433,7 @@ This simplified design differs from the original in these key ways:
 
 ### Testing Strategy
 
-#### Unit Tests (13 tests)
+#### Unit Tests (14 tests)
 
 1. **Branch Name Generation**
    - Test pattern parsing with all placeholders (`{timestamp}`, `{date}`, `{datetime}`, `{username}`, `{random}`)
@@ -469,7 +469,12 @@ This simplified design differs from the original in these key ways:
    - Test hash truncation to 7 characters
    - Test message truncation at 80 characters
 
-#### Integration Tests (13 tests covering all error paths)
+7. **Commit Retrieval**
+   - Test GetCommitsBetween returns correct commits
+   - Test CommitInfo struct population (hash and message)
+   - Test commit ordering
+
+#### Integration Tests (14 tests covering all error paths)
 
 1. **Happy Path Tests**
    - Full automatic flow (config enabled)
@@ -485,6 +490,7 @@ This simplified design differs from the original in these key ways:
    - Sentinel error handling
    - Remote ref age calculation
    - Push authentication error detection
+   - Commit list retrieval
    - Multiple placeholder patterns
    - Branch name sanitization edge cases
 
@@ -510,10 +516,10 @@ Covers user interaction, authentication, and real-world scenarios:
 
 #### Coverage Goals
 
-- **Unit tests**: 100% coverage (error handling, sanitization, pattern generation)
+- **Unit tests**: 100% coverage (error handling, sanitization, pattern generation, commit retrieval)
 - **Integration tests**: 90%+ coverage (detection, preparation, error paths)
 - **Combined**: 85%+ overall coverage for auto-branch module
-- **Critical paths**: 100% coverage (detection, error handling, sentinel errors)
+- **Critical paths**: 100% coverage (detection, error handling, sentinel errors, auth detection)
 
 #### Manual Testing Scenarios
 

@@ -204,9 +204,21 @@ Add two methods to `Repository` struct:
 
 **Error types to define**:
 ```go
-// ErrRemoteBranchExists indicates the remote branch already exists
+// ErrRemoteBranchExists indicates the remote branch already exists (race condition)
 var ErrRemoteBranchExists = errors.New("remote branch already exists")
+
+// ErrAuthenticationFailed indicates git push failed due to authentication
+var ErrAuthenticationFailed = errors.New("authentication failed")
 ```
+
+**Implementation guidance for error detection**:
+- Capture stderr from git command execution
+- Check exit code: 128 typically indicates authentication or permission errors
+- Parse stderr for specific patterns:
+  - Branch collision: "remote ref already exists", "! [rejected]"
+  - Authentication: "authentication failed", "Permission denied", "fatal: could not read"
+- Return appropriate error type based on detected pattern
+- Include original git output in error for debugging
 
 **Why use git CLI**:
 - go-git's push implementation can be complex with remote authentication
@@ -535,7 +547,7 @@ Add prompt utility functions and decision methods:
        - Update `autoBranchContext.BranchName` with new name
        - Retry push with new name
      - If error is NOT `ErrRemoteBranchExists` (other failure):
-       - **Check if authentication error** (exit code 128 or stderr contains "authentication failed", "Permission denied", "fatal: could not read"):
+       - **Check if authentication error** using `errors.Is(err, git.ErrAuthenticationFailed)`:
          - Display error message: "✗ Failed to push branch to remote: Authentication failed"
          - Display helpful auth recovery:
            ```bash
@@ -830,11 +842,20 @@ Create integration test file with sub-tests covering happy paths and all error s
 
 11. **Push error detection (authentication)**:
     - Set up: Mock git push failure with auth error
-    - Simulate stderr containing "authentication failed"
+    - Test error type checking with `errors.Is(err, git.ErrAuthenticationFailed)`
     - Verify:
-      - Error is detected as authentication failure
-      - Appropriate error message would be displayed
+      - Error is correctly identified as authentication failure
+      - Error can be distinguished from other push failures
+      - Wrapped errors are still detected correctly
       - Note: Actual push testing requires real credentials, document as "tested manually"
+
+11b. **Commit list retrieval**:
+    - Set up: Create test repo with multiple commits
+    - Execute: Call GetCommitsBetween("origin/main", "main")
+    - Verify:
+      - Returns correct number of commits
+      - Each CommitInfo has valid Hash and Message
+      - Commits are in correct chronological order
 
 12. **Multiple placeholder patterns**:
     - Test pattern generation with all placeholders:
@@ -855,7 +876,7 @@ Create integration test file with sub-tests covering happy paths and all error s
 
 #### Test Organization
 
-14. **Skip if short mode**:
+15. **Skip if short mode**:
     - Add `if testing.Short() { t.Skip("Skipping integration test in short mode") }` to all integration tests
     - Unit tests (error checking, sanitization, pattern parsing) should NOT skip in short mode
 
@@ -869,8 +890,9 @@ Create integration test file with sub-tests covering happy paths and all error s
 
 **Coverage goals**:
 - Unit tests (sanitization, patterns, errors): 100% coverage
-- Integration tests (detection, preparation): 90%+ coverage
+- Integration tests (detection, preparation, commit retrieval): 90%+ coverage
 - Combined coverage for auto-branch module: 85%+ overall
+- Critical paths (error handling, sentinel errors, auth detection): 100% coverage
 
 **Running tests**:
 - All tests: `go test ./internal/diff -v`
@@ -1009,14 +1031,15 @@ This simplified implementation plan provides 14 tasks organized into 5 phases:
 
 ## Testing Strategy
 
-- **Unit tests**: Tasks 2, 3, 4, 5.5, 7, 8 (13 test cases total)
+- **Unit tests**: Tasks 2, 3, 4, 5.5, 7, 8 (14 test cases total)
   - Configuration validation
-  - Git operations (commit counting, ref age, branch checks)
+  - Git operations (commit counting, ref age, branch checks, commit retrieval)
   - Branch name generation and sanitization
   - Pattern parsing with all placeholders
   - Sentinel error behavior
   - Commit list display formatting
-- **Integration tests**: Task 12 (13 test cases covering all error paths)
+  - CommitInfo struct and GetCommitsBetween
+- **Integration tests**: Task 12 (14 test cases covering all error paths)
   - Happy path flows (auto and manual)
   - Error detection and handling
   - Stale remote checking
