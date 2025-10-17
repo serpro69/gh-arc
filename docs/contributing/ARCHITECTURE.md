@@ -234,12 +234,155 @@ Contains the core implementation organized by domain:
 
 **Key Components:**
 - Files for base branch detection, stacking, commit analysis
+- Auto-branch module for handling commits on main scenario
 
 **Responsibilities:**
 - Detect base branch for PRs
 - Implement stacking logic
 - Analyze commits for PR metadata
 - Detect dependent PRs
+- Auto-create feature branches when commits are on main
+
+##### Auto-Branch Module (`auto_branch.go`)
+
+The auto-branch module handles the scenario where users have commits on main/master branch and need to create a feature branch automatically.
+
+**Flow:**
+```
+Detection → Prepare → Normal Diff → Push → Checkout
+```
+
+1. **Detection Phase** (start of diff command):
+   - Detect if user is on main/master with unpushed commits
+   - Check for stale remote tracking branch
+   - Get user confirmation (if config requires)
+   - Generate unique branch name
+
+2. **Normal Diff Flow**:
+   - Template generation
+   - User editing
+   - PR metadata preparation
+   - (branch name carried in AutoBranchContext)
+
+3. **Execution Phase** (after template validation, before/after PR creation):
+   - Push branch to remote with collision handling
+   - Create PR via GitHub API
+   - Checkout tracking branch locally
+
+**Key Types:**
+
+```go
+// AutoBranchDetector - Main orchestrator for auto-branch operations
+type AutoBranchDetector struct {
+    repo   *git.Repository      // Git repository interface
+    config *config.DiffConfig   // Configuration settings
+}
+
+// DetectionResult - Result of detecting commits on main
+type DetectionResult struct {
+    OnMainBranch  bool   // Whether current branch is main/master
+    CommitsAhead  int    // Number of commits ahead of origin/main
+    DefaultBranch string // The default branch name (main or master)
+}
+
+// AutoBranchContext - State for post-PR operations
+// Carries branch name from detection phase to execution phase
+type AutoBranchContext struct {
+    BranchName    string // Generated unique branch name
+    ShouldProceed bool   // Whether operation should continue
+}
+```
+
+**Key Methods:**
+
+- `DetectCommitsOnMain(ctx) (*DetectionResult, error)` - Detect if on main with unpushed commits
+- `ShouldAutoBranch(*DetectionResult) bool` - Simple decision: OnMainBranch && CommitsAhead > 0
+- `GenerateBranchName() (string, bool, error)` - Generate branch name with patterns/placeholders
+- `EnsureUniqueBranchName(string) (string, error)` - Append counter if branch exists
+- `CheckStaleRemote(ctx, string) (bool, error)` - Warn if remote tracking branch is old
+- `PrepareAutoBranch(ctx, *DetectionResult) (*AutoBranchContext, error)` - Orchestrate detection phase
+
+**Branch Name Patterns:**
+
+Supports custom patterns with placeholders:
+- `{timestamp}` - Unix timestamp
+- `{date}` - ISO date (2006-01-02)
+- `{datetime}` - ISO datetime (2006-01-02T150405)
+- `{username}` - Git user.name (sanitized)
+- `{random}` - 6-character random alphanumeric
+
+Default pattern: `feature/auto-from-main-{timestamp}`
+
+**Configuration:**
+
+```go
+type DiffConfig struct {
+    // ...
+    AutoCreateBranchFromMain   bool   // Enable/disable auto-branch (default: true)
+    AutoBranchNamePattern     string // Branch name pattern (default: "")
+    StaleRemoteThresholdHours int    // Warn if origin/main older than this (default: 24)
+}
+```
+
+**Error Types:**
+
+```go
+// Sentinel errors for reliable error checking with errors.Is()
+var (
+    ErrOperationCancelled = errors.New("operation cancelled by user")
+    ErrStaleRemote        = errors.New("operation declined due to stale remote")
+)
+```
+
+**Integration with cmd/diff.go:**
+
+1. **Detection Phase** (after git repository opened, ~line 154):
+   ```go
+   detector := diff.NewAutoBranchDetector(gitRepo, cfg.Diff)
+   detection, err := detector.DetectCommitsOnMain(ctx)
+
+   if detector.ShouldAutoBranch(detection) {
+       autoBranchContext, err := detector.PrepareAutoBranch(ctx, detection)
+       // Context carried through diff flow
+   }
+   ```
+
+2. **Push Phase** (before PR creation, ~line 580):
+   ```go
+   if autoBranchContext != nil {
+       // Retry loop with collision handling
+       err := gitRepo.PushBranch(ctx, "HEAD", autoBranchContext.BranchName)
+       if errors.Is(err, git.ErrRemoteBranchExists) {
+           // Regenerate unique name and retry
+       }
+   }
+   ```
+
+3. **Checkout Phase** (after PR creation succeeds, ~line 630):
+   ```go
+   if autoBranchContext != nil {
+       err := gitRepo.CheckoutTrackingBranch(
+           autoBranchContext.BranchName,
+           "origin/"+autoBranchContext.BranchName,
+       )
+   }
+   ```
+
+**Why Two-Phase Pattern:**
+
+- **Detection before PR**: Get user confirmation, generate branch name, validate
+- **Execution after PR**: Push branch, then checkout locally
+- **Separation**: Template editing and PR creation happen between phases
+- **Safety**: If PR creation fails after push, user can manually create PR
+- **Context**: `AutoBranchContext` carries state between phases
+
+**Error Handling Strategy:**
+
+- Push failures abort operation (user stays on main - safe state)
+- Checkout failures are non-fatal (PR exists, provide manual command)
+- User cancellation returns `ErrOperationCancelled`
+- Stale remote rejection returns `ErrStaleRemote`
+- All errors include actionable recovery instructions
 
 #### `internal/version/` - Version Management
 
