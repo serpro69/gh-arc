@@ -51,17 +51,13 @@ gh arc diff --no-edit  # Title from first commit, body from all commits
 
 **Placeholder Values**:
 ```
-Title: [Generated from commits or "Changes from <branch>"]
-Summary: [Generated from commit messages]
 Test Plan: [Manual testing required]
-Reviewers: [Suggested from CODEOWNERS or empty]
-Draft: [From config or false]
 ```
 
 **Implementation**:
 - Add `--no-edit` flag to `diff` command
-- Add `--title`, `--body`, `--test-plan`, `--reviewers`, `--draft` flags for explicit values
-- Modify `template.OpenEditor()` to skip editor when flag set
+- Add `--title`, `--body`, `--test-plan`, `--reviewers`, flags for explicit values
+- Modify `template.OpenEditor()` to skip editor when `--no-edit` flag set
 - Fall back to `template.GenerateDefaults()` for missing required fields
 
 ### 2. `--dry-run` Flag
@@ -80,17 +76,17 @@ Draft: [From config or false]
 **Output Format**:
 
 ```
-[DRY RUN] Would execute: git checkout -b feature/auto-from-main-1729180000
-[DRY RUN] Would push branch: feature/auto-from-main-1729180000 to origin
-[DRY RUN] Would create PR:
+[DRY RUN] Checkout branch: feature/auto-from-main-1729180000
+[DRY RUN] Push branch: feature/auto-from-main-1729180000 to origin
+[DRY RUN] Create PR:
   Title: Add feature
   Base: main
   Head: feature/auto-from-main-1729180000
   Draft: false
-[DRY RUN] Would assign reviewers: john, jane
-[DRY RUN] Would checkout branch: feature/auto-from-main-1729180000
+[DRY RUN] Assign reviewers: john, jane
+[DRY RUN] Checkout branch: feature/auto-from-main-1729180000
 
-✓ Command would succeed
+✓ Profit
 ```
 
 **Example Usage**:
@@ -546,9 +542,12 @@ Fix: Update .arc.json with valid pattern, e.g.:
 
 ## Future Enhancements
 
-1. **`--verbose-dry-run`**: Show even more detail (API payloads, git commands)
-2. **`--dry-run-output=json`**: Machine-readable dry-run output
-3. **`--interactive-offline`**: Prompt for each skipped operation
+1. **`--dry-run --json`**: Combine dry-run with json-formatted output for machine-readable dry-run output
+2. **`-vvv --dry-run`**: Show even more detail (API payloads, git commands)
+    - Examples:
+        - Execute git commands with `--dry-run` flag, e.g. `git add file --dry-run` or `git push --dry-run`
+    - Extra Notes:
+        - Make sure all output is machine-readable if combined with `--json` flag; easiest is probably to skip the output from `git <cmd> --dry-run` if `--json` is enabled?
 4. **`--record`**: Record operations for later replay
 5. **`--replay`**: Execute recorded operations
 
@@ -565,10 +564,15 @@ Similar patterns in other tools:
 ## Questions for Consideration
 
 1. Should `--dry-run` validate GitHub credentials? (I think yes, to catch auth errors)
+    A: yes
 2. Should `--offline` cache PR data for display? (Nice to have)
+    A: yes
 3. Should `--no-edit` support reading from stdin? (Useful for piping)
+    A: yes
 4. Should flags be global or per-command? (Global seems better)
+    A: Global, apart from `--no-edit` since we probably don't open $EDITOR with other commands
 5. Should we add `--yes` flag to skip confirmations? (Yes, for full automation)
+    A: yes
 
 ## Summary
 
