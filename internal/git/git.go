@@ -973,6 +973,45 @@ func (r *Repository) HasUnpushedCommits(branchName string) (bool, error) {
 	return count != "0", nil
 }
 
+// CountCommitsAhead counts how many commits branchName has ahead of baseBranch.
+// Returns 0 if branches are at the same commit or if baseBranch doesn't exist.
+// This is useful for detecting commits on main that are ahead of origin/main.
+func (r *Repository) CountCommitsAhead(branchName, baseBranch string) (int, error) {
+	if branchName == "" {
+		return 0, fmt.Errorf("branch name cannot be empty")
+	}
+	if baseBranch == "" {
+		return 0, fmt.Errorf("base branch name cannot be empty")
+	}
+
+	// Check if base branch exists
+	cmd := exec.Command("git", "rev-parse", "--verify", baseBranch)
+	cmd.Dir = r.path
+	if err := cmd.Run(); err != nil {
+		// Base branch doesn't exist (might be offline, or first commit)
+		// This is not an error - just means we can't count
+		return 0, nil
+	}
+
+	// Count commits that are in branchName but not in baseBranch
+	cmd = exec.Command("git", "rev-list", "--count", fmt.Sprintf("%s..%s", baseBranch, branchName))
+	cmd.Dir = r.path
+
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, fmt.Errorf("failed to count commits ahead: %w", err)
+	}
+
+	// Parse count
+	countStr := strings.TrimSpace(string(output))
+	count := 0
+	if _, err := fmt.Sscanf(countStr, "%d", &count); err != nil {
+		return 0, fmt.Errorf("failed to parse commit count %q: %w", countStr, err)
+	}
+
+	return count, nil
+}
+
 // Push pushes commits from the specified branch to its remote tracking branch.
 // If the branch has no remote tracking branch, it pushes to origin with the same name.
 // Uses context for cancellation support.
