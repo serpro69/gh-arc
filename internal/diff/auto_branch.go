@@ -1,10 +1,12 @@
 package diff
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"math/rand"
+	"os"
 	"strings"
 	"time"
 
@@ -237,4 +239,264 @@ func (d *AutoBranchDetector) EnsureUniqueBranchName(baseName string) (string, er
 	}
 
 	return "", fmt.Errorf("failed to generate unique branch name after 100 attempts (base: %s)", baseName)
+}
+
+// promptYesNo displays a yes/no prompt and reads the user's response.
+// Returns true for yes, false for no.
+// The defaultYes parameter determines the default if user presses Enter without input.
+func promptYesNo(message string, defaultYes bool) (bool, error) {
+	// Display prompt with appropriate default indicator
+	prompt := message + " "
+	if defaultYes {
+		prompt += "(Y/n): "
+	} else {
+		prompt += "(y/N): "
+	}
+
+	fmt.Print(prompt)
+
+	// Read user input
+	reader := bufio.NewReader(os.Stdin)
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		return false, fmt.Errorf("failed to read user input: %w", err)
+	}
+
+	// Trim whitespace and convert to lowercase
+	input = strings.ToLower(strings.TrimSpace(input))
+
+	// Handle empty input (use default)
+	if input == "" {
+		return defaultYes, nil
+	}
+
+	// Parse response
+	switch input {
+	case "y", "yes":
+		return true, nil
+	case "n", "no":
+		return false, nil
+	default:
+		// Invalid input, re-prompt
+		fmt.Println("Please answer 'y' or 'n'")
+		return promptYesNo(message, defaultYes)
+	}
+}
+
+// promptBranchName prompts the user to enter a branch name.
+// Returns empty string if user presses Enter (caller should generate default).
+// Re-prompts if input contains spaces or other invalid characters.
+func promptBranchName() (string, error) {
+	fmt.Print("Enter branch name (or press Enter for default): ")
+
+	// Read user input
+	reader := bufio.NewReader(os.Stdin)
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		return "", fmt.Errorf("failed to read user input: %w", err)
+	}
+
+	// Trim whitespace
+	input = strings.TrimSpace(input)
+
+	// Empty input means use default
+	if input == "" {
+		return "", nil
+	}
+
+	// Validate: reject names with spaces
+	if strings.Contains(input, " ") {
+		fmt.Println("Branch name cannot contain spaces. Please try again.")
+		return promptBranchName()
+	}
+
+	return input, nil
+}
+
+// CheckStaleRemote checks if the remote tracking branch is stale (not updated recently).
+// Returns (shouldContinue, error).
+// If shouldContinue is false, the operation should be aborted (user declined or error).
+func (d *AutoBranchDetector) CheckStaleRemote(ctx context.Context, defaultBranch string) (bool, error) {
+	logger := logger.Get()
+
+	// Get threshold from config
+	threshold := d.config.StaleRemoteThresholdHours
+
+	// If threshold is 0, skip check (disabled)
+	if threshold == 0 {
+		return true, nil
+	}
+
+	// Get age of remote ref
+	remoteBranch := "origin/" + defaultBranch
+	age, err := d.repo.GetRemoteRefAge(remoteBranch)
+	if err != nil {
+		// If remote doesn't exist, skip check (might be offline or first commit)
+		if strings.Contains(err.Error(), "remote ref not found") {
+			logger.Debug().
+				Str("remoteBranch", remoteBranch).
+				Msg("Remote ref not found, skipping stale check")
+			return true, nil
+		}
+		// Other errors are real problems
+		return false, fmt.Errorf("failed to check remote ref age: %w", err)
+	}
+
+	// Convert threshold to duration
+	thresholdDuration := time.Duration(threshold) * time.Hour
+
+	// Check if remote is stale
+	if age > thresholdDuration {
+		// Calculate human-readable time
+		days := int(age.Hours() / 24)
+		hours := int(age.Hours()) % 24
+
+		var ageStr string
+		if days > 0 {
+			ageStr = fmt.Sprintf("%d day(s) and %d hour(s)", days, hours)
+		} else {
+			ageStr = fmt.Sprintf("%d hour(s)", hours)
+		}
+
+		// Display warning
+		fmt.Printf("\n⚠️  Warning: Your local tracking branch '%s' is %s old.\n", remoteBranch, ageStr)
+		fmt.Println("This means your local repository may be out of sync with the remote.")
+		fmt.Println("Consider running 'git fetch origin' to update your local tracking branches.")
+		fmt.Println()
+
+		// Prompt user
+		cont, err := promptYesNo("Continue anyway?", false)
+		if err != nil {
+			return false, err
+		}
+
+		if !cont {
+			// User declined
+			return false, ErrStaleRemote
+		}
+
+		// User accepted, log warning
+		logger.Warn().
+			Str("remoteBranch", remoteBranch).
+			Dur("age", age).
+			Msg("User chose to continue despite stale remote")
+	}
+
+	return true, nil
+}
+
+// displayCommitList displays a list of commits that will be moved to the new branch.
+// This helps users understand what commits are being moved.
+func displayCommitList(commits []git.CommitInfo) {
+	if len(commits) == 0 {
+		return
+	}
+
+	// Display header
+	fmt.Printf("\nThe following %d commit(s) on the main branch will be moved to a new feature branch:\n\n", len(commits))
+
+	// Display each commit
+	for _, commit := range commits {
+		// Get short hash (first 7 characters)
+		shortHash := commit.SHA
+		if len(shortHash) > 7 {
+			shortHash = shortHash[:7]
+		}
+
+		// Get first line of commit message
+		message := commit.Message
+		if idx := strings.Index(message, "\n"); idx != -1 {
+			message = message[:idx]
+		}
+
+		// Truncate message if too long
+		if len(message) > 80 {
+			message = message[:77] + "..."
+		}
+
+		// Display formatted line
+		fmt.Printf("  - %s %s\n", shortHash, message)
+	}
+
+	fmt.Println()
+}
+
+// PrepareAutoBranch prepares the auto-branch operation by checking for stale remote,
+// prompting user if needed, generating branch name, and returning the context for execution.
+// Returns AutoBranchContext with branch name and proceed flag, or error if preparation fails.
+func (d *AutoBranchDetector) PrepareAutoBranch(ctx context.Context, detection *DetectionResult) (*AutoBranchContext, error) {
+	logger := logger.Get()
+
+	// Check stale remote first
+	shouldContinue, err := d.CheckStaleRemote(ctx, detection.DefaultBranch)
+	if err != nil {
+		return nil, err
+	}
+	if !shouldContinue {
+		return nil, ErrStaleRemote
+	}
+
+	// Check if should proceed based on config
+	if !d.config.AutoCreateBranchFromMain {
+		// Config disabled, need to prompt user
+
+		// Get commit list to display
+		remoteBranch := "origin/" + detection.DefaultBranch
+		commits, err := d.repo.GetCommitsBetween(remoteBranch, detection.DefaultBranch)
+		if err != nil {
+			logger.Warn().
+				Err(err).
+				Msg("Failed to get commit list, continuing without display")
+		} else {
+			// Display commits that will be moved
+			displayCommitList(commits)
+		}
+
+		// Prompt user for confirmation
+		cont, err := promptYesNo("Create feature branch automatically?", true)
+		if err != nil {
+			return nil, err
+		}
+
+		if !cont {
+			return nil, ErrOperationCancelled
+		}
+	}
+
+	// Generate branch name (or prompt if pattern is "null")
+	branchName, shouldPrompt, err := d.GenerateBranchName()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate branch name: %w", err)
+	}
+
+	if shouldPrompt {
+		// Pattern is "null", prompt user for branch name
+		input, err := promptBranchName()
+		if err != nil {
+			return nil, err
+		}
+
+		if input == "" {
+			// User pressed Enter, generate default
+			timestamp := time.Now().Unix()
+			branchName = fmt.Sprintf("feature/auto-from-main-%d", timestamp)
+		} else {
+			branchName = input
+		}
+	}
+
+	// Ensure branch name is unique
+	uniqueName, err := d.EnsureUniqueBranchName(branchName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to ensure unique branch name: %w", err)
+	}
+
+	logger.Debug().
+		Str("branchName", uniqueName).
+		Msg("Prepared auto-branch operation")
+
+	return &AutoBranchContext{
+		BranchName:    uniqueName,
+		ShouldProceed: true,
+	}, nil
 }
