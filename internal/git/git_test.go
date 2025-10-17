@@ -2248,3 +2248,173 @@ func TestBranchExists(t *testing.T) {
 		assert.Contains(t, err.Error(), "branch name cannot be empty")
 	})
 }
+
+// TestPushBranch tests pushing a branch to a specific remote branch
+func TestPushBranch(t *testing.T) {
+	t.Run("empty local ref returns error", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		_, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Empty local ref should fail
+		err = repo.PushBranch(context.Background(), "", "remote-branch")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "local ref cannot be empty")
+	})
+
+	t.Run("empty remote branch returns error", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		_, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Empty remote branch should fail
+		err = repo.PushBranch(context.Background(), "local-branch", "")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "remote branch name cannot be empty")
+	})
+
+	t.Run("context cancellation", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create initial commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("test"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("initial commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Create a cancelled context
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		// Push with cancelled context should fail
+		err = repo.PushBranch(ctx, "master", "remote-master")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "cancelled")
+	})
+}
+
+// TestCheckoutTrackingBranch tests checking out a tracking branch
+func TestCheckoutTrackingBranch(t *testing.T) {
+	t.Run("empty branch name returns error", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		_, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Empty branch name should fail
+		err = repo.CheckoutTrackingBranch("", "origin/main")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "branch name cannot be empty")
+	})
+
+	t.Run("empty remote branch returns error", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		_, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Empty remote branch should fail
+		err = repo.CheckoutTrackingBranch("local-branch", "")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "remote branch name cannot be empty")
+	})
+
+	t.Run("checkout tracking branch successfully", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create initial commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("test"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("initial commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		// Create a bare repository to act as remote
+		remoteDir := t.TempDir()
+		_, err = git.PlainInit(remoteDir, true)
+		require.NoError(t, err)
+
+		// Add remote
+		_, err = gitRepo.CreateRemote(&gitconfig.RemoteConfig{
+			Name: "origin",
+			URLs: []string{remoteDir},
+		})
+		require.NoError(t, err)
+
+		// Push to remote
+		err = gitRepo.Push(&git.PushOptions{
+			RemoteName: "origin",
+			RefSpecs: []gitconfig.RefSpec{
+				gitconfig.RefSpec("refs/heads/master:refs/heads/master"),
+			},
+		})
+		require.NoError(t, err)
+
+		// Fetch to update remote tracking branches
+		err = gitRepo.Fetch(&git.FetchOptions{
+			RemoteName: "origin",
+			RefSpecs: []gitconfig.RefSpec{
+				gitconfig.RefSpec("+refs/heads/*:refs/remotes/origin/*"),
+			},
+		})
+		if err != nil && err != git.NoErrAlreadyUpToDate {
+			require.NoError(t, err)
+		}
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Checkout tracking branch
+		err = repo.CheckoutTrackingBranch("local-master", "origin/master")
+		require.NoError(t, err)
+
+		// Verify we're on the new branch
+		currentBranch, err := repo.GetCurrentBranch()
+		require.NoError(t, err)
+		assert.Equal(t, "local-master", currentBranch)
+	})
+}

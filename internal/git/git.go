@@ -28,6 +28,12 @@ var (
 
 	// ErrInvalidBranch is returned when branch name is invalid or doesn't exist
 	ErrInvalidBranch = errors.New("invalid or non-existent branch")
+
+	// ErrRemoteBranchExists indicates the remote branch already exists (race condition)
+	ErrRemoteBranchExists = errors.New("remote branch already exists")
+
+	// ErrAuthenticationFailed indicates git push failed due to authentication
+	ErrAuthenticationFailed = errors.New("authentication failed")
 )
 
 // Repository represents a Git repository and provides methods for Git operations.
@@ -1110,4 +1116,99 @@ func (r *Repository) Push(ctx context.Context, branchName string) error {
 func isNonFastForwardError(output string) bool {
 	// Git push outputs "[rejected]" and "non-fast-forward" when the remote has diverged
 	return strings.Contains(output, "[rejected]") && strings.Contains(output, "non-fast-forward")
+}
+
+// PushBranch pushes a local ref to a specific remote branch name.
+// This is different from Push() which pushes to the tracking branch or same-named branch.
+// Uses context for cancellation support.
+//
+// Returns ErrRemoteBranchExists if the remote branch already exists (race condition).
+// Returns ErrAuthenticationFailed if authentication fails during push.
+func (r *Repository) PushBranch(ctx context.Context, localRef, remoteBranch string) error {
+	if localRef == "" {
+		return fmt.Errorf("local ref cannot be empty")
+	}
+	if remoteBranch == "" {
+		return fmt.Errorf("remote branch name cannot be empty")
+	}
+
+	// Use git CLI for push operations
+	logger.Info().
+		Str("localRef", localRef).
+		Str("remoteBranch", remoteBranch).
+		Msg("Pushing local ref to remote branch")
+
+	// Push with explicit refspec: localRef:refs/heads/remoteBranch
+	refspec := fmt.Sprintf("%s:refs/heads/%s", localRef, remoteBranch)
+	cmd := exec.CommandContext(ctx, "git", "push", "origin", refspec)
+	cmd.Dir = r.path
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Check for context errors first
+		if ctx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("push operation timed out")
+		}
+		if ctx.Err() == context.Canceled {
+			return fmt.Errorf("push operation cancelled")
+		}
+
+		// Parse stderr for specific error types
+		outputStr := string(output)
+
+		// Check for remote branch already exists (race condition)
+		// Git outputs: "error: remote ref already exists" or "! [rejected] ... (fetch first)"
+		if strings.Contains(outputStr, "remote ref already exists") ||
+			(strings.Contains(outputStr, "[rejected]") && strings.Contains(outputStr, "fetch first")) {
+			return fmt.Errorf("%w: %s", ErrRemoteBranchExists, remoteBranch)
+		}
+
+		// Check for authentication failures
+		// Git outputs: "fatal: Authentication failed" or "Permission denied" or "fatal: could not read"
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 128 {
+			if strings.Contains(outputStr, "authentication failed") ||
+				strings.Contains(outputStr, "Authentication failed") ||
+				strings.Contains(outputStr, "Permission denied") ||
+				strings.Contains(outputStr, "fatal: could not read") {
+				return fmt.Errorf("%w: %s", ErrAuthenticationFailed, outputStr)
+			}
+		}
+
+		// Other push errors
+		return fmt.Errorf("failed to push %s to %s: %w\nOutput: %s", localRef, remoteBranch, err, outputStr)
+	}
+
+	logger.Debug().
+		Str("localRef", localRef).
+		Str("remoteBranch", remoteBranch).
+		Msg("Successfully pushed to remote")
+	return nil
+}
+
+// CheckoutTrackingBranch creates and checks out a local branch that tracks a remote branch.
+// This is useful for creating a local branch from an existing remote branch.
+// Equivalent to: git checkout -b <branchName> <remoteBranch>
+func (r *Repository) CheckoutTrackingBranch(branchName, remoteBranch string) error {
+	if branchName == "" {
+		return fmt.Errorf("branch name cannot be empty")
+	}
+	if remoteBranch == "" {
+		return fmt.Errorf("remote branch name cannot be empty")
+	}
+
+	// Use git CLI to checkout tracking branch
+	cmd := exec.Command("git", "checkout", "-b", branchName, remoteBranch)
+	cmd.Dir = r.path
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to checkout tracking branch %s from %s: %w\nOutput: %s",
+			branchName, remoteBranch, err, string(output))
+	}
+
+	logger.Debug().
+		Str("branchName", branchName).
+		Str("remoteBranch", remoteBranch).
+		Msg("Successfully checked out tracking branch")
+	return nil
 }
