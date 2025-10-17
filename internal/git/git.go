@@ -399,6 +399,31 @@ func (r *Repository) ListBranches(includeRemote bool) ([]BranchInfo, error) {
 	return branches, nil
 }
 
+// BranchExists checks if a branch exists (local or remote).
+// For remote branches, use the full ref name like "origin/main".
+// Returns true if the branch exists, false otherwise.
+func (r *Repository) BranchExists(branchName string) (bool, error) {
+	if branchName == "" {
+		return false, fmt.Errorf("branch name cannot be empty")
+	}
+
+	// Use git rev-parse to check if branch exists
+	// This works for both local and remote branches
+	cmd := exec.Command("git", "rev-parse", "--verify", branchName)
+	cmd.Dir = r.path
+
+	if err := cmd.Run(); err != nil {
+		// Branch doesn't exist (exit code 128 from git rev-parse --verify)
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 128 {
+			return false, nil
+		}
+		// Other errors (permission issues, etc.)
+		return false, fmt.Errorf("failed to check if branch exists: %w", err)
+	}
+
+	return true, nil
+}
+
 // GetGitConfig reads a git configuration value.
 // It uses go-git's config first, then falls back to git CLI if not found.
 func (r *Repository) GetGitConfig(key string) (string, error) {
