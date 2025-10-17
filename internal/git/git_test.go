@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v5"
+	gitconfig "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -2051,5 +2052,199 @@ func TestCountCommitsAhead(t *testing.T) {
 		_, err = repo.CountCommitsAhead("master", "")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "base branch name cannot be empty")
+	})
+}
+
+// TestBranchExists tests checking if a branch exists
+func TestBranchExists(t *testing.T) {
+	t.Run("local branch exists returns true", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create initial commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("test"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("initial commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Create a feature branch
+		err = repo.CreateBranch("feature", "master")
+		require.NoError(t, err)
+
+		// Check that both master and feature exist
+		exists, err := repo.BranchExists("master")
+		require.NoError(t, err)
+		assert.True(t, exists, "master branch should exist")
+
+		exists, err = repo.BranchExists("feature")
+		require.NoError(t, err)
+		assert.True(t, exists, "feature branch should exist")
+	})
+
+	t.Run("local branch doesn't exist returns false", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create initial commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("test"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("initial commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Check for non-existent branch
+		exists, err := repo.BranchExists("nonexistent")
+		require.NoError(t, err)
+		assert.False(t, exists, "nonexistent branch should not exist")
+	})
+
+	t.Run("remote branch exists returns true", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create initial commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("test"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("initial commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		// Create a bare repository to act as remote
+		remoteDir := t.TempDir()
+		_, err = git.PlainInit(remoteDir, true)
+		require.NoError(t, err)
+
+		// Add remote
+		_, err = gitRepo.CreateRemote(&gitconfig.RemoteConfig{
+			Name: "origin",
+			URLs: []string{remoteDir},
+		})
+		require.NoError(t, err)
+
+		// Push to remote
+		err = gitRepo.Push(&git.PushOptions{
+			RemoteName: "origin",
+			RefSpecs: []gitconfig.RefSpec{
+				gitconfig.RefSpec("refs/heads/master:refs/heads/master"),
+			},
+		})
+		require.NoError(t, err)
+
+		// Fetch to update remote tracking branches
+		err = gitRepo.Fetch(&git.FetchOptions{
+			RemoteName: "origin",
+			RefSpecs: []gitconfig.RefSpec{
+				gitconfig.RefSpec("+refs/heads/*:refs/remotes/origin/*"),
+			},
+		})
+		// Fetch can return "already up-to-date" which is not an error
+		if err != nil && err != git.NoErrAlreadyUpToDate {
+			require.NoError(t, err)
+		}
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Check if remote branch exists
+		exists, err := repo.BranchExists("origin/master")
+		require.NoError(t, err)
+		assert.True(t, exists, "origin/master should exist after push and fetch")
+	})
+
+	t.Run("remote branch doesn't exist returns false", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create initial commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("test"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("initial commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Check for non-existent remote branch (no remote configured)
+		exists, err := repo.BranchExists("origin/main")
+		require.NoError(t, err)
+		assert.False(t, exists, "origin/main should not exist when no remote is configured")
+	})
+
+	t.Run("empty branch name returns error", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		_, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Empty branch name should return error
+		_, err = repo.BranchExists("")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "branch name cannot be empty")
 	})
 }
