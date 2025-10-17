@@ -40,6 +40,16 @@ func TestLoad(t *testing.T) {
 		if cfg.Diff.LinearEnabled {
 			t.Error("Expected linearEnabled to be false by default")
 		}
+		// Auto-branch defaults
+		if !cfg.Diff.AutoCreateBranchFromMain {
+			t.Error("Expected autoCreateBranchFromMain to be true by default")
+		}
+		if cfg.Diff.AutoBranchNamePattern != "" {
+			t.Errorf("Expected autoBranchNamePattern to be empty by default, got '%s'", cfg.Diff.AutoBranchNamePattern)
+		}
+		if cfg.Diff.StaleRemoteThresholdHours != 24 {
+			t.Errorf("Expected staleRemoteThresholdHours to be 24 by default, got %d", cfg.Diff.StaleRemoteThresholdHours)
+		}
 	})
 
 	t.Run("load from JSON config file", func(t *testing.T) {
@@ -350,6 +360,157 @@ func TestValidate(t *testing.T) {
 			},
 			wantErr: true,
 			errMsg:  "diff.defaultBase cannot contain spaces",
+		},
+		// Auto-branch pattern validation tests
+		{
+			name: "valid auto-branch pattern with placeholder",
+			config: Config{
+				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Lint: LintConfig{
+					MegaLinter: MegaLinterConfig{Enabled: "auto"},
+				},
+				Diff: DiffConfig{
+					AutoBranchNamePattern: "feature/{timestamp}",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid auto-branch pattern empty string",
+			config: Config{
+				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Lint: LintConfig{
+					MegaLinter: MegaLinterConfig{Enabled: "auto"},
+				},
+				Diff: DiffConfig{
+					AutoBranchNamePattern: "",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid auto-branch pattern null",
+			config: Config{
+				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Lint: LintConfig{
+					MegaLinter: MegaLinterConfig{Enabled: "auto"},
+				},
+				Diff: DiffConfig{
+					AutoBranchNamePattern: "null",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid auto-branch pattern with consecutive dots",
+			config: Config{
+				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Lint: LintConfig{
+					MegaLinter: MegaLinterConfig{Enabled: "auto"},
+				},
+				Diff: DiffConfig{
+					AutoBranchNamePattern: "feature/../invalid",
+				},
+			},
+			wantErr: true,
+			errMsg:  "cannot contain consecutive dots",
+		},
+		{
+			name: "invalid auto-branch pattern with space",
+			config: Config{
+				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Lint: LintConfig{
+					MegaLinter: MegaLinterConfig{Enabled: "auto"},
+				},
+				Diff: DiffConfig{
+					AutoBranchNamePattern: "feature branch",
+				},
+			},
+			wantErr: true,
+			errMsg:  "cannot contain space",
+		},
+		{
+			name: "invalid auto-branch pattern starting with slash",
+			config: Config{
+				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Lint: LintConfig{
+					MegaLinter: MegaLinterConfig{Enabled: "auto"},
+				},
+				Diff: DiffConfig{
+					AutoBranchNamePattern: "/feature/branch",
+				},
+			},
+			wantErr: true,
+			errMsg:  "cannot start with '/'",
+		},
+		{
+			name: "invalid auto-branch pattern with tilde",
+			config: Config{
+				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Lint: LintConfig{
+					MegaLinter: MegaLinterConfig{Enabled: "auto"},
+				},
+				Diff: DiffConfig{
+					AutoBranchNamePattern: "feature~branch",
+				},
+			},
+			wantErr: true,
+			errMsg:  "cannot contain tilde",
+		},
+		{
+			name: "invalid auto-branch pattern with caret",
+			config: Config{
+				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Lint: LintConfig{
+					MegaLinter: MegaLinterConfig{Enabled: "auto"},
+				},
+				Diff: DiffConfig{
+					AutoBranchNamePattern: "feature^branch",
+				},
+			},
+			wantErr: true,
+			errMsg:  "cannot contain caret",
+		},
+		{
+			name: "invalid auto-branch pattern with colon",
+			config: Config{
+				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Lint: LintConfig{
+					MegaLinter: MegaLinterConfig{Enabled: "auto"},
+				},
+				Diff: DiffConfig{
+					AutoBranchNamePattern: "feature:branch",
+				},
+			},
+			wantErr: true,
+			errMsg:  "cannot contain colon",
+		},
+		{
+			name: "negative stale remote threshold",
+			config: Config{
+				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Lint: LintConfig{
+					MegaLinter: MegaLinterConfig{Enabled: "auto"},
+				},
+				Diff: DiffConfig{
+					StaleRemoteThresholdHours: -1,
+				},
+			},
+			wantErr: true,
+			errMsg:  "staleRemoteThresholdHours cannot be negative",
+		},
+		{
+			name: "valid zero stale remote threshold",
+			config: Config{
+				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Lint: LintConfig{
+					MegaLinter: MegaLinterConfig{Enabled: "auto"},
+				},
+				Diff: DiffConfig{
+					StaleRemoteThresholdHours: 0,
+				},
+			},
+			wantErr: false,
 		},
 	}
 

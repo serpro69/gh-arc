@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/viper"
 )
@@ -37,6 +38,10 @@ type DiffConfig struct {
 	RequireTestPlan       bool   `mapstructure:"requireTestPlan"`
 	LinearEnabled         bool   `mapstructure:"linearEnabled"`
 	LinearDefaultProject  string `mapstructure:"linearDefaultProject"`
+	// Auto-branch from main settings
+	AutoCreateBranchFromMain  bool   `mapstructure:"autoCreateBranchFromMain"`
+	AutoBranchNamePattern     string `mapstructure:"autoBranchNamePattern"`
+	StaleRemoteThresholdHours int    `mapstructure:"staleRemoteThresholdHours"`
 }
 
 // LandConfig contains merge settings
@@ -182,6 +187,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("diff.requireTestPlan", true)    // Enforce test plan by default
 	v.SetDefault("diff.linearEnabled", false)     // Linear integration disabled by default
 	v.SetDefault("diff.linearDefaultProject", "") // No default Linear project
+	// Auto-branch from main defaults
+	v.SetDefault("diff.autoCreateBranchFromMain", true) // Enabled by default for seamless workflow
+	v.SetDefault("diff.autoBranchNamePattern", "")      // Empty = use default pattern (feature/auto-from-main-{timestamp})
+	v.SetDefault("diff.staleRemoteThresholdHours", 24)  // Warn if origin/main older than 24 hours
 
 	// Land defaults
 	v.SetDefault("land.defaultMergeMethod", "squash")
@@ -274,6 +283,45 @@ func (c *Config) Validate() error {
 			}
 			return fmt.Errorf("diff.templatePath cannot be accessed: %w", err)
 		}
+	}
+
+	// Validate auto-branch name pattern if specified
+	// Empty string is valid (uses default pattern), "null" is valid (prompts user)
+	if c.Diff.AutoBranchNamePattern != "" && c.Diff.AutoBranchNamePattern != "null" {
+		pattern := c.Diff.AutoBranchNamePattern
+
+		// Reject patterns starting with / (absolute paths invalid in branch names)
+		if len(pattern) > 0 && pattern[0] == '/' {
+			return fmt.Errorf("diff.autoBranchNamePattern cannot start with '/': %q", pattern)
+		}
+
+		// Check for invalid git branch characters
+		invalidChars := []struct {
+			char string
+			desc string
+		}{
+			{"..", "consecutive dots"},
+			{"~", "tilde"},
+			{"^", "caret"},
+			{":", "colon"},
+			{"?", "question mark"},
+			{"*", "asterisk"},
+			{"[", "square bracket"},
+			{"\\", "backslash"},
+			{" ", "space"},
+		}
+
+		for _, invalid := range invalidChars {
+			if strings.Contains(pattern, invalid.char) {
+				return fmt.Errorf("diff.autoBranchNamePattern cannot contain %s (%q): %q",
+					invalid.desc, invalid.char, pattern)
+			}
+		}
+	}
+
+	// Validate stale remote threshold is non-negative
+	if c.Diff.StaleRemoteThresholdHours < 0 {
+		return fmt.Errorf("diff.staleRemoteThresholdHours cannot be negative: %d", c.Diff.StaleRemoteThresholdHours)
 	}
 
 	return nil
