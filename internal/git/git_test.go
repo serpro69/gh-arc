@@ -3,6 +3,7 @@ package git
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -2416,5 +2417,129 @@ func TestCheckoutTrackingBranch(t *testing.T) {
 		currentBranch, err := repo.GetCurrentBranch()
 		require.NoError(t, err)
 		assert.Equal(t, "local-master", currentBranch)
+	})
+}
+
+// TestGetRemoteRefAge tests getting the age of a remote ref
+func TestGetRemoteRefAge(t *testing.T) {
+	t.Run("empty ref name returns error", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		_, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Empty ref name should fail
+		_, err = repo.GetRemoteRefAge("")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "remote ref name cannot be empty")
+	})
+
+	t.Run("non-existent remote ref returns error", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create initial commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("test"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("initial commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Non-existent remote ref should fail
+		_, err = repo.GetRemoteRefAge("origin/main")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "remote ref not found")
+	})
+
+	t.Run("fresh remote ref returns small age", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		// Enable reflog for all refs (including remote tracking branches)
+		cfg, err := gitRepo.Config()
+		require.NoError(t, err)
+		cfg.Raw.AddOption("core", "", "logAllRefUpdates", "true")
+		err = gitRepo.SetConfig(cfg)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create initial commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("test"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("initial commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		// Create a bare repository to act as remote
+		remoteDir := t.TempDir()
+		_, err = git.PlainInit(remoteDir, true)
+		require.NoError(t, err)
+
+		// Add remote using git CLI (to ensure proper reflog setup)
+		cmd := exec.Command("git", "remote", "add", "origin", remoteDir)
+		cmd.Dir = tmpDir
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("Failed to add remote: %v\nOutput: %s", err, output)
+		}
+
+		// Push to remote using git CLI (creates reflog entries)
+		cmd = exec.Command("git", "push", "origin", "master")
+		cmd.Dir = tmpDir
+		output, err = cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("Failed to push: %v\nOutput: %s", err, output)
+		}
+
+		// Fetch from remote using git CLI (creates reflog entries for remote tracking branches)
+		cmd = exec.Command("git", "fetch", "origin")
+		cmd.Dir = tmpDir
+		output, err = cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("Failed to fetch: %v\nOutput: %s", err, output)
+		}
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Get age of remote ref
+		age, err := repo.GetRemoteRefAge("origin/master")
+		require.NoError(t, err)
+
+		// Age should be very small (within 10 seconds)
+		assert.Less(t, age, 10*time.Second, "fresh remote ref should have age < 10 seconds")
+		assert.GreaterOrEqual(t, age, time.Duration(0), "age should be non-negative")
 	})
 }

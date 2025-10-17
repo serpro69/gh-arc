@@ -1212,3 +1212,81 @@ func (r *Repository) CheckoutTrackingBranch(branchName, remoteBranch string) err
 		Msg("Successfully checked out tracking branch")
 	return nil
 }
+
+// GetRemoteRefAge returns how long ago a remote ref was last fetched/updated.
+// This is useful for detecting stale remote branches (e.g., origin/main hasn't been fetched in days).
+// Returns the duration since the last update.
+//
+// Example: age, err := repo.GetRemoteRefAge("origin/main")
+func (r *Repository) GetRemoteRefAge(remoteRef string) (time.Duration, error) {
+	if remoteRef == "" {
+		return 0, fmt.Errorf("remote ref name cannot be empty")
+	}
+
+	// Use git reflog to get the last update time of the remote ref
+	// --date=unix gives us Unix timestamp for easier parsing
+	// -1 limits to just the most recent entry
+	cmd := exec.Command("git", "reflog", "show", "--date=unix", remoteRef, "-1")
+	cmd.Dir = r.path
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Check if the remote ref doesn't exist
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 128 {
+			outputStr := string(output)
+			if strings.Contains(outputStr, "does not have any logs") ||
+				strings.Contains(outputStr, "unknown revision") ||
+				strings.Contains(outputStr, "ambiguous argument") {
+				return 0, fmt.Errorf("remote ref not found: %s", remoteRef)
+			}
+		}
+		return 0, fmt.Errorf("failed to get reflog for %s: %w\nOutput: %s", remoteRef, err, string(output))
+	}
+
+	outputStr := string(output)
+	if outputStr == "" {
+		return 0, fmt.Errorf("remote ref not found: %s", remoteRef)
+	}
+
+	// Parse the reflog output
+	// Format: "<hash> <ref>@{<timestamp>}: <message>"
+	// Example: "abc123 origin/main@{1234567890}: fetch: fast-forward"
+	lines := strings.Split(strings.TrimSpace(outputStr), "\n")
+	if len(lines) == 0 {
+		return 0, fmt.Errorf("empty reflog for %s", remoteRef)
+	}
+
+	firstLine := lines[0]
+
+	// Extract timestamp from @{<timestamp>}
+	// Find the position of @{ and }
+	timestampStart := strings.Index(firstLine, "@{")
+	if timestampStart == -1 {
+		return 0, fmt.Errorf("failed to parse reflog timestamp format for %s", remoteRef)
+	}
+
+	timestampEnd := strings.Index(firstLine[timestampStart:], "}")
+	if timestampEnd == -1 {
+		return 0, fmt.Errorf("failed to parse reflog timestamp format for %s", remoteRef)
+	}
+
+	// Extract the timestamp string
+	timestampStr := firstLine[timestampStart+2 : timestampStart+timestampEnd]
+
+	// Parse Unix timestamp
+	var timestamp int64
+	if _, err := fmt.Sscanf(timestampStr, "%d", &timestamp); err != nil {
+		return 0, fmt.Errorf("failed to parse reflog timestamp %q for %s: %w", timestampStr, remoteRef, err)
+	}
+
+	// Convert to time.Time and calculate age
+	refTime := time.Unix(timestamp, 0)
+	age := time.Since(refTime)
+
+	logger.Debug().
+		Str("remoteRef", remoteRef).
+		Dur("age", age).
+		Msg("Calculated remote ref age")
+
+	return age, nil
+}
