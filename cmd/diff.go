@@ -623,8 +623,80 @@ func runDiff(cmd *cobra.Command, args []string) error {
 
 		// Push branch to remote first so GitHub can find it
 		fmt.Println("  Pushing branch to remote...")
-		if err := gitRepo.Push(ctx, currentBranch); err != nil {
-			return fmt.Errorf("failed to push branch: %w", err)
+
+		// Check if auto-branch flow is active
+		if autoBranchContext != nil {
+			// Auto-branch push with collision handling
+			originalBranchName := autoBranchContext.BranchName
+			maxAttempts := 3
+			var pushErr error
+
+			for attempt := 1; attempt <= maxAttempts; attempt++ {
+				pushErr = gitRepo.PushBranch(ctx, "HEAD", autoBranchContext.BranchName)
+
+				if pushErr == nil {
+					// Success - display message
+					fmt.Printf("  ✓ Pushed branch '%s' to remote\n", autoBranchContext.BranchName)
+
+					// If branch name changed due to collision resolution
+					if autoBranchContext.BranchName != originalBranchName {
+						fmt.Println("  (Resolved branch name collision by appending counter)")
+					}
+
+					// Update currentBranch for PR creation
+					currentBranch = autoBranchContext.BranchName
+					break
+				}
+
+				// Check error type
+				if errors.Is(pushErr, git.ErrRemoteBranchExists) {
+					// Branch name collision - regenerate and retry
+					logger.Warn().
+						Str("branchName", autoBranchContext.BranchName).
+						Int("attempt", attempt).
+						Msg("Branch name collision detected")
+
+					if attempt < maxAttempts {
+						fmt.Printf("  ⚠️  Branch name collision, generating new name (attempt %d/%d)...\n", attempt, maxAttempts)
+
+						// Generate new unique name
+						newName, err := autoBranchDetector.EnsureUniqueBranchName(originalBranchName)
+						if err != nil {
+							return fmt.Errorf("failed to generate unique branch name: %w", err)
+						}
+
+						autoBranchContext.BranchName = newName
+						logger.Debug().
+							Str("newBranchName", newName).
+							Msg("Generated new branch name after collision")
+					}
+				} else if errors.Is(pushErr, git.ErrAuthenticationFailed) {
+					// Authentication error - show recovery instructions
+					fmt.Println("\n✗ Authentication failed when pushing branch")
+					fmt.Println("Please refresh your GitHub authentication:")
+					fmt.Printf("  gh auth refresh --scopes \"repo,read:user\"\n")
+					fmt.Printf("  gh arc diff\n")
+					return fmt.Errorf("authentication failed: %w", pushErr)
+				} else {
+					// Generic error - break retry loop
+					break
+				}
+			}
+
+			// If we exhausted retries or hit non-retryable error
+			if pushErr != nil {
+				fmt.Printf("\n✗ Failed to push branch after %d attempts\n", maxAttempts)
+				fmt.Println("Manual recovery steps:")
+				fmt.Printf("  1. Create branch manually: git checkout -b %s\n", autoBranchContext.BranchName)
+				fmt.Printf("  2. Push branch: git push origin %s\n", autoBranchContext.BranchName)
+				fmt.Printf("  3. Create PR: gh arc diff\n")
+				return fmt.Errorf("failed to push branch: %w", pushErr)
+			}
+		} else {
+			// Normal push flow (non-auto-branch)
+			if err := gitRepo.Push(ctx, currentBranch); err != nil {
+				return fmt.Errorf("failed to push branch: %w", err)
+			}
 		}
 
 		pr, err = client.CreatePullRequestForCurrentRepo(
@@ -675,7 +747,34 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Step 10: Clean up saved template on success
+	// Step 10: Checkout auto-branch tracking branch (if applicable)
+	if autoBranchContext != nil {
+		fmt.Println("\n✓ Checking out feature branch...")
+
+		err = gitRepo.CheckoutTrackingBranch(autoBranchContext.BranchName, "origin/"+autoBranchContext.BranchName)
+		if err != nil {
+			// Checkout failed, but don't fail the entire operation
+			// User can manually checkout the branch
+			logger.Warn().
+				Err(err).
+				Str("branchName", autoBranchContext.BranchName).
+				Msg("Failed to checkout tracking branch")
+
+			fmt.Printf("  ⚠️  Failed to checkout branch '%s'\n", autoBranchContext.BranchName)
+			fmt.Println("  Manual checkout:")
+			fmt.Printf("    git checkout %s\n", autoBranchContext.BranchName)
+		} else {
+			fmt.Printf("  ✓ Switched to feature branch '%s'\n", autoBranchContext.BranchName)
+
+			// Display info about main branch still being ahead
+			fmt.Printf("\n  Note: You are now on branch '%s'\n", autoBranchContext.BranchName)
+			fmt.Printf("        The '%s' branch may still have unpushed commits.\n", detection.DefaultBranch)
+			fmt.Printf("        To clean up %s, run: git checkout %s && git reset --hard origin/%s\n",
+				detection.DefaultBranch, detection.DefaultBranch, detection.DefaultBranch)
+		}
+	}
+
+	// Step 11: Clean up saved template on success
 	if diffContinue && savedTemplatePath != "" {
 		_ = template.RemoveSavedTemplate(savedTemplatePath)
 	}
