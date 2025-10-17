@@ -1894,3 +1894,162 @@ hint: its remote counterpart.`,
 		})
 	}
 }
+
+// TestCountCommitsAhead tests counting commits ahead of base branch
+func TestCountCommitsAhead(t *testing.T) {
+	t.Run("feature branch with commits ahead", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create initial commit on master
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("initial"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("initial commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		// Create feature branch
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		err = repo.CreateBranch("feature", "master")
+		require.NoError(t, err)
+
+		// Checkout feature branch
+		err = worktree.Checkout(&git.CheckoutOptions{
+			Branch: "refs/heads/feature",
+		})
+		require.NoError(t, err)
+
+		// Add 2 commits to feature branch
+		for i := 1; i <= 2; i++ {
+			err = os.WriteFile(testFile, []byte("feature "+string(rune(i))), 0644)
+			require.NoError(t, err)
+
+			_, err = worktree.Add("test.txt")
+			require.NoError(t, err)
+
+			_, err = worktree.Commit("feature commit "+string(rune(i)), &git.CommitOptions{
+				Author: &object.Signature{
+					Name:  "Test User",
+					Email: "test@example.com",
+					When:  time.Now().Add(time.Duration(i) * time.Minute),
+				},
+			})
+			require.NoError(t, err)
+		}
+
+		// Count commits ahead
+		count, err := repo.CountCommitsAhead("feature", "master")
+		require.NoError(t, err)
+		assert.Equal(t, 2, count, "feature branch should be 2 commits ahead of master")
+	})
+
+	t.Run("non-existent base branch returns 0", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create initial commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("test"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("initial commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		branch, err := repo.GetCurrentBranch()
+		require.NoError(t, err)
+
+		// Count commits ahead of non-existent branch
+		count, err := repo.CountCommitsAhead(branch, "origin/main")
+		require.NoError(t, err)
+		assert.Equal(t, 0, count, "should return 0 when base branch doesn't exist")
+	})
+
+	t.Run("equal branches return 0", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+
+		// Create initial commit
+		testFile := filepath.Join(tmpDir, "test.txt")
+		err = os.WriteFile(testFile, []byte("test"), 0644)
+		require.NoError(t, err)
+
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+
+		_, err = worktree.Commit("initial commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Test User",
+				Email: "test@example.com",
+				When:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Create branch at same point
+		err = repo.CreateBranch("feature", "master")
+		require.NoError(t, err)
+
+		// Count commits - should be 0 since they're equal
+		count, err := repo.CountCommitsAhead("feature", "master")
+		require.NoError(t, err)
+		assert.Equal(t, 0, count, "equal branches should return 0 commits ahead")
+	})
+
+	t.Run("empty branch name returns error", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		_, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
+		require.NoError(t, err)
+
+		// Empty branchName
+		_, err = repo.CountCommitsAhead("", "master")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "branch name cannot be empty")
+
+		// Empty baseBranch
+		_, err = repo.CountCommitsAhead("master", "")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "base branch name cannot be empty")
+	})
+}
