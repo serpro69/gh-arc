@@ -96,3 +96,193 @@ func TestNewAutoBranchDetector(t *testing.T) {
 		t.Error("NewAutoBranchDetector() did not set config correctly")
 	}
 }
+
+func TestSanitizeBranchName(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "spaces to hyphens",
+			input:    "John Doe",
+			expected: "john-doe",
+		},
+		{
+			name:     "double dots to dash",
+			input:    "test..name",
+			expected: "test-name",
+		},
+		{
+			name:     "colon removed",
+			input:    "feature:test",
+			expected: "featuretest",
+		},
+		{
+			name:     "multiple invalid chars",
+			input:    "my*branch?",
+			expected: "mybranch",
+		},
+		{
+			name:     "tilde and caret",
+			input:    "test~branch^name",
+			expected: "testbranchname",
+		},
+		{
+			name:     "square bracket and backslash",
+			input:    "test[name]\\branch",
+			expected: "testnamebranch",
+		},
+		{
+			name:     "already valid",
+			input:    "feature-branch",
+			expected: "feature-branch",
+		},
+		{
+			name:     "mixed case to lowercase",
+			input:    "Feature-Branch",
+			expected: "feature-branch",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := sanitizeBranchName(tt.input)
+			if result != tt.expected {
+				t.Errorf("sanitizeBranchName(%q) = %q, expected %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGenerateBranchName(t *testing.T) {
+	tests := []struct {
+		name              string
+		pattern           string
+		expectedSubstring string // Substring to check for in result
+		shouldPrompt      bool
+		shouldError       bool
+	}{
+		{
+			name:              "empty pattern uses default",
+			pattern:           "",
+			expectedSubstring: "feature/auto-from-main-",
+			shouldPrompt:      false,
+			shouldError:       false,
+		},
+		{
+			name:              "null pattern triggers prompt",
+			pattern:           "null",
+			expectedSubstring: "",
+			shouldPrompt:      true,
+			shouldError:       false,
+		},
+		{
+			name:              "timestamp placeholder",
+			pattern:           "feature/{timestamp}",
+			expectedSubstring: "feature/",
+			shouldPrompt:      false,
+			shouldError:       false,
+		},
+		{
+			name:              "date placeholder",
+			pattern:           "feature/{date}",
+			expectedSubstring: "feature/",
+			shouldPrompt:      false,
+			shouldError:       false,
+		},
+		{
+			name:              "datetime placeholder",
+			pattern:           "feature/{datetime}",
+			expectedSubstring: "feature/",
+			shouldPrompt:      false,
+			shouldError:       false,
+		},
+		{
+			name:              "random placeholder",
+			pattern:           "feature/{random}",
+			expectedSubstring: "feature/",
+			shouldPrompt:      false,
+			shouldError:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			detector := &AutoBranchDetector{
+				repo: nil, // Will be set when needed
+				config: &config.DiffConfig{
+					AutoBranchNamePattern: tt.pattern,
+				},
+			}
+
+			result, shouldPrompt, err := detector.GenerateBranchName()
+
+			if tt.shouldError && err == nil {
+				t.Error("Expected error, got nil")
+			}
+			if !tt.shouldError && err != nil {
+				t.Errorf("Unexpected error: %v", err)
+			}
+			if shouldPrompt != tt.shouldPrompt {
+				t.Errorf("shouldPrompt = %v, expected %v", shouldPrompt, tt.shouldPrompt)
+			}
+			if tt.expectedSubstring != "" && result != "" {
+				if len(result) < len(tt.expectedSubstring) {
+					t.Errorf("result %q too short, expected to contain %q", result, tt.expectedSubstring)
+				}
+				if result[:len(tt.expectedSubstring)] != tt.expectedSubstring {
+					t.Errorf("result %q does not start with %q", result, tt.expectedSubstring)
+				}
+			}
+		})
+	}
+}
+
+func TestEnsureUniqueBranchName(t *testing.T) {
+	tests := []struct {
+		name             string
+		baseName         string
+		existingBranches []string
+		expected         string
+		shouldError      bool
+	}{
+		{
+			name:             "unique branch name",
+			baseName:         "feature/test",
+			existingBranches: []string{"main", "develop"},
+			expected:         "feature/test",
+			shouldError:      false,
+		},
+		{
+			name:             "append -1 for first collision",
+			baseName:         "feature/test",
+			existingBranches: []string{"feature/test"},
+			expected:         "feature/test-1",
+			shouldError:      false,
+		},
+		{
+			name:             "append -2 for second collision",
+			baseName:         "feature/test",
+			existingBranches: []string{"feature/test", "feature/test-1"},
+			expected:         "feature/test-2",
+			shouldError:      false,
+		},
+		{
+			name:             "append -3 for third collision",
+			baseName:         "feature/test",
+			existingBranches: []string{"feature/test", "feature/test-1", "feature/test-2"},
+			expected:         "feature/test-3",
+			shouldError:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a mock repository that tracks existing branches
+			// For now, we'll test the logic when we implement it
+			// This test will be updated with proper mocking
+			t.Skip("Requires repository mocking - will implement after method is added")
+		})
+	}
+}
