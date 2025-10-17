@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -161,6 +162,45 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	logger.Info().
 		Str("branch", currentBranch).
 		Msg("Current branch")
+
+	// Auto-branch detection: Check if user has commits on main/master
+	var autoBranchContext *diff.AutoBranchContext
+	autoBranchDetector := diff.NewAutoBranchDetector(gitRepo, &cfg.Diff)
+	detection, err := autoBranchDetector.DetectCommitsOnMain(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to detect commits on main: %w", err)
+	}
+
+	// If user has commits on main, prepare auto-branch creation
+	if autoBranchDetector.ShouldAutoBranch(detection) {
+		fmt.Printf("\n⚠️  Warning: You have %d commit(s) on %s\n", detection.CommitsAhead, detection.DefaultBranch)
+
+		autoBranchContext, err = autoBranchDetector.PrepareAutoBranch(ctx, detection)
+		if err != nil {
+			// Check for user cancellation
+			if errors.Is(err, diff.ErrOperationCancelled) {
+				fmt.Println("\n✗ Cannot create PR from main to main.")
+				fmt.Println("Please create a feature branch manually:")
+				fmt.Printf("  gh arc work feature/my-branch\n")
+				fmt.Printf("  gh arc diff\n")
+				return fmt.Errorf("operation cancelled")
+			}
+
+			// Check for stale remote rejection
+			if errors.Is(err, diff.ErrStaleRemote) {
+				fmt.Println("\n✗ Operation aborted due to stale remote tracking branch.")
+				fmt.Println("Please update your local repository:")
+				fmt.Printf("  git fetch origin\n")
+				fmt.Printf("  gh arc diff\n")
+				return fmt.Errorf("stale remote")
+			}
+
+			// Other errors
+			return fmt.Errorf("auto-branch preparation failed: %w", err)
+		}
+
+		fmt.Printf("✓ Will create feature branch: %s\n\n", autoBranchContext.BranchName)
+	}
 
 	// Create GitHub client
 	client, err := github.NewClient()
