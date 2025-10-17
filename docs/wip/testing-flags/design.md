@@ -543,13 +543,146 @@ Fix: Update .arc.json with valid pattern, e.g.:
 ## Future Enhancements
 
 1. **`--dry-run --json`**: Combine dry-run with json-formatted output for machine-readable dry-run output
+
 2. **`-vvv --dry-run`**: Show even more detail (API payloads, git commands)
     - Examples:
         - Execute git commands with `--dry-run` flag, e.g. `git add file --dry-run` or `git push --dry-run`
     - Extra Notes:
         - Make sure all output is machine-readable if combined with `--json` flag; easiest is probably to skip the output from `git <cmd> --dry-run` if `--json` is enabled?
-4. **`--record`**: Record operations for later replay
-5. **`--replay`**: Execute recorded operations
+
+3. **Hybrid Validation Approach**: Use `git <cmd> --dry-run` for validation while controlling output format
+    - **Strategy**: Best of both worlds approach
+        - Control our own output format for consistency and user-friendliness
+        - Use git's native `--dry-run` when available for accurate validation
+        - Show high-level operations to users, validate with git under the hood
+    - **Implementation**:
+        ```go
+        func (r *Repository) Push(ctx *ExecutionContext, branch string) error {
+            if ctx.DryRun {
+                // 1. Show our formatted output
+                logger.Info().Msgf("[DRY RUN] Would push branch: %s to origin", branch)
+                logger.Info().Msgf("  → git push origin HEAD:%s", branch)
+
+                // 2. Validate with git --dry-run (when supported)
+                cmd := exec.Command("git", "push", "--dry-run", "origin", fmt.Sprintf("HEAD:%s", branch))
+                output, err := cmd.CombinedOutput()
+
+                if err != nil {
+                    logger.Error().Msgf("  ✗ Validation failed: %s", parseGitError(output))
+                    return fmt.Errorf("push would fail: %w", err)
+                }
+
+                logger.Info().Msg("  ✓ Validated successfully")
+                return nil
+            }
+            // actual push...
+        }
+        ```
+    - **Benefits**:
+        - Consistent, user-friendly output format across all operations
+        - Real validation catches conflicts, permission errors, etc.
+        - Graceful degradation when git doesn't support `--dry-run`
+        - Early error detection before actual execution
+    - **Git Commands with --dry-run Support**:
+        - ✓ `git push --dry-run` (validates push would succeed)
+        - ✓ `git fetch --dry-run` (shows what would be fetched)
+        - ✓ `git merge --no-commit --no-ff` (can simulate merge)
+        - ✗ `git checkout` (no dry-run, but can check if ref exists)
+        - ✗ `git branch` (no dry-run, but can check if name valid)
+        - ✗ `git commit` (no dry-run)
+
+4. **Verbosity Levels**: Progressive detail based on `-v` flags
+    - **Normal** (no `-v`): High-level user-friendly summary
+        ```
+        [DRY RUN] Would push branch: feature/test to origin
+        [DRY RUN] Would create PR: "Add feature" (main ← feature/test)
+        ✓ Command would succeed
+        ```
+    - **Verbose** (`-v`): Show git commands and validation results
+        ```
+        [DRY RUN] Would push branch: feature/test to origin
+          → git push origin HEAD:feature/test
+          ✓ Validated (no conflicts)
+        [DRY RUN] Would create PR: "Add feature" (main ← feature/test)
+          → POST /repos/owner/repo/pulls
+        ✓ Command would succeed
+        ```
+    - **Very Verbose** (`-vv`): Show full git output and API request details
+        ```
+        [DRY RUN] Would push branch: feature/test to origin
+          → git push --dry-run origin HEAD:feature/test
+          Output:
+            To github.com:owner/repo.git
+             * [new branch]      HEAD -> feature/test
+          ✓ Validated (no conflicts)
+        [DRY RUN] Would create PR: "Add feature" (main ← feature/test)
+          → POST /repos/owner/repo/pulls
+          Request: {"title":"Add feature","head":"feature/test","base":"main"}
+        ✓ Command would succeed
+        ```
+    - **Debug** (`-vvv`): Maximum detail including API responses, git internals
+        ```
+        [DRY RUN] Would push branch: feature/test to origin
+          → git push --dry-run --verbose origin HEAD:feature/test
+          Output:
+            Pushing to github.com:owner/repo.git
+            To github.com:owner/repo.git
+             * [new branch]      HEAD -> feature/test
+            Branch 'feature/test' set up to track remote branch 'feature/test' from 'origin'
+          ✓ Validated (no conflicts)
+        [DRY RUN] Would create PR: "Add feature" (main ← feature/test)
+          → POST /repos/owner/repo/pulls
+          Request Headers: {"Authorization":"token ***","Content-Type":"application/json"}
+          Request Body: {"title":"Add feature","head":"feature/test","base":"main","draft":false}
+          Expected Response: 201 Created
+        ✓ Command would succeed
+        ```
+    - **Implementation**:
+        ```go
+        func (r *Repository) Push(ctx *ExecutionContext, branch string) error {
+            if ctx.DryRun {
+                // Always show high-level operation
+                logger.Info().Msgf("[DRY RUN] Would push branch: %s to origin", branch)
+
+                // Show command in verbose mode
+                if ctx.Verbose >= 1 {
+                    logger.Info().Msgf("  → git push origin HEAD:%s", branch)
+                }
+
+                // Validate and show output based on verbosity
+                if gitSupportsFlag("push", "--dry-run") {
+                    gitArgs := []string{"push", "--dry-run"}
+                    if ctx.Verbose >= 2 {
+                        gitArgs = append(gitArgs, "--verbose")
+                    }
+                    gitArgs = append(gitArgs, "origin", fmt.Sprintf("HEAD:%s", branch))
+
+                    cmd := exec.Command("git", gitArgs...)
+                    output, err := cmd.CombinedOutput()
+
+                    if ctx.Verbose >= 2 {
+                        logger.Info().Msgf("  Output:\n%s", indent(string(output)))
+                    }
+
+                    if err != nil {
+                        logger.Error().Msgf("  ✗ Validation failed: %s", parseGitError(output))
+                        return fmt.Errorf("push would fail: %w", err)
+                    }
+
+                    if ctx.Verbose >= 1 {
+                        logger.Info().Msg("  ✓ Validated (no conflicts)")
+                    }
+                }
+
+                return nil
+            }
+            // actual push...
+        }
+        ```
+
+5. **`--record`**: Record operations for later replay
+
+6. **`--replay`**: Execute recorded operations
 
 ## Related Work
 
