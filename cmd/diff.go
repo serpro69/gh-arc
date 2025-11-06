@@ -189,16 +189,20 @@ func runDiff(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to load saved template (use 'gh arc diff --edit' to start fresh): %w", err)
 		}
 
-		// Extract branch information from template
-		prHeadBranch, prBaseBranch, found := template.ExtractBranchInfo(templateContent)
+		// Get head branch from current git branch (always available)
+		// For stacked PRs, the template might not contain head branch info
+		prHeadBranch := currentBranch
+
+		// Extract base branch from template
+		prBaseBranch, found := template.ExtractBaseBranch(templateContent)
 		if !found {
-			return fmt.Errorf("failed to extract branch info from template (template may be corrupted)")
+			return fmt.Errorf("failed to extract base branch from template (template may be corrupted)")
 		}
 
 		logger.Debug().
 			Str("headBranch", prHeadBranch).
 			Str("baseBranch", prBaseBranch).
-			Msg("Extracted branch info from saved template")
+			Msg("Using current branch as head, extracted base from template")
 
 		// Open editor to allow fixing validation issues (unless --no-edit)
 		if !diffNoEdit {
