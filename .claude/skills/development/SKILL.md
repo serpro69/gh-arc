@@ -1,6 +1,6 @@
 ---
 name: development-process
-description: 
+description: Workflow and guidelines for development. ALWAYS use when implementing features, bug-fixes, or doing any other code-related changes.
 ---
 
 # Development Process
