@@ -182,7 +182,8 @@ func runDiff(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("no saved template found (use 'gh arc diff --edit' to start fresh)")
 		}
 
-		savedTemplatePath := savedTemplates[len(savedTemplates)-1]
+		// FindSavedTemplates returns templates sorted by modification time (newest first)
+		savedTemplatePath := savedTemplates[0]
 		templateContent, err := template.LoadSavedTemplate(savedTemplatePath)
 		if err != nil {
 			return fmt.Errorf("failed to load saved template (use 'gh arc diff --edit' to start fresh): %w", err)
