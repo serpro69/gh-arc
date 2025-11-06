@@ -21,6 +21,13 @@ func (m *mockGitRepo) GetCommitRange(baseBranch, headBranch string) ([]git.Commi
 	return m.commits, nil
 }
 
+func (m *mockGitRepo) GetCommitsBetween(base, head string) ([]git.CommitInfo, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.commits, nil
+}
+
 func (m *mockGitRepo) Path() string { return "/test/repo" }
 func (m *mockGitRepo) GetDefaultBranch() (string, error) { return "main", nil }
 func (m *mockGitRepo) ListBranches(includeRemote bool) ([]git.BranchInfo, error) { return nil, nil }
