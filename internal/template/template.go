@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/serpro69/gh-arc/internal/diff"
 	"github.com/serpro69/gh-arc/internal/github"
 	"github.com/serpro69/gh-arc/internal/logger"
 )
@@ -67,14 +66,14 @@ type StackingContext struct {
 // TemplateGenerator generates PR templates with stacking context
 type TemplateGenerator struct {
 	stackingContext *StackingContext
-	analysis        *diff.CommitAnalysis
+	analysis        *CommitAnalysis
 	reviewers       []string
 	linearEnabled   bool   // Whether to show Linear Ref field
 	defaultDraft    bool   // Default draft status from config
 }
 
 // NewTemplateGenerator creates a new template generator
-func NewTemplateGenerator(stackingCtx *StackingContext, analysis *diff.CommitAnalysis, reviewers []string, linearEnabled bool, defaultDraft bool) *TemplateGenerator {
+func NewTemplateGenerator(stackingCtx *StackingContext, analysis *CommitAnalysis, reviewers []string, linearEnabled bool, defaultDraft bool) *TemplateGenerator {
 	return &TemplateGenerator{
 		stackingContext: stackingCtx,
 		analysis:        analysis,

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/serpro69/gh-arc/internal/github"
+	"github.com/serpro69/gh-arc/internal/template"
 )
 
 // Test OutputStyle creation
@@ -400,7 +401,7 @@ func TestFormatDryRunOutput(t *testing.T) {
 			{Number: 101, Title: "Dependent 1"},
 			{Number: 102, Title: "Dependent 2"},
 		}
-		analysis := &CommitAnalysis{
+		analysis := &template.CommitAnalysis{
 			Title:           "Proposed PR title",
 			CommitCount:     5,
 			HasMergeCommits: false,
@@ -447,7 +448,7 @@ func TestFormatDryRunOutput(t *testing.T) {
 	})
 
 	t.Run("with merge commits", func(t *testing.T) {
-		analysis := &CommitAnalysis{
+		analysis := &template.CommitAnalysis{
 			Title:           "PR with merges",
 			CommitCount:     3,
 			HasMergeCommits: true,

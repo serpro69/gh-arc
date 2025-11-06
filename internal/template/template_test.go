@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/serpro69/gh-arc/internal/diff"
 	"github.com/serpro69/gh-arc/internal/github"
 )
 
@@ -18,7 +17,7 @@ func TestNewTemplateGenerator(t *testing.T) {
 		BaseBranch:    "main",
 		CurrentBranch: "feature",
 	}
-	analysis := &diff.CommitAnalysis{
+	analysis := &CommitAnalysis{
 		Title:   "Test feature",
 		Summary: "Add test",
 	}
@@ -42,7 +41,7 @@ func TestNewTemplateGenerator(t *testing.T) {
 
 // Test template generation without stacking
 func TestGenerateTemplateBasic(t *testing.T) {
-	analysis := &diff.CommitAnalysis{
+	analysis := &CommitAnalysis{
 		Title:   "Add new feature",
 		Summary: "This commit adds a new feature",
 	}
@@ -96,7 +95,7 @@ func TestGenerateTemplateWithStacking(t *testing.T) {
 		},
 	}
 
-	analysis := &diff.CommitAnalysis{
+	analysis := &CommitAnalysis{
 		Title:   "Child feature",
 		Summary: "Builds on parent",
 	}
@@ -1499,7 +1498,7 @@ func BenchmarkGenerateTemplate(b *testing.B) {
 		BaseBranch:    "main",
 		CurrentBranch: "feature",
 	}
-	analysis := &diff.CommitAnalysis{
+	analysis := &CommitAnalysis{
 		Title:   "Test feature",
 		Summary: "Add test functionality",
 	}

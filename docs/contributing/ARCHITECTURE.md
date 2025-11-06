@@ -169,11 +169,13 @@ Contains the core implementation organized by domain:
 
 **Key Components:**
 - `template.go` - Template generation and parsing
+- `commit_analysis.go` - Commit analysis for template pre-filling
 
 **Responsibilities:**
+- Analyze commits to generate PR title/summary suggestions
 - Generate PR templates with prefilled data
 - Parse user-edited templates
-- Validate required fields
+- Validate required fields (with stacking context support)
 - Handle template persistence for --continue
 - Support stacking context in templates
 
@@ -233,15 +235,22 @@ Contains the core implementation organized by domain:
 **Purpose:** Implements diff command workflow logic.
 
 **Key Components:**
-- Files for base branch detection, stacking, commit analysis
-- Auto-branch module for handling commits on main scenario
+- `workflow.go` - Main orchestrator coordinating the entire diff flow
+- `pr_executor.go` - Unified PR creation/update with draft transitions
+- `continue_mode.go` - Handles `--continue` workflow
+- `base.go` - Base branch detection and stacking logic
+- `auto_branch.go` - Auto-branch creation from main
+- `dependent.go` - Dependent PR detection
+- `output.go` - Terminal output formatting
+- `stacking.go` - Stacking utilities
 
 **Responsibilities:**
-- Detect base branch for PRs
-- Implement stacking logic
-- Analyze commits for PR metadata
-- Detect dependent PRs
+- Orchestrate complete diff workflow (create/update PRs)
+- Detect base branch for PRs (stacking logic)
+- Handle PR draft status transitions
 - Auto-create feature branches when commits are on main
+- Detect dependent PRs
+- Format terminal output with consistent styling
 
 ##### Auto-Branch Module (`auto_branch.go`)
 
@@ -301,6 +310,8 @@ type AutoBranchContext struct {
 - `EnsureUniqueBranchName(string) (string, error)` - Append counter if branch exists
 - `CheckStaleRemote(ctx, string) (bool, error)` - Warn if remote tracking branch is old
 - `PrepareAutoBranch(ctx, *DetectionResult) (*AutoBranchContext, error)` - Orchestrate detection phase
+- `ExecuteAutoBranch(ctx, *AutoBranchContext) (string, error)` - Execute push and checkout operations
+- `PushWithRetry(ctx, *AutoBranchContext, int) (string, error)` - Push with collision retry logic
 
 **Branch Name Patterns:**
 
@@ -334,47 +345,29 @@ var (
 )
 ```
 
-**Integration with cmd/diff.go:**
+**Integration with Workflow:**
 
-1. **Detection Phase** (after git repository opened, ~line 154):
+The auto-branch flow is orchestrated by `DiffWorkflow`:
+
+1. **Detection Phase** (in `DiffWorkflow.executeNormalMode()`):
    ```go
-   detector := diff.NewAutoBranchDetector(gitRepo, cfg.Diff)
-   detection, err := detector.DetectCommitsOnMain(ctx)
+   autoBranchCtx, detection, err := workflow.handleAutoBranch(ctx)
+   // Returns context if auto-branch needed, nil otherwise
+   ```
 
-   if detector.ShouldAutoBranch(detection) {
-       autoBranchContext, err := detector.PrepareAutoBranch(ctx, detection)
-       // Context carried through diff flow
+2. **Execution Phase** (in `DiffWorkflow.executeWithTemplateEditing()`):
+   ```go
+   if autoBranchCtx != nil {
+       finalBranchName, err := autoBranchDetector.ExecuteAutoBranch(ctx, autoBranchCtx)
+       // Handles push with retry + checkout
    }
    ```
 
-2. **Push Phase** (before PR creation, ~line 580):
-   ```go
-   if autoBranchContext != nil {
-       // Retry loop with collision handling
-       err := gitRepo.PushBranch(ctx, "HEAD", autoBranchContext.BranchName)
-       if errors.Is(err, git.ErrRemoteBranchExists) {
-           // Regenerate unique name and retry
-       }
-   }
-   ```
-
-3. **Checkout Phase** (after PR creation succeeds, ~line 630):
-   ```go
-   if autoBranchContext != nil {
-       err := gitRepo.CheckoutTrackingBranch(
-           autoBranchContext.BranchName,
-           "origin/"+autoBranchContext.BranchName,
-       )
-   }
-   ```
-
-**Why Two-Phase Pattern:**
-
-- **Detection before PR**: Get user confirmation, generate branch name, validate
-- **Execution after PR**: Push branch, then checkout locally
-- **Separation**: Template editing and PR creation happen between phases
-- **Safety**: If PR creation fails after push, user can manually create PR
-- **Context**: `AutoBranchContext` carries state between phases
+**ExecuteAutoBranch() Flow:**
+- Calls `PushWithRetry()` - pushes branch with collision handling (max 3 attempts)
+- If collision detected: regenerates unique name, retries
+- After successful push: checks out tracking branch locally
+- Checkout failure is non-fatal (PR created, user can checkout manually)
 
 **Error Handling Strategy:**
 
@@ -383,6 +376,98 @@ var (
 - User cancellation returns `ErrOperationCancelled`
 - Stale remote rejection returns `ErrStaleRemote`
 - All errors include actionable recovery instructions
+
+##### PR Executor (`pr_executor.go`)
+
+Consolidates PR creation/update logic previously duplicated across continue mode, fast path, and normal mode.
+
+**Key Type:**
+```go
+type PRExecutor struct {
+    client PRGitHubClient
+    repo   PRGitRepository
+    owner  string
+    name   string
+}
+```
+
+**Key Methods:**
+- `CreateOrUpdatePR(ctx, *PRRequest) (*PRResult, error)` - Unified PR create/update with draft handling
+- `UpdateDraftStatus(ctx, *PullRequest, bool) (*PullRequest, error)` - Update only draft status (fast path)
+- `assignReviewers(ctx, *PullRequest, []string, string) ([]string, error)` - Assign reviewers with current user filtering
+
+**Draft Status Transitions:**
+- Draft → Ready: Update metadata first (REST), then mark ready (GraphQL)
+- Ready → Draft: Update metadata first (REST), then convert to draft (GraphQL)
+- No change: Simple REST API update
+
+**Interfaces for Testability:**
+- `PRGitHubClient` - GitHub operations (create, update, draft transitions, reviewers)
+- `PRGitRepository` - Git operations (push, check unpushed commits)
+
+##### Continue Mode Executor (`continue_mode.go`)
+
+Handles the `--continue` workflow for retrying after template validation failures.
+
+**Key Type:**
+```go
+type ContinueModeExecutor struct {
+    repo   *git.Repository
+    client *github.Client
+    config *config.DiffConfig
+    owner  string
+    name   string
+}
+```
+
+**Key Method:**
+- `Execute(ctx, *ContinueModeOptions) (*ContinueModeResult, error)` - Full continue mode workflow
+
+**Flow:**
+1. Load most recent saved template
+2. Extract branch information from template
+3. Re-open editor (unless --no-edit) for user to fix validation errors
+4. Parse and validate template
+5. If validation fails again: save template and return error
+6. If validation succeeds: delete saved template
+7. Create or update PR via `prExecutor.CreateOrUpdatePR()`
+
+##### Diff Workflow Orchestrator (`workflow.go`)
+
+Main orchestrator coordinating the entire diff command flow.
+
+**Key Type:**
+```go
+type DiffWorkflow struct {
+    repo              *git.Repository
+    client            *github.Client
+    config            *config.Config
+    owner             string
+    name              string
+    autoBranchDetector *AutoBranchDetector
+    baseDetector      *BaseBranchDetector
+    dependentDetector *DependentPRDetector
+    continueExecutor  *ContinueModeExecutor
+    prExecutor        *PRExecutor
+}
+```
+
+**Key Methods:**
+- `Execute(ctx, *DiffOptions) (*DiffResult, error)` - Main entry point
+- `executeContinueMode(ctx, *DiffOptions) (*DiffResult, error)` - Handle --continue
+- `executeNormalMode(ctx, *DiffOptions, string) (*DiffResult, error)` - Normal workflow
+- `executeFastPath(ctx, *DiffOptions, *PullRequest, *BaseBranchResult, string) (*DiffResult, error)` - Existing PR, no editing
+- `executeWithTemplateEditing(ctx, ...) (*DiffResult, error)` - Full workflow with template
+
+**Workflow Routing:**
+- `--continue` → `executeContinueMode()`
+- Existing PR + no `--edit` → `executeFastPath()`
+- Otherwise → `executeNormalMode()` → `executeWithTemplateEditing()`
+
+**Result:**
+- `cmd/diff.go` reduced from 996 to 223 lines (77.6% reduction)
+- Business logic moved to testable, reusable components
+- Clear separation of concerns (CLI vs workflow)
 
 #### `internal/version/` - Version Management
 
@@ -574,60 +659,85 @@ logger.Debug().
    ├─> Load configuration (config.Load())
    ├─> Open Git repository (git.OpenRepository())
    ├─> Create GitHub client (github.NewClient())
-   ├─> Get current branch (repo.GetCurrentBranch())
+   ├─> Create DiffWorkflow orchestrator (diff.NewDiffWorkflow())
    │
-   ├─> Detect base branch (diff.DetectBaseBranch())
-   │   ├─> Check for existing PR on current branch
-   │   ├─> Determine if stacking (feature → feature vs feature → main)
-   │   └─> Return base branch and stacking info
-   │
-   ├─> Detect dependent PRs (diff.DetectDependentPRs())
-   │   └─> Find PRs that target current branch
-   │
-   ├─> Analyze commits (diff.AnalyzeCommitsForTemplate())
-   │   ├─> Get commit range (repo.GetCommitsBetween())
-   │   ├─> Parse commit messages (git.ParseCommitMessage())
-   │   └─> Generate summary and title suggestions
-   │
-   ├─> Check for existing PR (client.FindExistingPRForCurrentBranch())
-   │
-   ├─> IF existing PR and no --edit:
-   │   ├─> Update draft status if flags provided
-   │   ├─> Push new commits if unpushed
-   │   └─> Exit (fast path)
-   │
-   ├─> Generate PR template (template.Generate())
-   │   ├─> Pre-fill title, summary, test plan
-   │   ├─> Add reviewer suggestions from CODEOWNERS
-   │   ├─> Add stacking context
-   │   └─> Return template string
-   │
-   ├─> Open editor (template.OpenEditor())
-   │   ├─> Write template to temp file
-   │   ├─> Open $EDITOR
-   │   ├─> Wait for user to save and close
-   │   └─> Read edited template
-   │
-   ├─> Parse template (template.ParseTemplate())
-   │   ├─> Extract fields (title, summary, reviewers, etc.)
-   │   └─> Return structured data
-   │
-   ├─> Validate template (template.ValidateFields())
-   │   ├─> Check required fields (title, test plan)
-   │   ├─> If invalid, save for --continue and return error
-   │   └─> If valid, continue
-   │
-   ├─> Create or update PR (client.CreatePullRequest() or client.UpdatePullRequest())
-   │   ├─> Push branch to remote if needed
-   │   ├─> Make GitHub API call
-   │   └─> Handle draft status transitions
-   │
-   ├─> Assign reviewers (client.AssignReviewers())
-   │   └─> Parse and assign users/teams
-   │
-   └─> Display success message
+   └─> Execute workflow (workflow.Execute())
+       │
+       ├─> IF --continue flag:
+       │   └─> Execute continue mode (continueExecutor.Execute())
+       │       ├─> Load saved template
+       │       ├─> Re-open editor (unless --no-edit)
+       │       ├─> Validate template
+       │       ├─> Create/update PR (prExecutor.CreateOrUpdatePR())
+       │       └─> Return result
+       │
+       └─> ELSE normal mode (executeNormalMode()):
+           │
+           ├─> Handle auto-branch (handleAutoBranch())
+           │   ├─> Detect commits on main (autoBranchDetector.DetectCommitsOnMain())
+           │   ├─> Prepare auto-branch if needed (autoBranchDetector.PrepareAutoBranch())
+           │   └─> Return AutoBranchContext or nil
+           │
+           ├─> Detect base branch (baseDetector.DetectBaseBranch())
+           │   ├─> Check for existing PR on current branch
+           │   ├─> Determine if stacking (feature → feature vs feature → main)
+           │   └─> Return base branch and stacking info
+           │
+           ├─> Detect dependent PRs (dependentDetector.DetectDependentPRs())
+           │   └─> Find PRs that target current branch
+           │
+           ├─> Check for existing PR (client.FindExistingPRForCurrentBranch())
+           │
+           ├─> IF existing PR and no --edit (fast path):
+           │   └─> Execute fast path (executeFastPath())
+           │       ├─> Push unpushed commits if any
+           │       ├─> Update base branch if changed
+           │       ├─> Update draft status if flags provided (prExecutor.UpdateDraftStatus())
+           │       └─> Return result
+           │
+           └─> ELSE with template editing (executeWithTemplateEditing()):
+               │
+               ├─> Analyze commits (template.AnalyzeCommitsForTemplate())
+               │   ├─> Get commit range (repo.GetCommitsBetween())
+               │   ├─> Parse commit messages (git.ParseCommitMessage())
+               │   └─> Generate summary and title suggestions
+               │
+               ├─> Get reviewer suggestions (getReviewerSuggestions())
+               │   ├─> Parse CODEOWNERS
+               │   ├─> Get stack-aware reviewers
+               │   └─> Append default reviewers from config
+               │
+               ├─> Generate template (template.NewTemplateGenerator().Generate())
+               │   ├─> Pre-fill title, summary from commits
+               │   ├─> Add reviewer suggestions
+               │   ├─> Add stacking context
+               │   └─> Return template string
+               │
+               ├─> Open editor (template.OpenEditor()) - unless --no-edit
+               │   ├─> Write template to temp file
+               │   ├─> Open $EDITOR
+               │   └─> Read edited template
+               │
+               ├─> Parse and validate (template.ParseTemplate(), ValidateFieldsWithContext())
+               │   ├─> Extract fields (title, summary, reviewers, etc.)
+               │   ├─> Validate required fields
+               │   └─> If invalid, save for --continue
+               │
+               ├─> Execute auto-branch if needed (autoBranchDetector.ExecuteAutoBranch())
+               │   ├─> Push branch with retry (PushWithRetry())
+               │   └─> Checkout tracking branch
+               │
+               ├─> Create or update PR (prExecutor.CreateOrUpdatePR())
+               │   ├─> Determine create vs update
+               │   ├─> Handle draft ↔ ready transitions
+               │   ├─> Assign reviewers (filter current user)
+               │   └─> Return PRResult
+               │
+               └─> Return DiffResult
 
-3. Return to user's shell
+3. cmd/diff.go displays formatted result (diff.FormatDiffResult())
+
+4. Return to user's shell
 ```
 
 ### Example: `gh arc list` Command Flow

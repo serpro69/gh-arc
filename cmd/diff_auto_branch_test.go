@@ -11,8 +11,8 @@ import (
 	gitconfig "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
-	"github.com/serpro69/gh-arc/internal/diff"
 	gitpkg "github.com/serpro69/gh-arc/internal/git"
+	"github.com/serpro69/gh-arc/internal/template"
 )
 
 // TestAutoBranchTemplateGeneration tests that the template is generated correctly
@@ -219,7 +219,7 @@ func runAutoBranchTest(t *testing.T, tt struct {
 	// Always use origin/main as base to capture all unpushed commits
 	commitAnalysisBase := "origin/main"
 
-	analysis, err := diff.AnalyzeCommitsForTemplate(repo, commitAnalysisBase, currentBranch)
+	analysis, err := template.AnalyzeCommitsForTemplate(repo, commitAnalysisBase, currentBranch)
 	if err != nil {
 		t.Fatalf("Failed to analyze commits: %v", err)
 	}
