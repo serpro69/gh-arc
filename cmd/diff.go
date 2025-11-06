@@ -263,6 +263,31 @@ func runDiff(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to check for existing PR: %w", err)
 		}
 
+		// Push branch to remote if needed
+		if existingPR == nil {
+			// Creating new PR - always push the branch
+			fmt.Println("\n✓ Pushing branch to remote...")
+			if err := gitRepo.Push(ctx, prHeadBranch); err != nil {
+				return fmt.Errorf("failed to push branch: %w", err)
+			}
+			fmt.Println("  ✓ Branch pushed successfully")
+		} else {
+			// Updating existing PR - check for unpushed commits
+			hasUnpushed, err := gitRepo.HasUnpushedCommits(prHeadBranch)
+			if err != nil {
+				logger.Warn().Err(err).Msg("Failed to check for unpushed commits")
+				hasUnpushed = true // Assume unpushed on error to be safe
+			}
+
+			if hasUnpushed {
+				fmt.Println("\n✓ Pushing new commits...")
+				if err := gitRepo.Push(ctx, prHeadBranch); err != nil {
+					return fmt.Errorf("failed to push commits: %w", err)
+				}
+				fmt.Println("  ✓ Commits pushed successfully")
+			}
+		}
+
 		// Create or update PR
 		if existingPR != nil {
 			fmt.Printf("\n✓ Found existing PR #%d\n", existingPR.Number)
