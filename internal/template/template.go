@@ -193,6 +193,49 @@ func (g *TemplateGenerator) writeFooter(sb *strings.Builder) {
 	}
 }
 
+// ExtractBranchInfo extracts head and base branch names from template header
+// Returns (headBranch, baseBranch, found)
+func ExtractBranchInfo(content string) (string, string, bool) {
+	scanner := bufio.NewScanner(strings.NewReader(content))
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// Look for "# Creating PR: <head> → <base>" or "# 📚 Creating stacked PR on <base>"
+		if strings.Contains(line, "# Creating PR:") {
+			// Extract "head → base" format
+			parts := strings.Split(line, ":")
+			if len(parts) >= 2 {
+				branchPart := strings.TrimSpace(parts[1])
+				branches := strings.Split(branchPart, "→")
+				if len(branches) == 2 {
+					head := strings.TrimSpace(branches[0])
+					base := strings.TrimSpace(branches[1])
+					return head, base, true
+				}
+			}
+		}
+
+		// Look for "# Base Branch: <base> (read-only)"
+		if strings.HasPrefix(line, markerBaseBranch) {
+			// Extract base from "# Base Branch: main (read-only)"
+			basePart := strings.TrimPrefix(line, markerBaseBranch)
+			basePart = strings.TrimSpace(basePart)
+			if idx := strings.Index(basePart, "(read-only)"); idx > 0 {
+				basePart = strings.TrimSpace(basePart[:idx])
+			}
+			// We found base but not head yet from the format above
+			// Continue scanning for the "Creating PR" line
+			if basePart != "" {
+				// Keep this as fallback base, continue looking for full header
+				continue
+			}
+		}
+	}
+
+	return "", "", false
+}
+
 // ParseTemplate parses the template content into structured fields
 func ParseTemplate(content string) (*TemplateFields, error) {
 	fields := &TemplateFields{
