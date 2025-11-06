@@ -32,6 +32,7 @@ func (m *mockGitRepo) Path() string { return "/test/repo" }
 func (m *mockGitRepo) GetDefaultBranch() (string, error) { return "main", nil }
 func (m *mockGitRepo) ListBranches(includeRemote bool) ([]git.BranchInfo, error) { return nil, nil }
 func (m *mockGitRepo) GetMergeBase(ref1, ref2 string) (string, error) { return "abc123", nil }
+func (m *mockGitRepo) IsAncestor(ancestorRef, descendantRef string) (bool, error) { return true, nil }
 
 func TestAnalyzeCommitsForTemplate_SingleCommit(t *testing.T) {
 	mockRepo := &mockGitRepo{

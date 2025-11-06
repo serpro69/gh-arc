@@ -11,10 +11,11 @@ import (
 
 // mockRepository implements a minimal mock for git.Repository
 type mockRepository struct {
-	defaultBranch string
-	branches      []git.BranchInfo
-	mergeBaseFunc func(ref1, ref2 string) (string, error)
-	commitRange   func(from, to string) ([]git.CommitInfo, error)
+	defaultBranch  string
+	branches       []git.BranchInfo
+	mergeBaseFunc  func(ref1, ref2 string) (string, error)
+	commitRange    func(from, to string) ([]git.CommitInfo, error)
+	isAncestorFunc func(ancestorRef, descendantRef string) (bool, error)
 }
 
 func (m *mockRepository) Path() string {
@@ -48,6 +49,21 @@ func (m *mockRepository) GetCommitsBetween(base, head string) ([]git.CommitInfo,
 		return m.commitRange(base, head)
 	}
 	return []git.CommitInfo{{SHA: "commit1"}}, nil
+}
+
+func (m *mockRepository) IsAncestor(ancestorRef, descendantRef string) (bool, error) {
+	if m.isAncestorFunc != nil {
+		return m.isAncestorFunc(ancestorRef, descendantRef)
+	}
+	// Default: assume ancestor relationship exists if commitRange returns commits
+	if m.commitRange != nil {
+		commits, err := m.commitRange(ancestorRef, descendantRef)
+		if err != nil {
+			return false, err
+		}
+		return len(commits) > 0, nil
+	}
+	return true, nil
 }
 
 // mockGitHubClient implements a minimal mock for github.Client
