@@ -350,6 +350,15 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		} else {
 			fmt.Println("\nCreating new PR...")
 
+			// Build PR body (same as normal mode)
+			prBody := parsedFields.Summary
+			if parsedFields.TestPlan != "" {
+				prBody += "\n\n## Test Plan\n" + parsedFields.TestPlan
+			}
+			if len(parsedFields.Ref) > 0 {
+				prBody += "\n\n**Ref:** " + parsedFields.Ref[0]
+			}
+
 			// Create PR
 			newPR, err := client.CreatePullRequest(
 				ctx,
@@ -357,7 +366,7 @@ func runDiff(cmd *cobra.Command, args []string) error {
 				parsedFields.Title,
 				prHeadBranch,
 				prBaseBranch,
-				parsedFields.Summary,
+				prBody,
 				parsedFields.Draft,
 				nil, // No parent PR in continue mode
 			)
