@@ -32,10 +32,9 @@ logs
 .DS_Store
 
 # AI tools
-.serena
+!.serena
 !.claude
 !.taskmaster
-.taskmaster/state.json
 
 # Taskmaster task files
 
