@@ -19,6 +19,7 @@ type GitRepository interface {
 	GetMergeBase(ref1, ref2 string) (string, error)
 	GetCommitRange(from, to string) ([]git.CommitInfo, error)
 	GetCommitsBetween(base, head string) ([]git.CommitInfo, error)
+	IsAncestor(ancestorRef, descendantRef string) (bool, error)
 }
 
 // GitHubClient defines the interface for GitHub operations needed by base detection
@@ -295,15 +296,8 @@ func (d *BaseBranchDetector) detectStackingBase(
 
 // isAncestor checks if ancestorSHA is an ancestor of descendantBranch
 func (d *BaseBranchDetector) isAncestor(ancestorSHA, descendantBranch string) (bool, error) {
-	// Use git merge-base --is-ancestor
-	// This returns 0 if ancestorSHA is an ancestor of descendantBranch
-	commits, err := d.repo.GetCommitRange(ancestorSHA, descendantBranch)
-	if err != nil {
-		return false, err
-	}
-
-	// If there are commits between ancestor and descendant, ancestor is indeed an ancestor
-	return len(commits) > 0, nil
+	// Use git merge-base --is-ancestor via the repository interface
+	return d.repo.IsAncestor(ancestorSHA, descendantBranch)
 }
 
 // FormatStackingMessage returns a user-friendly message about the stacking result

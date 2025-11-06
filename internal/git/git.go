@@ -974,6 +974,37 @@ func (r *Repository) GetMergeBase(ref1, ref2 string) (string, error) {
 	return sha, nil
 }
 
+// IsAncestor checks if ancestorRef is an ancestor of descendantRef
+// Returns true if ancestorRef is reachable from descendantRef
+func (r *Repository) IsAncestor(ancestorRef, descendantRef string) (bool, error) {
+	if ancestorRef == "" || descendantRef == "" {
+		return false, fmt.Errorf("both refs must be non-empty")
+	}
+
+	// Use git merge-base --is-ancestor
+	// Exit code 0 means ancestorRef is an ancestor of descendantRef
+	// Exit code 1 means it is not
+	// Other exit codes indicate errors
+	cmd := exec.Command("git", "merge-base", "--is-ancestor", ancestorRef, descendantRef)
+	cmd.Dir = r.path
+
+	err := cmd.Run()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			// Exit code 1 means not an ancestor (this is NOT an error)
+			if exitErr.ExitCode() == 1 {
+				return false, nil
+			}
+			// Other exit codes indicate actual errors
+			return false, fmt.Errorf("failed to check ancestry: %s", string(exitErr.Stderr))
+		}
+		return false, fmt.Errorf("failed to execute git merge-base --is-ancestor: %w", err)
+	}
+
+	// Exit code 0 means ancestorRef is an ancestor
+	return true, nil
+}
+
 // HasUnpushedCommits checks if the local branch has commits that haven't been pushed to remote.
 // Returns true if there are unpushed commits, false otherwise.
 // If the remote branch doesn't exist yet, returns true (all local commits are "unpushed").
