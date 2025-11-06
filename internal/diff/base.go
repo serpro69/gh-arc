@@ -222,12 +222,16 @@ func (d *BaseBranchDetector) detectStackingBase(
 		// Check if current branch diverged from the candidate branch
 		// If merge-base(current, candidate) is different from merge-base(current, default),
 		// then current likely diverged from candidate
-		// Stacking condition:
+		//
+		// Stacking conditions:
 		// 1. merge-base(current, candidate) != merge-base(current, default)
 		//    This means current diverged from candidate, not just from default
-		// 2. merge-base(current, candidate) is the head of candidate OR close to it
-		//    This means current was branched off from candidate
+		// 2. OR merge-base(current, candidate) == merge-base(current, default)
+		//    AND candidate branch is at the merge-base (meaning current was branched from candidate)
+		//    This handles the case where local main and candidate are at the same commit
+		//    (e.g., after auto-branch creation from main)
 		if mergeBaseWithCandidate != mergeBaseWithDefault {
+			// Case 1: Merge-bases are different, current diverged from candidate
 			// Check if candidate branch is an ancestor of current branch
 			isAncestor, err := d.isAncestor(mergeBaseWithCandidate, currentBranch)
 			if err != nil {
@@ -247,7 +251,32 @@ func (d *BaseBranchDetector) detectStackingBase(
 					Str("parentBranch", branch).
 					Str("parentPR", fmt.Sprintf("#%d", parentPR.Number)).
 					Str("mergeBase", shortSHA).
-					Msg("Detected stacking opportunity")
+					Msg("Detected stacking opportunity (diverged from candidate)")
+
+				return &BaseBranchResult{
+					Base:       branch,
+					IsStacking: true,
+					ParentPR:   parentPR,
+					Method:     "auto-detected-stacking",
+				}, nil
+			}
+		} else {
+			// Case 2: Merge-bases are equal (candidate and default are at same commit)
+			// Check if the candidate branch HEAD is at the merge-base
+			// This means current was branched directly from candidate
+			candidateSHA := branchInfo.Hash
+			if candidateSHA == mergeBaseWithCandidate {
+				// Current branch was branched from candidate (not just from default)
+				// Prefer the branch with an open PR over the default branch
+				shortSHA := mergeBaseWithCandidate
+				if len(shortSHA) > 8 {
+					shortSHA = shortSHA[:8]
+				}
+				logger.Info().
+					Str("parentBranch", branch).
+					Str("parentPR", fmt.Sprintf("#%d", parentPR.Number)).
+					Str("mergeBase", shortSHA).
+					Msg("Detected stacking opportunity (branched from candidate at same commit as default)")
 
 				return &BaseBranchResult{
 					Base:       branch,

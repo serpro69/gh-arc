@@ -237,6 +237,74 @@ func TestDetectBaseBranch_StackingDetected(t *testing.T) {
 	}
 }
 
+func TestDetectBaseBranch_StackingDetected_SameCommitAsMain(t *testing.T) {
+	// Test case for auto-branch scenario where:
+	// - main (local) is at commit abc123 (1 commit ahead of origin/main)
+	// - feature-auto is at commit abc123 (auto-created from main, has open PR)
+	// - feature-child is at commit def456 (branched from feature-auto)
+	// Expected: feature-child should stack on feature-auto, not main
+	mockRepo := &mockRepository{
+		defaultBranch: "main",
+		branches: []git.BranchInfo{
+			{Name: "main", Hash: "abc123"},
+			{Name: "feature-auto", Hash: "abc123"}, // Same commit as main!
+			{Name: "feature-child", Hash: "def456"},
+		},
+		mergeBaseFunc: func(ref1, ref2 string) (string, error) {
+			// feature-child was branched from feature-auto
+			if (ref1 == "feature-child" && ref2 == "feature-auto") ||
+				(ref1 == "feature-auto" && ref2 == "feature-child") {
+				return "abc123", nil // merge-base is abc123
+			}
+			// feature-child with main also has same merge-base
+			if (ref1 == "feature-child" && ref2 == "main") ||
+				(ref1 == "main" && ref2 == "feature-child") {
+				return "abc123", nil // merge-base is also abc123!
+			}
+			return "abc123", nil
+		},
+		commitRange: func(from, to string) ([]git.CommitInfo, error) {
+			// Simulate commits exist between abc123 and feature-child
+			return []git.CommitInfo{{SHA: "commit1"}}, nil
+		},
+	}
+	mockClient := &mockGitHubClient{
+		pullRequests: []*github.PullRequest{
+			{
+				Number: 456,
+				Title:  "Auto-branch PR",
+				Head:   github.PRBranch{Ref: "feature-auto"},
+				Base:   github.PRBranch{Ref: "main"},
+			},
+		},
+	}
+	cfg := &config.DiffConfig{
+		EnableStacking: true,
+	}
+
+	detector := NewBaseBranchDetector(mockRepo, mockClient, cfg, "owner", "repo")
+
+	result, err := detector.DetectBaseBranch(context.Background(), "feature-child", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.Base != "feature-auto" {
+		t.Errorf("expected base 'feature-auto', got '%s'", result.Base)
+	}
+	if !result.IsStacking {
+		t.Error("expected IsStacking to be true")
+	}
+	if result.ParentPR == nil {
+		t.Error("expected ParentPR to be set")
+	} else if result.ParentPR.Number != 456 {
+		t.Errorf("expected ParentPR number 456, got %d", result.ParentPR.Number)
+	}
+	if result.Method != "auto-detected-stacking" {
+		t.Errorf("expected method 'auto-detected-stacking', got '%s'", result.Method)
+	}
+}
+
 func TestFormatStackingMessage_NoStacking(t *testing.T) {
 	result := &BaseBranchResult{
 		Base:       "main",
