@@ -6,49 +6,84 @@
       "Bash(mkdir:*)",
       "mcp__context7__resolve-library-id",
       "mcp__context7__get-library-docs",
+      "mcp__serena__get_symbols_overview",
+      "mcp__serena__find_file",
+      "mcp__serena__find_symbol",
       "mcp__serena__list_dir",
       "mcp__serena__search_for_pattern",
-      "mcp__task-master-ai__parse_prd",
+      "mcp__task-master-ai__add_task",
       "mcp__task-master-ai__analyze_project_complexity",
       "mcp__task-master-ai__complexity_report",
       "mcp__task-master-ai__expand_all",
       "mcp__task-master-ai__get_task",
       "mcp__task-master-ai__get_tasks",
       "mcp__task-master-ai__next_task",
+      "mcp__task-master-ai__parse_prd",
       "mcp__task-master-ai__set_task_status",
       "mcp__task-master-ai__update_subtask",
-      "Bash(go get:*)",
+      "mcp__zen__codereview",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
       "Bash(go build:*)",
+      "Bash(go get:*)",
       "Bash(go list:*)",
+      "Bash(go mod:*)",
       "Bash(go test:*)",
+      "Bash(go tool cover:*)",
+      "Bash(sort:*)",
       "Bash(./gh-arc --help)",
       "Bash(./gh-arc version)",
       "Bash(./gh-arc version --json)",
       "Bash(./gh-arc version --verbose)",
       "Bash(./gh-arc version --quiet)",
-      "mcp__serena__get_symbols_overview",
-      "Bash(go tool cover:*)",
-      "Bash(sort:*)",
-      "mcp__task-master-ai__add_task",
-      "mcp__task-master-ai__expand_task",
-      "Bash(go mod:*)",
       "Bash(./gh-arc list --help)",
       "Bash(./gh-arc list:*)",
       "Bash(./gh-arc auth --help)",
-      "mcp__serena__find_file",
-      "WebSearch",
       "Bash(./gh-arc diff --help)",
-      "mcp__serena__find_symbol",
-      "mcp__zen__codereview",
-      "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "WebSearch"
     ],
     "deny": [
       "Bash(task-master:*)",
+      "Read(./examples)",
       "Read(./**/consensus*.md)",
-      "Read(./**/review*.md)"
+      "Read(./**/review*.md)",
+      "Read(./**/.env)",
+      "Read(./**/service-account-key.json)",
+      "Read(*.csv)",
+      "Read(*.log)",
+      "Read(*.pyc)",
+      "Read(./**/*.lock*)",
+      "Read(.git/)",
+      "Read(.idea/)",
+      "Read(.vscode/)",
+      "Read(.next/)",
+      "Read(./**/.ansible/)",
+      "Read(./**/.terraform/)",
+      "Read(./**/build/)",
+      "Read(./**/data/)",
+      "Read(./**/dist/)",
+      "Read(./**/out/)",
+      "Read(./**/node_modules/)",
+      "Read(./**/venv/)",
+      "Read(./**/__pycache__/)"
     ],
     "ask": []
   },
-  "enabledMcpjsonServers": []
+  "enabledMcpjsonServers": [],
+  "env": {
+    "CLAUDE_CODE_MAX_OUTPUT_TOKENS": 64000
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash $CLAUDE_PROJECT_DIR/.claude/scripts/validate-bash.sh"
+          }
+        ]
+      }
+    ]
+  }
 }
