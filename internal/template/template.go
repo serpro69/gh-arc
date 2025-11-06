@@ -8,7 +8,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/serpro69/gh-arc/internal/diff"
 	"github.com/serpro69/gh-arc/internal/github"
@@ -528,7 +530,39 @@ func FindSavedTemplates() ([]string, error) {
 		return nil, fmt.Errorf("failed to find saved templates: %w", err)
 	}
 
-	return matches, nil
+	// Sort by modification time (newest first)
+	// This ensures we always get the most recently saved template
+	type fileWithTime struct {
+		path    string
+		modTime time.Time
+	}
+
+	var files []fileWithTime
+	for _, path := range matches {
+		info, err := os.Stat(path)
+		if err != nil {
+			// Skip files we can't stat
+			logger.Warn().Err(err).Str("path", path).Msg("Failed to stat template file")
+			continue
+		}
+		files = append(files, fileWithTime{
+			path:    path,
+			modTime: info.ModTime(),
+		})
+	}
+
+	// Sort by modification time, newest first
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].modTime.After(files[j].modTime)
+	})
+
+	// Extract sorted paths
+	sortedPaths := make([]string, len(files))
+	for i, f := range files {
+		sortedPaths[i] = f.path
+	}
+
+	return sortedPaths, nil
 }
 
 // GetEditorCommand returns the editor command to use

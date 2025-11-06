@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/serpro69/gh-arc/internal/diff"
 	"github.com/serpro69/gh-arc/internal/github"
@@ -1063,6 +1064,9 @@ func TestFindSavedTemplates(t *testing.T) {
 	}
 	defer os.Remove(path1)
 
+	// Small delay to ensure different modification times
+	time.Sleep(10 * time.Millisecond)
+
 	path2, err := SaveTemplate(content2)
 	if err != nil {
 		t.Fatalf("SaveTemplate 2 failed: %v", err)
@@ -1096,6 +1100,75 @@ func TestFindSavedTemplates(t *testing.T) {
 	}
 	if !foundPath2 {
 		t.Error("path2 not found in FindSavedTemplates results")
+	}
+
+	// Verify that path2 (newer) comes before path1 (older) in the sorted list
+	// FindSavedTemplates should return templates sorted by modification time, newest first
+	var path1Index, path2Index int = -1, -1
+	for i, p := range found {
+		if p == path1 {
+			path1Index = i
+		}
+		if p == path2 {
+			path2Index = i
+		}
+	}
+
+	if path2Index > path1Index {
+		t.Errorf("Expected path2 (newer) to come before path1 (older) in sorted list, but got path2Index=%d, path1Index=%d", path2Index, path1Index)
+	}
+}
+
+// Test FindSavedTemplates sorting by modification time
+func TestFindSavedTemplates_SortsByModTime(t *testing.T) {
+	// Clean up any existing templates first
+	existing, _ := FindSavedTemplates()
+	for _, p := range existing {
+		os.Remove(p)
+	}
+
+	// Create templates with known order
+	templates := []struct {
+		content string
+		path    string
+	}{
+		{content: "First (oldest)"},
+		{content: "Second"},
+		{content: "Third (newest)"},
+	}
+
+	// Save templates with delays to ensure different modification times
+	for i := range templates {
+		path, err := SaveTemplate(templates[i].content)
+		if err != nil {
+			t.Fatalf("Failed to save template %d: %v", i, err)
+		}
+		templates[i].path = path
+		defer os.Remove(path)
+
+		if i < len(templates)-1 {
+			time.Sleep(10 * time.Millisecond) // Ensure different modification times
+		}
+	}
+
+	// Find templates
+	found, err := FindSavedTemplates()
+	if err != nil {
+		t.Fatalf("FindSavedTemplates failed: %v", err)
+	}
+
+	if len(found) != 3 {
+		t.Fatalf("Expected 3 templates, got %d", len(found))
+	}
+
+	// Verify the first template is the newest (templates[2])
+	if found[0] != templates[2].path {
+		t.Errorf("Expected first template to be newest (templates[2]), got %s", found[0])
+	}
+
+	// Verify the last template is the oldest (templates[0])
+	if found[2] != templates[0].path {
+		t.Errorf("Expected last template to be oldest (templates[0]), got %s", found[2])
 	}
 }
 
