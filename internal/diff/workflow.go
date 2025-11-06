@@ -2,8 +2,8 @@ package diff
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/serpro69/gh-arc/internal/codeowners"
 	"github.com/serpro69/gh-arc/internal/config"
@@ -71,7 +71,24 @@ func NewDiffWorkflow(repo *git.Repository, client *github.Client, cfg *config.Co
 }
 
 // Execute runs the diff workflow based on the provided options.
-// This is the main entry point that routes to the appropriate sub-workflow.
+// This is the main entry point that routes to the appropriate sub-workflow:
+//
+// 1. Continue Mode (--continue flag):
+//    - Loads saved template from previous validation failure
+//    - Allows user to fix errors and retry
+//    - See: executeContinueMode()
+//
+// 2. Fast Path (existing PR, no --edit flag):
+//    - Pushes new commits if any
+//    - Updates draft status if flags provided
+//    - Updates base branch if changed
+//    - See: executeFastPath()
+//
+// 3. Normal Mode (new PR or --edit flag):
+//    - Full template generation and editing flow
+//    - Handles auto-branch creation if on main
+//    - Creates or updates PR with full metadata
+//    - See: executeWithTemplateEditing()
 func (w *DiffWorkflow) Execute(ctx context.Context, opts *DiffOptions) (*DiffResult, error) {
 	logger.Debug().
 		Bool("continue", opts.Continue).
@@ -288,7 +305,7 @@ func (w *DiffWorkflow) executeWithTemplateEditing(
 	}
 
 	// Step 2: Get reviewer suggestions
-	reviewerSuggestions, err := w.getReviewerSuggestions(currentBranch, baseResult)
+	reviewerSuggestions, err := w.getReviewerSuggestions(ctx, currentBranch, baseResult)
 	if err != nil {
 		logger.Warn().Err(err).Msg("Failed to get reviewer suggestions")
 		reviewerSuggestions = []string{}
@@ -360,7 +377,7 @@ func (w *DiffWorkflow) executeWithTemplateEditing(
 			errMsg += fmt.Sprintf("\n\nTemplate saved to: %s", savedPath)
 			errMsg += "\nFix the issues and run:\n  gh arc diff --continue"
 		}
-		return nil, fmt.Errorf("%s", errMsg)
+		return nil, fmt.Errorf("%w: %s", template.ErrTemplateValidationFailed, errMsg)
 	}
 
 	// Step 7: Build PR title and body
@@ -384,7 +401,8 @@ func (w *DiffWorkflow) executeWithTemplateEditing(
 		finalBranchName, err := w.autoBranchDetector.ExecuteAutoBranch(ctx, autoBranchCtx)
 		if err != nil {
 			// Check if it's a checkout failure (non-fatal)
-			if strings.Contains(err.Error(), "checkout failed") {
+			var checkoutErr *AutoBranchCheckoutError
+			if errors.As(err, &checkoutErr) {
 				autoBranchCheckoutFailed = true
 				logger.Warn().Err(err).Msg("Auto-branch checkout failed (non-fatal)")
 			} else {
@@ -435,11 +453,11 @@ func (w *DiffWorkflow) executeWithTemplateEditing(
 }
 
 // getReviewerSuggestions gets reviewer suggestions from CODEOWNERS and config
-func (w *DiffWorkflow) getReviewerSuggestions(currentBranch string, baseResult *BaseBranchResult) ([]string, error) {
+func (w *DiffWorkflow) getReviewerSuggestions(ctx context.Context, currentBranch string, baseResult *BaseBranchResult) ([]string, error) {
 	var reviewerSuggestions []string
 
 	// Get current user for filtering
-	currentUser, err := w.client.GetCurrentUser(context.Background())
+	currentUser, err := w.client.GetCurrentUser(ctx)
 	if err != nil {
 		logger.Warn().Err(err).Msg("Failed to get current user")
 		currentUser = ""
@@ -487,18 +505,4 @@ func (w *DiffWorkflow) getReviewerSuggestions(currentBranch string, baseResult *
 		Msg("Generated reviewer suggestions")
 
 	return reviewerSuggestions, nil
-}
-
-// AutoBranchCheckoutError is returned when auto-branch checkout fails (non-fatal)
-type AutoBranchCheckoutError struct {
-	BranchName string
-	Err        error
-}
-
-func (e *AutoBranchCheckoutError) Error() string {
-	return fmt.Sprintf("failed to checkout auto-branch %s: %v", e.BranchName, e.Err)
-}
-
-func (e *AutoBranchCheckoutError) Unwrap() error {
-	return e.Err
 }

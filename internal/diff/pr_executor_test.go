@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/serpro69/gh-arc/internal/github"
@@ -494,5 +495,38 @@ func TestPRExecutor_UpdateDraftStatus(t *testing.T) {
 				t.Errorf("PR draft status = %v, want %v", result.Draft, tt.wantDraft)
 			}
 		})
+	}
+}
+
+
+func TestAutoBranchCheckoutError_Unwrap(t *testing.T) {
+	innerErr := errors.New("git checkout failed")
+	checkoutErr := &AutoBranchCheckoutError{
+		BranchName: "feature/test",
+		Err:        innerErr,
+	}
+
+	if !errors.Is(checkoutErr, innerErr) {
+		t.Error("AutoBranchCheckoutError should unwrap to inner error")
+	}
+
+	if !errors.Is(checkoutErr, ErrAutoBranchCheckoutFailed) {
+		t.Error("AutoBranchCheckoutError should match ErrAutoBranchCheckoutFailed")
+	}
+}
+
+func TestAutoBranchCheckoutError_ErrorMessage(t *testing.T) {
+	innerErr := errors.New("permission denied")
+	checkoutErr := &AutoBranchCheckoutError{
+		BranchName: "feature/my-branch",
+		Err:        innerErr,
+	}
+
+	errMsg := checkoutErr.Error()
+	if !strings.Contains(errMsg, "checkout failed") {
+		t.Errorf("Error message should contain 'checkout failed', got: %s", errMsg)
+	}
+	if !strings.Contains(errMsg, "permission denied") {
+		t.Errorf("Error message should contain inner error, got: %s", errMsg)
 	}
 }

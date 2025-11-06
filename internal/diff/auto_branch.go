@@ -15,6 +15,11 @@ import (
 	"github.com/serpro69/gh-arc/internal/logger"
 )
 
+const (
+	// maxPushAttempts is the maximum number of attempts to push auto-branch with collision retry
+	maxPushAttempts = 3
+)
+
 // Sentinel errors for error type checking with errors.Is()
 var (
 	// ErrOperationCancelled indicates user cancelled the operation
@@ -22,7 +27,29 @@ var (
 
 	// ErrStaleRemote indicates user declined to continue with stale remote
 	ErrStaleRemote = errors.New("operation declined due to stale remote")
+
+	// ErrAutoBranchCheckoutFailed indicates auto-branch checkout failed (non-fatal)
+	// This is wrapped with AutoBranchCheckoutError to provide details
+	ErrAutoBranchCheckoutFailed = errors.New("auto-branch checkout failed")
 )
+
+// AutoBranchCheckoutError is returned when auto-branch checkout fails (non-fatal)
+type AutoBranchCheckoutError struct {
+	BranchName string
+	Err        error
+}
+
+func (e *AutoBranchCheckoutError) Error() string {
+	return fmt.Sprintf("checkout failed: %v", e.Err)
+}
+
+func (e *AutoBranchCheckoutError) Unwrap() error {
+	return e.Err
+}
+
+func (e *AutoBranchCheckoutError) Is(target error) bool {
+	return target == ErrAutoBranchCheckoutFailed
+}
 
 // AutoBranchDetector is the main detector and orchestrator for auto-branch operations.
 // It handles detection of commits on main and orchestrates the auto-branch creation flow.
@@ -579,7 +606,7 @@ func (d *AutoBranchDetector) ExecuteAutoBranch(ctx context.Context, context *Aut
 		Msg("Executing auto-branch flow")
 
 	// Step 1: Push branch to remote with collision retry
-	finalBranchName, err := d.PushWithRetry(ctx, context, 3)
+	finalBranchName, err := d.PushWithRetry(ctx, context, maxPushAttempts)
 	if err != nil {
 		return "", fmt.Errorf("failed to push auto-branch: %w", err)
 	}
@@ -596,7 +623,8 @@ func (d *AutoBranchDetector) ExecuteAutoBranch(ctx context.Context, context *Aut
 			Err(err).
 			Str("branchName", finalBranchName).
 			Msg("Failed to checkout tracking branch (non-fatal)")
-		return finalBranchName, fmt.Errorf("checkout failed: %w", err)
+		// Return typed error so caller can handle it gracefully
+		return finalBranchName, &AutoBranchCheckoutError{BranchName: finalBranchName, Err: err}
 	}
 
 	logger.Info().

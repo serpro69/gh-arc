@@ -179,6 +179,16 @@ Contains the core implementation organized by domain:
 - Handle template persistence for --continue
 - Support stacking context in templates
 
+**Error Types:**
+
+```go
+var (
+    ErrEditorCancelled          = errors.New("editor cancelled: template unchanged or empty")
+    ErrNoEditor                 = errors.New("no editor available: set $EDITOR environment variable")
+    ErrTemplateValidationFailed = errors.New("template validation failed")
+)
+```
+
 #### `internal/cache/` - Generic Caching
 
 **Purpose:** Provides in-memory caching with TTL.
@@ -335,14 +345,29 @@ type DiffConfig struct {
 }
 ```
 
+**Constants:**
+
+```go
+const (
+    maxPushAttempts = 3  // Maximum retry attempts for branch push with collision handling
+)
+```
+
 **Error Types:**
 
 ```go
 // Sentinel errors for reliable error checking with errors.Is()
 var (
-    ErrOperationCancelled = errors.New("operation cancelled by user")
-    ErrStaleRemote        = errors.New("operation declined due to stale remote")
+    ErrOperationCancelled       = errors.New("operation cancelled by user")
+    ErrStaleRemote             = errors.New("operation declined due to stale remote")
+    ErrAutoBranchCheckoutFailed = errors.New("auto-branch checkout failed")
 )
+
+// AutoBranchCheckoutError provides details for non-fatal checkout failures
+type AutoBranchCheckoutError struct {
+    BranchName string
+    Err        error
+}
 ```
 
 **Integration with Workflow:**

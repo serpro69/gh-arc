@@ -40,6 +40,9 @@ var (
 
 	// ErrNoEditor is returned when no editor is available
 	ErrNoEditor = errors.New("no editor available: set $EDITOR environment variable")
+
+	// ErrTemplateValidationFailed is returned when template validation fails
+	ErrTemplateValidationFailed = errors.New("template validation failed")
 )
 
 // TemplateFields contains all the structured data from the template
