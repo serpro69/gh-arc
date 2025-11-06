@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -163,6 +164,184 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		Str("branch", currentBranch).
 		Msg("Current branch")
 
+	// Create GitHub client (needed for both continue and normal flows)
+	client, err := github.NewClient()
+	if err != nil {
+		return fmt.Errorf("failed to create GitHub client: %w", err)
+	}
+
+	// CONTINUE MODE: Skip all analysis and just use saved template
+	if diffContinue {
+		logger.Debug().Msg("Continue mode: loading saved template and skipping analysis")
+
+		// Find and load saved template
+		savedTemplates, err := template.FindSavedTemplates()
+		if err != nil {
+			return fmt.Errorf("failed to find saved template (use 'gh arc diff --edit' to start fresh): %w", err)
+		} else if len(savedTemplates) == 0 {
+			return fmt.Errorf("no saved template found (use 'gh arc diff --edit' to start fresh)")
+		}
+
+		savedTemplatePath := savedTemplates[len(savedTemplates)-1]
+		templateContent, err := template.LoadSavedTemplate(savedTemplatePath)
+		if err != nil {
+			return fmt.Errorf("failed to load saved template (use 'gh arc diff --edit' to start fresh): %w", err)
+		}
+
+		// Extract branch information from template
+		prHeadBranch, prBaseBranch, found := template.ExtractBranchInfo(templateContent)
+		if !found {
+			return fmt.Errorf("failed to extract branch info from template (template may be corrupted)")
+		}
+
+		logger.Debug().
+			Str("headBranch", prHeadBranch).
+			Str("baseBranch", prBaseBranch).
+			Msg("Extracted branch info from saved template")
+
+		// Open editor to allow fixing validation issues (unless --no-edit)
+		if !diffNoEdit {
+			templateContent, err = template.OpenEditor(templateContent)
+			if err != nil {
+				if err == template.ErrEditorCancelled {
+					fmt.Println("✗ Editor cancelled, no changes made")
+					return nil
+				}
+				return fmt.Errorf("failed to open editor: %w", err)
+			}
+		}
+
+		// Parse and validate template
+		parsedFields, err := template.ParseTemplate(templateContent)
+		if err != nil {
+			return fmt.Errorf("failed to parse template: %w", err)
+		}
+
+		// Validate required fields (no stacking context in continue mode)
+		validationErrors := template.ValidateFields(parsedFields, cfg.Diff.RequireTestPlan, nil)
+		if len(validationErrors) > 0 {
+			fmt.Println("\n✗ Template validation failed:")
+			for _, errMsg := range validationErrors {
+				fmt.Printf("  • %s\n", errMsg)
+			}
+			fmt.Println("\nTemplate saved. Fix the issues and run:")
+			fmt.Println("  gh arc diff --continue")
+			return fmt.Errorf("template validation failed")
+		}
+
+		// Delete saved template after successful validation
+		if err := os.Remove(savedTemplatePath); err != nil {
+			logger.Warn().Err(err).Msg("Failed to remove saved template")
+		}
+
+		// Check for existing PR
+		existingPR, err := client.FindExistingPR(ctx, repo.Owner, repo.Name, prHeadBranch)
+		if err != nil {
+			return fmt.Errorf("failed to check for existing PR: %w", err)
+		}
+
+		// Create or update PR
+		if existingPR != nil {
+			fmt.Printf("\n✓ Found existing PR #%d\n", existingPR.Number)
+			fmt.Printf("  Updating PR with new information...\n")
+
+			// Determine draft status pointer for update
+			var draftPtr *bool
+			if parsedFields.Draft != existingPR.Draft {
+				draftPtr = &parsedFields.Draft
+			}
+
+			// Update PR
+			updatedPR, err := client.UpdatePullRequest(
+				ctx,
+				repo.Owner, repo.Name,
+				existingPR.Number,
+				parsedFields.Title,
+				parsedFields.Summary,
+				draftPtr,
+				nil, // No parent PR in continue mode
+			)
+			if err != nil {
+				return fmt.Errorf("failed to update PR: %w", err)
+			}
+
+			// Handle draft status transitions
+			if parsedFields.Draft && !existingPR.Draft {
+				_, err := client.ConvertPRToDraft(ctx, repo.Owner, repo.Name, existingPR)
+				if err != nil {
+					logger.Warn().Err(err).Msg("Failed to convert PR to draft")
+				} else {
+					fmt.Println("  ✓ Converted PR to draft")
+				}
+			} else if !parsedFields.Draft && existingPR.Draft {
+				_, err := client.MarkPRReadyForReview(ctx, repo.Owner, repo.Name, existingPR)
+				if err != nil {
+					logger.Warn().Err(err).Msg("Failed to mark PR as ready")
+				} else {
+					fmt.Println("  ✓ Marked PR as ready for review")
+				}
+			}
+
+			// Assign reviewers (parse users and teams)
+			if len(parsedFields.Reviewers) > 0 {
+				assignment := github.ParseReviewers(parsedFields.Reviewers)
+				err := client.AssignReviewers(
+					ctx,
+					repo.Owner, repo.Name,
+					existingPR.Number,
+					assignment.Users, assignment.Teams,
+				)
+				if err != nil {
+					logger.Warn().Err(err).Msg("Failed to assign reviewers")
+				} else {
+					fmt.Printf("  ✓ Assigned reviewers: %s\n", strings.Join(parsedFields.Reviewers, ", "))
+				}
+			}
+
+			fmt.Printf("\n✓ PR updated: %s\n", updatedPR.HTMLURL)
+		} else {
+			fmt.Println("\nCreating new PR...")
+
+			// Create PR
+			newPR, err := client.CreatePullRequest(
+				ctx,
+				repo.Owner, repo.Name,
+				parsedFields.Title,
+				prHeadBranch,
+				prBaseBranch,
+				parsedFields.Summary,
+				parsedFields.Draft,
+				nil, // No parent PR in continue mode
+			)
+			if err != nil {
+				return fmt.Errorf("failed to create PR: %w", err)
+			}
+
+			// Assign reviewers (parse users and teams)
+			if len(parsedFields.Reviewers) > 0 {
+				assignment := github.ParseReviewers(parsedFields.Reviewers)
+				err := client.AssignReviewers(
+					ctx,
+					repo.Owner, repo.Name,
+					newPR.Number,
+					assignment.Users, assignment.Teams,
+				)
+				if err != nil {
+					logger.Warn().Err(err).Msg("Failed to assign reviewers")
+				} else {
+					fmt.Printf("  ✓ Assigned reviewers: %s\n", strings.Join(parsedFields.Reviewers, ", "))
+				}
+			}
+
+			fmt.Printf("\n✓ PR created: %s\n", newPR.HTMLURL)
+		}
+
+		return nil
+	}
+
+	// NORMAL MODE: Do full analysis and template generation
+	logger.Debug().Msg("Normal mode: performing full analysis")
+
 	// Auto-branch detection: Check if user has commits on main/master
 	var autoBranchContext *diff.AutoBranchContext
 	autoBranchDetector := diff.NewAutoBranchDetector(gitRepo, &cfg.Diff)
@@ -206,12 +385,6 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	prHeadBranch := currentBranch
 	if autoBranchContext != nil {
 		prHeadBranch = autoBranchContext.BranchName
-	}
-
-	// Create GitHub client
-	client, err := github.NewClient()
-	if err != nil {
-		return fmt.Errorf("failed to create GitHub client: %w", err)
 	}
 
 	// Get current user for metadata
@@ -376,122 +549,89 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	var templateContent string
 	var parsedFields *template.TemplateFields
 
-	// Check if we're in --continue mode
-	var savedTemplatePath string
-	if diffContinue {
-		logger.Debug().Msg("Continue mode: looking for saved template")
+	// Generate fresh template
+	logger.Debug().Msg("Generating fresh template")
 
-		// Find saved templates
-		savedTemplates, err := template.FindSavedTemplates()
-		if err != nil {
-			return fmt.Errorf("failed to find saved template (use 'gh arc diff --edit' to start fresh): %w", err)
-		} else if len(savedTemplates) == 0 {
-			return fmt.Errorf("no saved template found (use 'gh arc diff --edit' to start fresh)")
-		}
+	var reviewerSuggestions []string
 
-		// Use the most recent saved template
-		savedTemplatePath = savedTemplates[len(savedTemplates)-1]
-		templateContent, err = template.LoadSavedTemplate(savedTemplatePath)
-		if err != nil {
-			return fmt.Errorf("failed to load saved template (use 'gh arc diff --edit' to start fresh): %w", err)
-		}
-
-		// Open editor to allow fixing validation issues
-		if !skipEditor {
-			templateContent, err = template.OpenEditor(templateContent)
-			if err != nil {
-				if err == template.ErrEditorCancelled {
-					fmt.Println("✗ Editor cancelled, no changes made")
-					return nil
-				}
-				return fmt.Errorf("failed to open editor: %w", err)
-			}
-		}
+	// Get CODEOWNERS reviewer suggestions
+	co, err := codeowners.ParseCodeowners(".")
+	if err != nil {
+		logger.Warn().Err(err).Msg("Failed to parse CODEOWNERS file")
 	} else {
-		// Generate fresh template
-		logger.Debug().Msg("Generating fresh template")
-
-		var reviewerSuggestions []string
-
-		// Get CODEOWNERS reviewer suggestions
-		co, err := codeowners.ParseCodeowners(".")
+		// Get trunk branch for stack-aware analysis
+		trunkBranch, err := gitRepo.GetDefaultBranch()
 		if err != nil {
-			logger.Warn().Err(err).Msg("Failed to parse CODEOWNERS file")
-		} else {
-			// Get trunk branch for stack-aware analysis
-			trunkBranch, err := gitRepo.GetDefaultBranch()
-			if err != nil {
-				logger.Warn().Err(err).Msg("Failed to get default branch")
-				trunkBranch = "main" // Fallback
-			}
-
-			// Get stack-aware reviewers based on changed files
-			considerFullStack := baseResult.IsStacking
-			reviewerSuggestions, err = codeowners.GetStackAwareReviewers(
-				gitRepo,
-				co,
-				currentBranch,
-				baseResult.Base,
-				trunkBranch,
-				currentUser,
-				considerFullStack,
-			)
-			if err != nil {
-				logger.Warn().Err(err).Msg("Failed to get stack-aware reviewers")
-			}
-
-			logger.Info().
-				Int("count", len(reviewerSuggestions)).
-				Strs("reviewers", reviewerSuggestions).
-				Msg("Generated reviewer suggestions from CODEOWNERS")
+			logger.Warn().Err(err).Msg("Failed to get default branch")
+			trunkBranch = "main" // Fallback
 		}
 
-		// Append default reviewers from config, if any
-		reviewerSuggestions = append(reviewerSuggestions, cfg.GitHub.DefaultReviewers...)
-		logger.Info().
-			Int("count", len(cfg.GitHub.DefaultReviewers)).
-			Strs("reviewers", reviewerSuggestions).
-			Msg("Appended defaultReviewers from configuration")
-
-		// Remove duplicates from final reviewers array
-		reviewerSuggestions = codeowners.DeduplicateReviewers(reviewerSuggestions)
-
-		// Determine default draft value for template: flags > config
-		templateDraftDefault := cfg.Diff.CreateAsDraft
-		if diffDraft {
-			templateDraftDefault = true
-		} else if diffReady {
-			templateDraftDefault = false
-		}
-
-		// Create template generator
-		gen := template.NewTemplateGenerator(
-			&template.StackingContext{
-				IsStacking:     baseResult.IsStacking,
-				BaseBranch:     baseResult.Base,
-				ParentPR:       baseResult.ParentPR,
-				DependentPRs:   dependentInfo.DependentPRs,
-				CurrentBranch:  prHeadBranch,
-				ShowDependents: dependentInfo.HasDependents,
-			},
-			analysis,
-			reviewerSuggestions,
-			cfg.Diff.LinearEnabled,
-			templateDraftDefault,
+		// Get stack-aware reviewers based on changed files
+		considerFullStack := baseResult.IsStacking
+		reviewerSuggestions, err = codeowners.GetStackAwareReviewers(
+			gitRepo,
+			co,
+			currentBranch,
+			baseResult.Base,
+			trunkBranch,
+			currentUser,
+			considerFullStack,
 		)
+		if err != nil {
+			logger.Warn().Err(err).Msg("Failed to get stack-aware reviewers")
+		}
 
-		templateContent = gen.Generate()
+		logger.Info().
+			Int("count", len(reviewerSuggestions)).
+			Strs("reviewers", reviewerSuggestions).
+			Msg("Generated reviewer suggestions from CODEOWNERS")
+	}
 
-		// Open editor unless --no-edit flag is set
-		if !skipEditor {
-			templateContent, err = template.OpenEditor(templateContent)
-			if err != nil {
-				if err == template.ErrEditorCancelled {
-					fmt.Println("✗ Editor cancelled, no changes made")
-					return nil
-				}
-				return fmt.Errorf("failed to open editor: %w", err)
+	// Append default reviewers from config, if any
+	reviewerSuggestions = append(reviewerSuggestions, cfg.GitHub.DefaultReviewers...)
+	logger.Info().
+		Int("count", len(cfg.GitHub.DefaultReviewers)).
+		Strs("reviewers", reviewerSuggestions).
+		Msg("Appended defaultReviewers from configuration")
+
+	// Remove duplicates from final reviewers array
+	reviewerSuggestions = codeowners.DeduplicateReviewers(reviewerSuggestions)
+
+	// Determine default draft value for template: flags > config
+	templateDraftDefault := cfg.Diff.CreateAsDraft
+	if diffDraft {
+		templateDraftDefault = true
+	} else if diffReady {
+		templateDraftDefault = false
+	}
+
+	// Create template generator
+	gen := template.NewTemplateGenerator(
+		&template.StackingContext{
+			IsStacking:     baseResult.IsStacking,
+			BaseBranch:     baseResult.Base,
+			ParentPR:       baseResult.ParentPR,
+			DependentPRs:   dependentInfo.DependentPRs,
+			CurrentBranch:  prHeadBranch,
+			ShowDependents: dependentInfo.HasDependents,
+		},
+		analysis,
+		reviewerSuggestions,
+		cfg.Diff.LinearEnabled,
+		templateDraftDefault,
+	)
+
+	templateContent = gen.Generate()
+
+	// Open editor unless --no-edit flag is set
+	if !skipEditor {
+		templateContent, err = template.OpenEditor(templateContent)
+		if err != nil {
+			if err == template.ErrEditorCancelled {
+				fmt.Println("✗ Editor cancelled, no changes made")
+				return nil
 			}
+			return fmt.Errorf("failed to open editor: %w", err)
 		}
 	}
 
@@ -783,11 +923,6 @@ func runDiff(cmd *cobra.Command, args []string) error {
 			fmt.Printf("        To clean up %s, run: git checkout %s && git reset --hard origin/%s\n",
 				detection.DefaultBranch, detection.DefaultBranch, detection.DefaultBranch)
 		}
-	}
-
-	// Step 11: Clean up saved template on success
-	if diffContinue && savedTemplatePath != "" {
-		_ = template.RemoveSavedTemplate(savedTemplatePath)
 	}
 
 	// Display final success message
