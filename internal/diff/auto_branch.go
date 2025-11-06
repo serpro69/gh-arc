@@ -500,3 +500,108 @@ func (d *AutoBranchDetector) PrepareAutoBranch(ctx context.Context, detection *D
 		ShouldProceed: true,
 	}, nil
 }
+
+// PushWithRetry pushes the auto-created branch to remote with collision retry logic.
+// If a branch name collision is detected, it regenerates a unique name and retries.
+// Returns the final branch name used (which may differ from context.BranchName if collision occurred).
+func (d *AutoBranchDetector) PushWithRetry(ctx context.Context, context *AutoBranchContext, maxAttempts int) (string, error) {
+	logger := logger.Get()
+	originalBranchName := context.BranchName
+	currentBranchName := context.BranchName
+	var pushErr error
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		logger.Debug().
+			Str("branchName", currentBranchName).
+			Int("attempt", attempt).
+			Int("maxAttempts", maxAttempts).
+			Msg("Attempting to push auto-branch")
+
+		// Attempt push using HEAD:branchName format to push from current HEAD to remote branch
+		pushErr = d.repo.PushBranch(ctx, "HEAD", currentBranchName)
+
+		if pushErr == nil {
+			// Success!
+			logger.Info().
+				Str("branchName", currentBranchName).
+				Int("attempt", attempt).
+				Msg("Successfully pushed auto-branch to remote")
+			return currentBranchName, nil
+		}
+
+		// Check error type
+		if errors.Is(pushErr, git.ErrRemoteBranchExists) {
+			// Branch name collision - regenerate and retry
+			logger.Warn().
+				Str("branchName", currentBranchName).
+				Int("attempt", attempt).
+				Msg("Branch name collision detected during push")
+
+			if attempt < maxAttempts {
+				// Generate new unique name
+				newName, err := d.EnsureUniqueBranchName(originalBranchName)
+				if err != nil {
+					return "", fmt.Errorf("failed to generate unique branch name after collision: %w", err)
+				}
+
+				currentBranchName = newName
+				logger.Debug().
+					Str("newBranchName", newName).
+					Msg("Generated new branch name after collision")
+				// Loop will retry with new name
+			} else {
+				// Exhausted retries
+				return "", fmt.Errorf("failed to push branch after %d attempts due to name collisions: %w", maxAttempts, pushErr)
+			}
+		} else if errors.Is(pushErr, git.ErrAuthenticationFailed) {
+			// Authentication error - cannot retry
+			return "", fmt.Errorf("authentication failed when pushing branch: %w", pushErr)
+		} else {
+			// Other error - cannot retry
+			return "", fmt.Errorf("failed to push branch: %w", pushErr)
+		}
+	}
+
+	// Should not reach here, but safety catch
+	return "", fmt.Errorf("failed to push branch after %d attempts: %w", maxAttempts, pushErr)
+}
+
+// ExecuteAutoBranch executes the full auto-branch flow:
+// 1. Pushes the branch to remote (with collision retry)
+// 2. Checks out the tracking branch locally
+// Returns the final branch name used (may differ from context.BranchName if collision occurred).
+// Checkout failures are non-fatal and return an error that should be displayed as a warning.
+func (d *AutoBranchDetector) ExecuteAutoBranch(ctx context.Context, context *AutoBranchContext) (string, error) {
+	logger := logger.Get()
+
+	logger.Debug().
+		Str("branchName", context.BranchName).
+		Msg("Executing auto-branch flow")
+
+	// Step 1: Push branch to remote with collision retry
+	finalBranchName, err := d.PushWithRetry(ctx, context, 3)
+	if err != nil {
+		return "", fmt.Errorf("failed to push auto-branch: %w", err)
+	}
+
+	// Update context with final branch name (in case collision occurred)
+	context.BranchName = finalBranchName
+
+	// Step 2: Checkout tracking branch locally
+	err = d.repo.CheckoutTrackingBranch(finalBranchName, "origin/"+finalBranchName)
+	if err != nil {
+		// Checkout failed, but don't fail the entire operation
+		// User can manually checkout the branch
+		logger.Warn().
+			Err(err).
+			Str("branchName", finalBranchName).
+			Msg("Failed to checkout tracking branch (non-fatal)")
+		return finalBranchName, fmt.Errorf("checkout failed: %w", err)
+	}
+
+	logger.Info().
+		Str("branchName", finalBranchName).
+		Msg("Successfully executed auto-branch flow")
+
+	return finalBranchName, nil
+}

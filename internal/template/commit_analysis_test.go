@@ -1,4 +1,4 @@
-package diff
+package template
 
 import (
 	"strings"
@@ -14,25 +14,12 @@ type mockGitRepo struct {
 	err     error
 }
 
-func (m *mockGitRepo) GetCommitRange(baseBranch, headBranch string) ([]git.CommitInfo, error) {
-	if m.err != nil {
-		return nil, m.err
-	}
-	return m.commits, nil
-}
-
 func (m *mockGitRepo) GetCommitsBetween(base, head string) ([]git.CommitInfo, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
 	return m.commits, nil
 }
-
-func (m *mockGitRepo) Path() string { return "/test/repo" }
-func (m *mockGitRepo) GetDefaultBranch() (string, error) { return "main", nil }
-func (m *mockGitRepo) ListBranches(includeRemote bool) ([]git.BranchInfo, error) { return nil, nil }
-func (m *mockGitRepo) GetMergeBase(ref1, ref2 string) (string, error) { return "abc123", nil }
-func (m *mockGitRepo) IsAncestor(ancestorRef, descendantRef string) (bool, error) { return true, nil }
 
 func TestAnalyzeCommitsForTemplate_SingleCommit(t *testing.T) {
 	mockRepo := &mockGitRepo{
@@ -56,7 +43,7 @@ func TestAnalyzeCommitsForTemplate_SingleCommit(t *testing.T) {
 		t.Errorf("expected title 'Fix authentication bug', got '%s'", analysis.Title)
 	}
 
-	if !contains(analysis.Summary, "couldn't log in") {
+	if !strings.Contains(analysis.Summary, "couldn't log in") {
 		t.Errorf("expected summary to contain commit body, got '%s'", analysis.Summary)
 	}
 
@@ -100,11 +87,11 @@ func TestAnalyzeCommitsForTemplate_MultipleCommits(t *testing.T) {
 	}
 
 	// Summary should list all commits
-	if !contains(analysis.Summary, "Fix authentication bug") {
+	if !strings.Contains(analysis.Summary, "Fix authentication bug") {
 		t.Errorf("expected summary to contain first commit title")
 	}
 
-	if !contains(analysis.Summary, "Add tests for authentication") {
+	if !strings.Contains(analysis.Summary, "Add tests for authentication") {
 		t.Errorf("expected summary to contain second commit title")
 	}
 
@@ -128,7 +115,7 @@ func TestAnalyzeCommitsForTemplate_NoCommits(t *testing.T) {
 		t.Errorf("expected title 'New Feature' from branch name, got '%s'", analysis.Title)
 	}
 
-	if !contains(analysis.Summary, "No commits") {
+	if !strings.Contains(analysis.Summary, "No commits") {
 		t.Errorf("expected summary to indicate no commits, got '%s'", analysis.Summary)
 	}
 
@@ -175,41 +162,6 @@ func TestAnalyzeCommitsForTemplate_MergeCommits(t *testing.T) {
 
 	if analysis.CommitCount != 3 {
 		t.Errorf("expected commit count 3, got %d", analysis.CommitCount)
-	}
-}
-
-func TestGenerateTemplateContent(t *testing.T) {
-	analysis := &CommitAnalysis{
-		Title:       "Fix authentication bug",
-		Summary:     "This fixes the issue where users couldn't log in.",
-		BaseBranch:  "main",
-		CommitCount: 1,
-	}
-
-	fields := GenerateTemplateContent(analysis)
-
-	if fields.Title != analysis.Title {
-		t.Errorf("expected title '%s', got '%s'", analysis.Title, fields.Title)
-	}
-
-	if fields.Summary != analysis.Summary {
-		t.Errorf("expected summary '%s', got '%s'", analysis.Summary, fields.Summary)
-	}
-
-	if fields.BaseBranch != "main" {
-		t.Errorf("expected base branch 'main', got '%s'", fields.BaseBranch)
-	}
-
-	if fields.TestPlan != "" {
-		t.Errorf("expected empty test plan, got '%s'", fields.TestPlan)
-	}
-
-	if fields.Reviewers != "" {
-		t.Errorf("expected empty reviewers, got '%s'", fields.Reviewers)
-	}
-
-	if fields.Ref != "" {
-		t.Errorf("expected empty ref, got '%s'", fields.Ref)
 	}
 }
 
@@ -373,11 +325,11 @@ func TestGenerateFromSingleCommit_WithBody(t *testing.T) {
 		t.Errorf("expected title 'Fix authentication bug', got '%s'", title)
 	}
 
-	if !contains(summary, "couldn't log in") {
+	if !strings.Contains(summary, "couldn't log in") {
 		t.Errorf("expected summary to contain body text")
 	}
 
-	if contains(summary, "Fix authentication bug") {
+	if strings.Contains(summary, "Fix authentication bug") {
 		t.Errorf("summary should not duplicate the title")
 	}
 }
@@ -429,13 +381,13 @@ func TestGenerateFromMultipleCommits_ChronologicalOrder(t *testing.T) {
 	thirdCommitIdx := -1
 
 	for i, line := range lines {
-		if contains(line, "First commit") {
+		if strings.Contains(line, "First commit") {
 			firstCommitIdx = i
 		}
-		if contains(line, "Second commit") {
+		if strings.Contains(line, "Second commit") {
 			secondCommitIdx = i
 		}
-		if contains(line, "Third commit") {
+		if strings.Contains(line, "Third commit") {
 			thirdCommitIdx = i
 		}
 	}
