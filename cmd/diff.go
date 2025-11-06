@@ -221,11 +221,29 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		// Validate required fields (no stacking context in continue mode)
 		validationErrors := template.ValidateFields(parsedFields, cfg.Diff.RequireTestPlan, nil)
 		if len(validationErrors) > 0 {
+			// Save the edited template so user's changes are preserved for next --continue
+			// Delete the old template first
+			if err := os.Remove(savedTemplatePath); err != nil {
+				logger.Warn().Err(err).Msg("Failed to remove old saved template")
+			}
+
+			// Save the new edited template
+			newTemplatePath, err := template.SaveTemplate(templateContent)
+			if err != nil {
+				logger.Warn().Err(err).Msg("Failed to save edited template")
+				// Continue with validation error even if save fails
+			} else {
+				logger.Debug().Str("path", newTemplatePath).Msg("Saved edited template for retry")
+			}
+
 			fmt.Println("\n✗ Template validation failed:")
 			for _, errMsg := range validationErrors {
 				fmt.Printf("  • %s\n", errMsg)
 			}
-			fmt.Println("\nTemplate saved. Fix the issues and run:")
+			if newTemplatePath != "" {
+				fmt.Printf("\nTemplate saved to: %s\n", newTemplatePath)
+			}
+			fmt.Println("Fix the issues and run:")
 			fmt.Println("  gh arc diff --continue")
 			return fmt.Errorf("template validation failed")
 		}
