@@ -202,6 +202,12 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		fmt.Printf("✓ Will create feature branch: %s\n\n", autoBranchContext.BranchName)
 	}
 
+	// Determine the PR head branch name (may differ from current git branch for auto-branch flow)
+	prHeadBranch := currentBranch
+	if autoBranchContext != nil {
+		prHeadBranch = autoBranchContext.BranchName
+	}
+
 	// Create GitHub client
 	client, err := github.NewClient()
 	if err != nil {
@@ -241,7 +247,11 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	}
 
 	// Step 3: Analyze commits for template pre-filling
-	analysis, err := diff.AnalyzeCommitsForTemplate(gitRepo, baseResult.Base, currentBranch)
+	// Always use remote tracking branch as base to capture all unpushed commits
+	// This handles both auto-branch scenarios and normal feature branches
+	commitAnalysisBase := "origin/" + baseResult.Base
+
+	analysis, err := diff.AnalyzeCommitsForTemplate(gitRepo, commitAnalysisBase, currentBranch)
 	if err != nil {
 		return fmt.Errorf("failed to analyze commits: %w", err)
 	}
@@ -252,7 +262,7 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		Msg("Analyzed commits for template")
 
 	// Step 4: Check for existing PR
-	existingPR, err := client.FindExistingPRForCurrentBranch(ctx, currentBranch)
+	existingPR, err := client.FindExistingPRForCurrentBranch(ctx, prHeadBranch)
 	if err != nil {
 		return fmt.Errorf("failed to check for existing PR: %w", err)
 	}
@@ -461,7 +471,7 @@ func runDiff(cmd *cobra.Command, args []string) error {
 				BaseBranch:     baseResult.Base,
 				ParentPR:       baseResult.ParentPR,
 				DependentPRs:   dependentInfo.DependentPRs,
-				CurrentBranch:  currentBranch,
+				CurrentBranch:  prHeadBranch,
 				ShowDependents: dependentInfo.HasDependents,
 			},
 			analysis,
@@ -496,7 +506,7 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		BaseBranch:     baseResult.Base,
 		ParentPR:       baseResult.ParentPR,
 		DependentPRs:   dependentInfo.DependentPRs,
-		CurrentBranch:  currentBranch,
+		CurrentBranch:  prHeadBranch,
 		ShowDependents: dependentInfo.HasDependents,
 	}
 
@@ -643,7 +653,8 @@ func runDiff(cmd *cobra.Command, args []string) error {
 						fmt.Println("  (Resolved branch name collision by appending counter)")
 					}
 
-					// Update currentBranch for PR creation
+					// Update branch variables for PR creation and subsequent operations
+					prHeadBranch = autoBranchContext.BranchName
 					currentBranch = autoBranchContext.BranchName
 					break
 				}
@@ -702,7 +713,7 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		pr, err = client.CreatePullRequestForCurrentRepo(
 			ctx,
 			prTitle,
-			currentBranch,
+			prHeadBranch,
 			baseResult.Base,
 			prBody,
 			isDraft,

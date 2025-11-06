@@ -37,7 +37,8 @@ func AnalyzeCommitsForTemplate(repo GitRepository, baseBranch, headBranch string
 		Msg("Analyzing commits for template")
 
 	// Get commits between base and head
-	commits, err := repo.GetCommitRange(baseBranch, headBranch)
+	// Use GetCommitsBetween which can handle remote tracking branches (e.g., origin/main)
+	commits, err := repo.GetCommitsBetween(baseBranch, headBranch)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get commit range: %w", err)
 	}

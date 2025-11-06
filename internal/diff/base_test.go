@@ -43,6 +43,13 @@ func (m *mockRepository) GetCommitRange(from, to string) ([]git.CommitInfo, erro
 	return []git.CommitInfo{{SHA: "commit1"}}, nil
 }
 
+func (m *mockRepository) GetCommitsBetween(base, head string) ([]git.CommitInfo, error) {
+	if m.commitRange != nil {
+		return m.commitRange(base, head)
+	}
+	return []git.CommitInfo{{SHA: "commit1"}}, nil
+}
+
 // mockGitHubClient implements a minimal mock for github.Client
 type mockGitHubClient struct {
 	pullRequests []*github.PullRequest

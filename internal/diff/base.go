@@ -18,6 +18,7 @@ type GitRepository interface {
 	ListBranches(includeRemote bool) ([]git.BranchInfo, error)
 	GetMergeBase(ref1, ref2 string) (string, error)
 	GetCommitRange(from, to string) ([]git.CommitInfo, error)
+	GetCommitsBetween(base, head string) ([]git.CommitInfo, error)
 }
 
 // GitHubClient defines the interface for GitHub operations needed by base detection
