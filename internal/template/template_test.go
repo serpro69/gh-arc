@@ -1360,3 +1360,335 @@ ENG-123, ENG-124
 		_, _ = ParseTemplate(content)
 	}
 }
+
+// Test ExtractBranchInfo with standard PR header
+func TestExtractBranchInfo(t *testing.T) {
+	tests := []struct {
+		name          string
+		templateContent string
+		expectedHead  string
+		expectedBase  string
+		expectedFound bool
+	}{
+		{
+			name: "standard PR header format",
+			templateContent: `# Creating PR: feature/test → main
+# Base Branch: main (read-only)
+
+PR Title: Test PR
+
+Summary: Test summary`,
+			expectedHead:  "feature/test",
+			expectedBase:  "main",
+			expectedFound: true,
+		},
+		{
+			name: "stacked PR header format",
+			templateContent: `# Creating PR: feature/child → feature/parent
+# 📚 Creating stacked PR on feature/parent
+# Base Branch: feature/parent (read-only)
+
+PR Title: Stacked PR
+
+Summary: Test summary`,
+			expectedHead:  "feature/child",
+			expectedBase:  "feature/parent",
+			expectedFound: true,
+		},
+		{
+			name: "auto-branch scenario",
+			templateContent: `# Creating PR: feature/auto-from-main-1234567890 → main
+# Base Branch: main (read-only)
+
+PR Title: Auto-branched PR
+
+Summary: Test summary`,
+			expectedHead:  "feature/auto-from-main-1234567890",
+			expectedBase:  "main",
+			expectedFound: true,
+		},
+		{
+			name: "branch names with special characters",
+			templateContent: `# Creating PR: feat/user-auth_v2 → develop
+# Base Branch: develop (read-only)
+
+PR Title: Auth v2
+
+Summary: Test summary`,
+			expectedHead:  "feat/user-auth_v2",
+			expectedBase:  "develop",
+			expectedFound: true,
+		},
+		{
+			name: "missing header",
+			templateContent: `PR Title: Test PR
+
+Summary: Test summary
+
+Test Plan: Run tests`,
+			expectedHead:  "",
+			expectedBase:  "",
+			expectedFound: false,
+		},
+		{
+			name: "malformed header",
+			templateContent: `# Creating PR: invalid format
+# Base Branch: main (read-only)
+
+PR Title: Test PR`,
+			expectedHead:  "",
+			expectedBase:  "",
+			expectedFound: false,
+		},
+		{
+			name: "only base branch marker (no Creating PR line)",
+			templateContent: `# Base Branch: main (read-only)
+
+PR Title: Test PR
+
+Summary: Test summary`,
+			expectedHead:  "",
+			expectedBase:  "",
+			expectedFound: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			head, base, found := ExtractBranchInfo(tt.templateContent)
+
+			if found != tt.expectedFound {
+				t.Errorf("Expected found=%v, got found=%v", tt.expectedFound, found)
+			}
+
+			if head != tt.expectedHead {
+				t.Errorf("Expected head=%q, got head=%q", tt.expectedHead, head)
+			}
+
+			if base != tt.expectedBase {
+				t.Errorf("Expected base=%q, got base=%q", tt.expectedBase, base)
+			}
+		})
+	}
+}
+
+// Test ExtractBranchInfo with real template content
+func TestExtractBranchInfo_RealTemplateContent(t *testing.T) {
+	// Test with actual template content that would be generated
+	realTemplate := `# Creating PR: feature/auth-implementation → main
+# Base Branch: main (read-only)
+#
+# Lines starting with '#' are comments and will be ignored.
+# Fill in the fields below to create your pull request.
+
+PR Title: Implement JWT authentication
+
+Summary: This PR implements JWT-based authentication for the API.
+
+It includes:
+- Token generation endpoint
+- Token validation middleware
+- Refresh token support
+
+Test Plan:
+- Unit tests for token generation
+- Integration tests for auth endpoints
+- Manual testing with Postman
+
+Reviewers: @john, @jane
+
+Draft: false
+
+Ref: `
+
+	head, base, found := ExtractBranchInfo(realTemplate)
+
+	if !found {
+		t.Error("Expected to find branch info in real template")
+	}
+
+	if head != "feature/auth-implementation" {
+		t.Errorf("Expected head='feature/auth-implementation', got head=%q", head)
+	}
+
+	if base != "main" {
+		t.Errorf("Expected base='main', got base=%q", base)
+	}
+}
+
+// Test ExtractBranchInfo whitespace handling
+func TestExtractBranchInfo_WhitespaceHandling(t *testing.T) {
+	tests := []struct {
+		name          string
+		headerLine    string
+		expectedHead  string
+		expectedBase  string
+		expectedFound bool
+	}{
+		{
+			name:          "extra spaces around arrow",
+			headerLine:    "# Creating PR:   feature/test   →   main",
+			expectedHead:  "feature/test",
+			expectedBase:  "main",
+			expectedFound: true,
+		},
+		{
+			name:          "tabs instead of spaces",
+			headerLine:    "# Creating PR:\tfeature/test\t→\tmain",
+			expectedHead:  "feature/test",
+			expectedBase:  "main",
+			expectedFound: true,
+		},
+		{
+			name:          "no spaces around arrow",
+			headerLine:    "# Creating PR: feature/test→main",
+			expectedHead:  "feature/test",
+			expectedBase:  "main",
+			expectedFound: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			templateContent := tt.headerLine + "\n\nPR Title: Test\n\nSummary: Test"
+			head, base, found := ExtractBranchInfo(templateContent)
+
+			if found != tt.expectedFound {
+				t.Errorf("Expected found=%v, got found=%v", tt.expectedFound, found)
+			}
+
+			if head != tt.expectedHead {
+				t.Errorf("Expected head=%q, got head=%q", tt.expectedHead, head)
+			}
+
+			if base != tt.expectedBase {
+				t.Errorf("Expected base=%q, got base=%q", tt.expectedBase, base)
+			}
+		})
+	}
+}
+
+// Test ExtractBranchInfo edge cases
+func TestExtractBranchInfo_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name          string
+		templateContent string
+		expectedHead  string
+		expectedBase  string
+		expectedFound bool
+	}{
+		{
+			name:          "empty content",
+			templateContent: "",
+			expectedHead:  "",
+			expectedBase:  "",
+			expectedFound: false,
+		},
+		{
+			name:          "only whitespace",
+			templateContent: "   \n\n   \n",
+			expectedHead:  "",
+			expectedBase:  "",
+			expectedFound: false,
+		},
+		{
+			name: "header with arrow but no colon",
+			templateContent: `# Creating PR feature/test → main
+
+PR Title: Test`,
+			expectedHead:  "",
+			expectedBase:  "",
+			expectedFound: false,
+		},
+		{
+			name: "multiple Creating PR lines (use first)",
+			templateContent: `# Creating PR: feature/correct → main
+# Creating PR: feature/wrong → develop
+
+PR Title: Test`,
+			expectedHead:  "feature/correct",
+			expectedBase:  "main",
+			expectedFound: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			head, base, found := ExtractBranchInfo(tt.templateContent)
+
+			if found != tt.expectedFound {
+				t.Errorf("Expected found=%v, got found=%v", tt.expectedFound, found)
+			}
+
+			if head != tt.expectedHead {
+				t.Errorf("Expected head=%q, got head=%q", tt.expectedHead, head)
+			}
+
+			if base != tt.expectedBase {
+				t.Errorf("Expected base=%q, got base=%q", tt.expectedBase, base)
+			}
+		})
+	}
+}
+
+// Test ExtractBranchInfo integration with ParseTemplate
+func TestExtractBranchInfo_WithParseTemplate(t *testing.T) {
+	templateContent := `# Creating PR: feature/test → main
+# Base Branch: main (read-only)
+
+# Title:
+Test Feature
+
+# Summary:
+This is a test feature implementation
+
+# Test Plan:
+Run unit tests
+
+# Reviewers:
+@user1, @user2
+
+# Draft:
+true
+
+# Ref:
+TEST-123`
+
+	// First extract branch info
+	head, base, found := ExtractBranchInfo(templateContent)
+	if !found {
+		t.Fatal("Failed to extract branch info")
+	}
+
+	// Then parse the template fields
+	fields, err := ParseTemplate(templateContent)
+	if err != nil {
+		t.Fatalf("Failed to parse template: %v", err)
+	}
+
+	// Verify both work correctly together
+	if head != "feature/test" {
+		t.Errorf("Expected head='feature/test', got %q", head)
+	}
+	if base != "main" {
+		t.Errorf("Expected base='main', got %q", base)
+	}
+	if fields.Title != "Test Feature" {
+		t.Errorf("Expected title='Test Feature', got %q", fields.Title)
+	}
+	if !strings.Contains(fields.Summary, "test feature implementation") {
+		t.Errorf("Expected summary to contain 'test feature implementation', got %q", fields.Summary)
+	}
+	if fields.TestPlan != "Run unit tests" {
+		t.Errorf("Expected test plan='Run unit tests', got %q", fields.TestPlan)
+	}
+	if len(fields.Reviewers) != 2 {
+		t.Errorf("Expected 2 reviewers, got %d", len(fields.Reviewers))
+	}
+	if !fields.Draft {
+		t.Error("Expected draft=true")
+	}
+	if len(fields.Ref) != 1 || fields.Ref[0] != "TEST-123" {
+		t.Errorf("Expected ref=['TEST-123'], got %v", fields.Ref)
+	}
+}
