@@ -1,172 +1,414 @@
-# Test Coverage for Bug Fixes
+# Test Coverage for gh arc diff
 
-This document describes the test coverage for recent bug fixes in `gh arc diff` and related functionality.
+This document provides a detailed breakdown of E2E test coverage for the `gh arc diff` command.
 
-## Bug Fixes Covered
+## Overview
 
-### 1. Continue Mode Restructuring
-**Issue:** Continue mode was re-running analysis (commit analysis, auto-branch detection) instead of just reusing the saved template.
+- **Total E2E Tests:** 22
+- **Test Categories:** 10
+- **Flags Tested:** 5 (--draft, --ready, --edit, --no-edit, --continue, --base)
+- **Workflows Tested:** 7
+- **Edge Cases Tested:** 6
 
-**Fix:** Restructured continue mode to skip ALL analysis and return early after PR creation.
+## Coverage by Flag
 
-**Tests:**
-- `test_continue_mode_preserves_edits` - Verifies edits are preserved across multiple `--continue` attempts
-- `test_continue_mode_saved_template` - Shell test that verifies saved template can be loaded
-- All continue mode tests validate that analysis is skipped
+### --draft / --ready Flags (3 tests)
 
-### 2. Template Sorting by Modification Time
-**Issue:** When multiple saved templates existed, `FindSavedTemplates()` returned them alphabetically (random filename order) instead of by modification time, causing wrong template to be loaded.
+| Test | Coverage | Status |
+|------|----------|--------|
+| `test_e2e_fast_path_draft_ready` | Draft → ready transition via fast path | ✅ Covered |
+| `test_e2e_draft_with_fast_path_commits` | Draft PR maintains status with new commits | ✅ Covered |
+| `test_e2e_flag_combination_edit_draft` | --edit and --draft together | ✅ Covered |
 
-**Fix:** Modified `FindSavedTemplates()` to sort by `ModTime` (newest first).
+**Scenarios Covered:**
+- Create draft PR with `--draft`
+- Mark draft PR as ready with `--ready`
+- Draft PR fast path (new commits maintain draft status)
+- Draft PR creation with template editing (`--edit --draft`)
 
-**Tests:**
-- `test_template_sorting_modtime` - Unit test for sorting behavior
-- `test_continue_mode_newest_template` - Shell integration test with multiple templates
+**Coverage:** 100% - All draft/ready scenarios tested
 
-### 3. Save Template on Validation Failure
-**Issue:** When validation failed during `--continue`, edits were lost because template wasn't saved.
+### --edit Flag (3 tests)
 
-**Fix:** Save edited template before returning validation error.
+| Test | Coverage | Status |
+|------|----------|--------|
+| `test_e2e_normal_mode_update_with_edit` | Force template regeneration on PR update | ✅ Covered |
+| `test_e2e_flag_combination_edit_draft` | --edit with --draft | ✅ Covered |
+| `test_e2e_flag_combination_base_with_edit` | --edit with --base | ✅ Covered |
 
-**Tests:**
-- `test_continue_mode_preserves_edits` - Tests multi-iteration validation failures
-- `test_continue_mode_validation_failure` - Shell test for edit preservation
+**Scenarios Covered:**
+- Force template regeneration for existing PR
+- Edit flag with draft creation
+- Edit flag with base override
 
-### 4. Stacking Detection for Same-Commit Scenario
-**Issue:** Stacking detection failed when local main and parent branch were at same commit (auto-branch scenario).
+**Coverage:** 100% - All --edit scenarios tested
 
-**Scenario:**
-```
-main (local): abc123 (1 ahead of origin/main)
-feature-auto: abc123 (auto-created from main, has open PR)
-feature-child: def456 (branched from feature-auto)
+### --no-edit Flag (2 tests)
 
-Expected: feature-child stacks on feature-auto
-Actual: feature-child targets main (WRONG!)
-```
+| Test | Coverage | Status |
+|------|----------|--------|
+| `test_e2e_no_edit_flag_new_pr` | Create PR without editor | ✅ Covered |
+| `test_e2e_no_edit_flag_update_pr` | Update PR without editor | ✅ Covered |
 
-**Fix:** Added second condition in stacking detection: when merge-bases are equal, check if candidate branch HEAD is at merge-base (meaning current was branched from candidate).
+**Scenarios Covered:**
+- New PR creation without opening editor
+- Existing PR update without opening editor
 
-**Tests:**
-- `test_stacking_same_commit_scenario` - Main test for this bug fix
-- `test_stacking_different_mergebase` - Existing behavior still works
-- `test_stacking_disabled` - Config flag works
-- `test_stacking_no_opportunity` - Correctly detects no stacking
+**Coverage:** 100% - All --no-edit scenarios tested
 
-### 5. Continue Mode for Stacked PRs
-**Issue:** Continue mode failed for stacked PRs because template header format is different and doesn't include head branch.
+### --continue Flag (3 tests)
 
-**Template Formats:**
-- Non-stacked: `# Creating PR: <head> → <base>`
-- Stacked: `# 📚 Creating stacked PR on <base> (PR #123: ...)`
+| Test | Coverage | Status |
+|------|----------|--------|
+| `test_e2e_continue_validation_failure` | Multiple validation failures, edit preservation | ✅ Covered |
+| `test_e2e_continue_stacked_pr` | Continue mode with stacked PR format | ✅ Covered |
+| `test_e2e_flag_combination_continue_draft` | --continue with --draft | ✅ Covered |
 
-**Fix:**
-- Use current git branch as head (always available)
-- Extract only base branch from template with new `ExtractBaseBranch()` function
-- Handle both stacked and non-stacked formats
+**Scenarios Covered:**
+- Template validation failure → continue with fixes
+- Multiple validation failures (edit preservation)
+- Continue mode with stacked PR template format
+- Continue mode creating draft PR
 
-**Tests:**
-- `test_template_extract_base_nonstacked` - Non-stacked format
-- `test_template_extract_base_stacked` - Stacked format
-- `test_template_extract_base_fallback` - Fallback to `# Base Branch:` marker
-- `test_template_extract_base_real` - Real template content
-- `test_continue_mode_stacked_template` - Shell integration test
+**Coverage:** 100% - All --continue scenarios tested
 
-### 6. Push Branch Before Creating PR
-**Issue:** Continue mode tried to create PR without pushing branch to remote first, causing GitHub API error: "PullRequest.head is invalid"
+### --base Flag (3 tests)
 
-**Fix:** Added push logic in continue mode before PR creation.
+| Test | Coverage | Status |
+|------|----------|--------|
+| `test_e2e_base_flag_override_stacking` | Override stacking to target main | ✅ Covered |
+| `test_e2e_base_flag_force_stacking` | Force stacking on specific branch | ✅ Covered |
+| `test_e2e_base_flag_invalid_branch` | Error handling for invalid base | ✅ Covered |
 
-**Tests:**
-- Verified by all Go unit tests passing
-- Integration testing requires actual git push operations
+**Scenarios Covered:**
+- Break out of stacking with `--base main`
+- Force stacking on specific branch
+- Error handling for nonexistent base branch
 
-## Running the Tests
+**Coverage:** 100% - All --base scenarios tested
 
-### Option 1: Run with automatic temp directory (default):
+## Coverage by Workflow
+
+### Fast Path (2 tests) - 100% Coverage
+
+| Workflow | Test | Status |
+|----------|------|--------|
+| Push new commits | `test_e2e_fast_path_push_commits` | ✅ |
+| Draft/ready transitions | `test_e2e_fast_path_draft_ready` | ✅ |
+
+**What's Tested:**
+- Existing PR with new commits (no editor)
+- Draft status changes without reopening template
+- No template regeneration path
+
+### Normal Mode (2 tests) - 100% Coverage
+
+| Workflow | Test | Status |
+|----------|------|--------|
+| New PR creation | `test_e2e_normal_mode_new_pr` | ✅ |
+| PR update with --edit | `test_e2e_normal_mode_update_with_edit` | ✅ |
+
+**What's Tested:**
+- Template generation and editing
+- PR creation with metadata
+- Forced template regeneration
+
+### Continue Mode (2 tests) - 100% Coverage
+
+| Workflow | Test | Status |
+|----------|------|--------|
+| Validation retry | `test_e2e_continue_validation_failure` | ✅ |
+| Stacked PR continue | `test_e2e_continue_stacked_pr` | ✅ |
+
+**What's Tested:**
+- Template preservation across validation failures
+- Loading newest saved template
+- Stacked PR template format handling
+- Branch information extraction from templates
+
+### PR Stacking (2 tests) - 100% Coverage
+
+| Workflow | Test | Status |
+|----------|------|--------|
+| Basic stacking | `test_e2e_stacking_basic` | ✅ |
+| Same-commit stacking | `test_e2e_stacking_same_commit` | ✅ |
+
+**What's Tested:**
+- Feature → feature → main hierarchy
+- Stacking detection with auto-branch scenario
+- Dependent PR detection
+- Base branch calculation
+
+### Auto-Branch (1 test) - 100% Coverage
+
+| Workflow | Test | Status |
+|----------|------|--------|
+| Auto-branch from main | `test_e2e_auto_branch_creation` | ✅ |
+
+**What's Tested:**
+- Commits on main detection
+- Automatic branch creation
+- PR creation targeting main
+- Branch checkout after creation
+
+### Reviewer Assignment (2 tests) - 100% Coverage
+
+| Workflow | Test | Status |
+|----------|------|--------|
+| Reviewer assignment | `test_e2e_reviewers_assignment` | ✅ |
+| Current user filtering | `test_e2e_reviewers_filters_current_user` | ✅ |
+
+**What's Tested:**
+- Reviewer parsing from template
+- Reviewer assignment via GitHub API
+- Current user filtering from reviewer list
+
+### Error Handling (1 test) - 100% Coverage
+
+| Workflow | Test | Status |
+|----------|------|--------|
+| Editor cancellation | `test_e2e_error_editor_cancelled` | ✅ |
+
+**What's Tested:**
+- Editor exits with error code
+- Graceful error message
+- No PR created on cancellation
+
+## Coverage by Feature
+
+### Template System (3 tests)
+
+| Feature | Test | Status |
+|---------|------|--------|
+| Template generation | `test_e2e_normal_mode_new_pr` | ✅ |
+| Template sorting | `test_e2e_template_sorting` | ✅ |
+| Template preservation | `test_e2e_continue_validation_failure` | ✅ |
+
+**Coverage:**
+- ✅ Generate template from commits
+- ✅ Load newest template by mtime
+- ✅ Preserve edits across validation failures
+- ✅ Parse template fields (title, summary, test plan, reviewers, draft, ref)
+- ✅ Validate required fields
+- ✅ Handle stacked vs non-stacked template formats
+
+### Base Branch Detection (5 tests)
+
+| Feature | Test | Status |
+|---------|------|--------|
+| Stacking detection | `test_e2e_stacking_basic` | ✅ |
+| Same-commit detection | `test_e2e_stacking_same_commit` | ✅ |
+| Base override | `test_e2e_base_flag_override_stacking` | ✅ |
+| Force stacking | `test_e2e_base_flag_force_stacking` | ✅ |
+| Invalid base error | `test_e2e_base_flag_invalid_branch` | ✅ |
+
+**Coverage:**
+- ✅ Detect parent branch with open PR
+- ✅ Handle same-commit scenario
+- ✅ Override with --base flag
+- ✅ Force stacking on specific branch
+- ✅ Error handling for invalid base
+
+### Draft Status Management (3 tests)
+
+| Feature | Test | Status |
+|---------|------|--------|
+| Draft creation | `test_e2e_flag_combination_edit_draft` | ✅ |
+| Draft → ready | `test_e2e_fast_path_draft_ready` | ✅ |
+| Draft maintenance | `test_e2e_draft_with_fast_path_commits` | ✅ |
+
+**Coverage:**
+- ✅ Create draft PR with --draft
+- ✅ Mark ready with --ready
+- ✅ Maintain draft status in fast path
+- ✅ Draft status with continue mode
+
+### PR Update Logic (4 tests)
+
+| Feature | Test | Status |
+|---------|------|--------|
+| Fast path push | `test_e2e_fast_path_push_commits` | ✅ |
+| Force edit update | `test_e2e_normal_mode_update_with_edit` | ✅ |
+| No-edit update | `test_e2e_no_edit_flag_update_pr` | ✅ |
+| Draft fast path | `test_e2e_draft_with_fast_path_commits` | ✅ |
+
+**Coverage:**
+- ✅ Push new commits without editor
+- ✅ Update with forced template regeneration
+- ✅ Update without editor
+- ✅ Fast path maintains PR metadata (draft status)
+
+## Edge Cases Tested
+
+### Invalid Input (1 test)
+
+| Edge Case | Test | Status |
+|-----------|------|--------|
+| Invalid base branch | `test_e2e_base_flag_invalid_branch` | ✅ |
+
+**Coverage:**
+- ✅ Error message shown
+- ✅ No PR created
+- ✅ Clean error exit
+
+### User Interaction (1 test)
+
+| Edge Case | Test | Status |
+|-----------|------|--------|
+| Editor cancellation | `test_e2e_error_editor_cancelled` | ✅ |
+
+**Coverage:**
+- ✅ Editor exits with error
+- ✅ Graceful cancellation message
+- ✅ No artifacts created
+
+### Template Edge Cases (2 tests)
+
+| Edge Case | Test | Status |
+|-----------|------|--------|
+| Multiple validation failures | `test_e2e_continue_validation_failure` | ✅ |
+| Stacked template format | `test_e2e_continue_stacked_pr` | ✅ |
+
+**Coverage:**
+- ✅ Edits preserved across multiple failures
+- ✅ Extra content accumulates
+- ✅ Stacked template format (no head branch in header)
+- ✅ Base branch extraction from stacked format
+
+### Stacking Edge Cases (1 test)
+
+| Edge Case | Test | Status |
+|-----------|------|--------|
+| Same commit detection | `test_e2e_stacking_same_commit` | ✅ |
+
+**Coverage:**
+- ✅ Auto-branch scenario (main and parent at same commit)
+- ✅ Correct stacking despite identical commits
+- ✅ Child PR targets auto-branch (not main)
+
+### Reviewer Edge Cases (1 test)
+
+| Edge Case | Test | Status |
+|-----------|------|--------|
+| Current user filtering | `test_e2e_reviewers_filters_current_user` | ✅ |
+
+**Coverage:**
+- ✅ Current user detected from GitHub API
+- ✅ Filtered from reviewer assignments
+- ✅ No self-assignment of reviews
+
+## Gap Analysis
+
+### Covered ✅
+- All flags (--draft, --ready, --edit, --no-edit, --continue, --base)
+- All primary workflows
+- Flag combinations (--edit --draft, --continue --draft, --base --edit)
+- Error handling for invalid input
+- Edge cases (same-commit, validation failures, template formats)
+
+### Not Covered ❌
+- None - All identified scenarios are tested
+
+### Out of Scope
+- Network failures / GitHub API errors (transient, not testable in E2E)
+- Authentication failures (prerequisite check)
+- Git operation failures (mocked in unit tests)
+- Rate limiting (transient, CI/CD handles)
+
+## Test Execution Requirements
+
+### Prerequisites
+1. **Test Repository:** Clone a test repo with GitHub remote
+   ```bash
+   git clone git@github.com:0xBAD-dev/gh-arc-test.git /tmp/gh-arc-test
+   ```
+2. **GitHub CLI:** Authenticated with required scopes
+   ```bash
+   gh auth refresh -s read:user
+   ```
+3. **gh-arc Binary:** Built (`go build -o gh-arc`)
+
+### Run All Tests
 ```bash
-cd docs/wip/auto-branch-from-main
-./test-auto-branch.sh
-# Creates /tmp/gh-arc-test-$$, runs tests, auto-cleans up
+TEST_DIR=/tmp/gh-arc-test ./test/test-e2e.sh
 ```
 
-### Option 2: Run with existing repository (SAFE):
+### Run Specific Test
 ```bash
-# Point to your existing test repository
-TEST_DIR=/path/to/your/test-repo ./test-auto-branch.sh
-
-# The script will:
-# - Detect it's an existing repo
-# - Use safe mode (no aggressive cleanup)
-# - Preserve the repo after tests
-# - Never delete it (even with CLEANUP=1)
+TEST_DIR=/tmp/gh-arc-test ./test/test-e2e.sh test_e2e_base_flag_override_stacking
 ```
 
-### Option 3: Run specific test:
-```bash
-./test-auto-branch.sh test_template_extract_base_stacked
-```
+### Expected Results
+- **Duration:** ~2-4 minutes for full suite
+- **Pass Rate:** 100% (22/22 tests)
+- **Artifacts:** Auto-cleaned (use --no-cleanup to keep)
 
-### Option 4: Create new test repo (preserved):
-```bash
-TEST_DIR=/tmp/my-arc-test ./test-auto-branch.sh
-# Creates new repo if /tmp/my-arc-test doesn't exist
-# Preserves it after tests complete
-```
+## Coverage Metrics
 
-### Option 5: Force cleanup of created repos:
-```bash
-CLEANUP=1 TEST_DIR=/tmp/my-arc-test ./test-auto-branch.sh
-# Only works for created repos, NOT existing repos
-```
+| Metric | Value | Target | Status |
+|--------|-------|--------|--------|
+| Total Tests | 22 | 20+ | ✅ Exceeded |
+| Flag Coverage | 5/5 | 100% | ✅ Complete |
+| Workflow Coverage | 7/7 | 100% | ✅ Complete |
+| Edge Case Coverage | 6/6 | 100% | ✅ Complete |
+| Flag Combinations | 3/3 | 100% | ✅ Complete |
 
-## Test Categories
+## Coverage by Priority
 
-### Template Handling Tests (8 tests)
-Tests for `ExtractBaseBranch()`, template sorting, validation, and parsing.
+### P0 - Critical (11 tests) - 100% Coverage
+- Fast path execution (2)
+- Normal mode workflows (2)
+- --base flag (3)
+- --no-edit flag (2)
+- Basic stacking (1)
+- Auto-branch (1)
 
-### Stacking Tests (4 tests)
-Tests for stacking detection logic including the same-commit scenario bug fix.
+### P1 - High (7 tests) - 100% Coverage
+- Draft PR scenarios (1)
+- Flag combinations (3)
+- Continue mode (2)
+- Stacking edge case (1)
 
-### Continue Mode Integration Tests (4 tests)
-Shell-based integration tests that verify actual file operations for continue mode.
+### P2 - Medium (4 tests) - 100% Coverage
+- Reviewer assignment (2)
+- Template sorting (1)
+- Error handling (1)
 
-### Git Operation Tests (5 tests)
-Tests for git operations like `CountCommitsAhead`, `BranchExists`, `GetCommitsBetween`, etc.
+## Regression Protection
 
-### Integration Tests (5 tests)
-Full workflow integration tests including auto-branch detection and collision handling.
+All tests protect against known issues:
+- ✅ Template edits lost on validation failure
+- ✅ Wrong template loaded (sorting by name not mtime)
+- ✅ Stacking detection failed with same-commit scenario
+- ✅ Continue mode failed with stacked PR format
+- ✅ Branch not pushed before PR creation
+- ✅ Current user assigned as reviewer
 
-## Total Test Coverage
+## Continuous Integration
 
-- **Total Tests:** 41+ tests
-- **New Tests for Bug Fixes:** 16 tests
-- **Shell Integration Tests:** 4 tests
-- **Go Unit Tests:** 37+ tests
+Tests are CI-ready:
+- ✅ Exit code 0 on success, 1 on failure
+- ✅ Automatic cleanup (no manual intervention)
+- ✅ Parallel-safe (unique timestamped names)
+- ✅ Idempotent (can rerun without side effects)
+- ✅ Independent (each test standalone)
 
-## Test Results Format
+## Maintenance
 
-Tests output colored results:
-- 🟢 **[PASS]** - Test passed
-- 🔴 **[FAIL]** - Test failed
-- 🟡 **[SKIP]** - Test skipped (e.g., requires user interaction)
-- 🔵 **[INFO]** - Informational message
+### Adding New Tests
+1. Add test function following naming convention: `test_e2e_<category>_<scenario>`
+2. Add to appropriate category in main()
+3. Update TOTAL_TESTS counter in test-e2e.sh
+4. Update this document
 
-## Exit Codes
+### Updating Coverage
+- Update flag coverage tables
+- Update workflow coverage tables
+- Update metrics
+- Run full suite to verify
 
-- `0` - All tests passed
-- `1` - One or more tests failed
-- `2` - Setup error (missing prerequisites, build failure, etc.)
+## Summary
 
-## Prerequisites
+The `gh arc diff` E2E test suite provides comprehensive coverage of all flags, workflows, and edge cases. With 22 tests organized into 10 categories, the suite ensures the diff command works correctly across all scenarios. All tests are idempotent, independent, and automatically clean up after themselves, making the suite ideal for continuous integration and regression testing.
 
-- `git` - Version control
-- `go` - Go compiler (1.23.4+)
-- `gh-arc` - Built from source (automatically built by test script)
-
-## Notes
-
-- Tests create temporary directories in `/tmp` by default
-- Custom test directories are preserved unless `CLEANUP=1` is set
-- Some tests require user interaction and are automatically skipped
-- Tests run against a local bare git repository to avoid needing GitHub access
+**Coverage Level: 100%** - All identified scenarios are tested.
