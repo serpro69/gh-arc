@@ -1,4 +1,4 @@
-package diff
+package template
 
 import (
 	"fmt"
@@ -7,6 +7,12 @@ import (
 	"github.com/serpro69/gh-arc/internal/git"
 	"github.com/serpro69/gh-arc/internal/logger"
 )
+
+// CommitRepository defines the minimal interface needed for commit analysis.
+// This allows for easier testing without depending on the full git.Repository.
+type CommitRepository interface {
+	GetCommitsBetween(base, head string) ([]git.CommitInfo, error)
+}
 
 // CommitAnalysis represents the result of analyzing commits for template pre-filling
 type CommitAnalysis struct {
@@ -18,26 +24,15 @@ type CommitAnalysis struct {
 	HasMergeCommits bool     // Whether merge commits were found
 }
 
-// TemplateFields represents the fields to be filled in the PR template
-type TemplateFields struct {
-	Title      string // PR title
-	Summary    string // PR description/body
-	TestPlan   string // Test plan (empty, to be filled by user)
-	Reviewers  string // Suggested reviewers (to be populated from CODEOWNERS and configuration)
-	Ref        string // Linear issue references (empty, to be filled by user)
-	BaseBranch string // Base branch (read-only display)
-}
-
 // AnalyzeCommitsForTemplate analyzes commits between base and head branches
 // to generate suggested content for PR template
-func AnalyzeCommitsForTemplate(repo GitRepository, baseBranch, headBranch string) (*CommitAnalysis, error) {
+func AnalyzeCommitsForTemplate(repo CommitRepository, baseBranch, headBranch string) (*CommitAnalysis, error) {
 	logger.Debug().
 		Str("baseBranch", baseBranch).
 		Str("headBranch", headBranch).
 		Msg("Analyzing commits for template")
 
 	// Get commits between base and head
-	// Use GetCommitsBetween which can handle remote tracking branches (e.g., origin/main)
 	commits, err := repo.GetCommitsBetween(baseBranch, headBranch)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get commit range: %w", err)
@@ -52,7 +47,6 @@ func AnalyzeCommitsForTemplate(repo GitRepository, baseBranch, headBranch string
 	// Handle case with no commits
 	if len(commits) == 0 {
 		logger.Debug().Msg("No commits found between base and head")
-		// Generate title from branch name
 		analysis.Title = generateTitleFromBranch(headBranch)
 		analysis.Summary = "No commits found in this branch"
 		return analysis, nil
@@ -62,7 +56,7 @@ func AnalyzeCommitsForTemplate(repo GitRepository, baseBranch, headBranch string
 	for _, commit := range commits {
 		analysis.CommitMessages = append(analysis.CommitMessages, commit.Message)
 
-		// Check if this is a merge commit (message starts with "Merge")
+		// Check if this is a merge commit
 		if strings.HasPrefix(strings.TrimSpace(commit.Message), "Merge") {
 			analysis.HasMergeCommits = true
 		}
@@ -70,10 +64,8 @@ func AnalyzeCommitsForTemplate(repo GitRepository, baseBranch, headBranch string
 
 	// Generate title and summary based on commit count
 	if len(commits) == 1 {
-		// Single commit: use commit title as PR title
 		analysis.Title, analysis.Summary = generateFromSingleCommit(commits[0].Message)
 	} else {
-		// Multiple commits: use first commit title as PR title, aggregate messages for summary
 		analysis.Title, analysis.Summary = generateFromMultipleCommits(commits)
 	}
 
@@ -86,31 +78,16 @@ func AnalyzeCommitsForTemplate(repo GitRepository, baseBranch, headBranch string
 	return analysis, nil
 }
 
-// GenerateTemplateContent creates template content from commit analysis
-func GenerateTemplateContent(analysis *CommitAnalysis) *TemplateFields {
-	return &TemplateFields{
-		Title:      analysis.Title,
-		Summary:    analysis.Summary,
-		TestPlan:   "", // Empty, must be filled by user
-		Reviewers:  "", // Will be populated from CODEOWNERS and configuration
-		Ref:        "", // Empty, to be filled by user
-		BaseBranch: analysis.BaseBranch,
-	}
-}
-
 // generateFromSingleCommit extracts title and body from a single commit message
 func generateFromSingleCommit(commitMessage string) (title, summary string) {
 	parsed := git.ParseCommitMessage(commitMessage)
 
-	// Use commit title as PR title
 	title = parsed.Title
 	if title == "" {
 		title = "Update code"
 	}
 
-	// Use commit body as summary, leave empty if no body exists
 	summary = parsed.Body
-
 	return title, summary
 }
 
@@ -120,8 +97,7 @@ func generateFromMultipleCommits(commits []git.CommitInfo) (title, summary strin
 		return "Update code", "No commits"
 	}
 
-	// Use first commit title as PR title (commits are in reverse chronological order)
-	// So the last commit in the slice is the first commit chronologically
+	// Use first commit title as PR title (last in slice = first chronologically)
 	firstCommit := commits[len(commits)-1]
 	parsed := git.ParseCommitMessage(firstCommit.Message)
 	title = parsed.Title
@@ -138,19 +114,16 @@ func generateFromMultipleCommits(commits []git.CommitInfo) (title, summary strin
 		commit := commits[i]
 		parsed := git.ParseCommitMessage(commit.Message)
 
-		// Skip empty commit messages
 		if parsed.Title == "" {
 			continue
 		}
 
-		// Format: "- commit title"
 		summaryBuilder.WriteString("- ")
 		summaryBuilder.WriteString(parsed.Title)
 		summaryBuilder.WriteString("\n")
 
 		// Add commit body if present (indented)
 		if parsed.Body != "" {
-			// Indent body lines
 			bodyLines := strings.Split(parsed.Body, "\n")
 			for _, line := range bodyLines {
 				if strings.TrimSpace(line) != "" {
