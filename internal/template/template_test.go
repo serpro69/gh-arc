@@ -1869,3 +1869,264 @@ TEST-123`
 		t.Errorf("Expected ref=['TEST-123'], got %v", fields.Ref)
 	}
 }
+
+func TestExtractBaseBranch_NonStackedFormat(t *testing.T) {
+	tests := []struct {
+		name     string
+		content  string
+		wantBase string
+		wantOk   bool
+	}{
+		{
+			name: "non-stacked format",
+			content: `# Creating PR: feature/test → main
+# Base Branch: main (read-only)`,
+			wantBase: "main",
+			wantOk:   true,
+		},
+		{
+			name: "non-stacked format with develop",
+			content: `# Creating PR: feature/auth → develop
+# Base Branch: develop (read-only)`,
+			wantBase: "develop",
+			wantOk:   true,
+		},
+		{
+			name: "non-stacked format with extra spaces",
+			content: `# Creating PR:   feature/test   →   main
+# Base Branch: main (read-only)`,
+			wantBase: "main",
+			wantOk:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			base, ok := ExtractBaseBranch(tt.content)
+			if ok != tt.wantOk {
+				t.Errorf("ExtractBaseBranch() ok = %v, want %v", ok, tt.wantOk)
+			}
+			if base != tt.wantBase {
+				t.Errorf("ExtractBaseBranch() base = %q, want %q", base, tt.wantBase)
+			}
+		})
+	}
+}
+
+func TestExtractBaseBranch_StackedFormat(t *testing.T) {
+	tests := []struct {
+		name     string
+		content  string
+		wantBase string
+		wantOk   bool
+	}{
+		{
+			name: "stacked format without PR info",
+			content: `# 📚 Creating stacked PR on feature/parent
+# Base Branch: feature/parent (read-only)`,
+			wantBase: "feature/parent",
+			wantOk:   true,
+		},
+		{
+			name: "stacked format with PR info",
+			content: `# 📚 Creating stacked PR on feature/parent (PR #123: Parent PR Title)
+# Base Branch: feature/parent (read-only)`,
+			wantBase: "feature/parent",
+			wantOk:   true,
+		},
+		{
+			name: "stacked format with long branch name",
+			content: `# 📚 Creating stacked PR on feature/auth/implement-jwt-tokens
+# Base Branch: feature/auth/implement-jwt-tokens (read-only)`,
+			wantBase: "feature/auth/implement-jwt-tokens",
+			wantOk:   true,
+		},
+		{
+			name: "stacked format with extra spaces",
+			content: `# 📚 Creating stacked PR on   feature/parent   (PR #123: Title)
+# Base Branch: feature/parent (read-only)`,
+			wantBase: "feature/parent",
+			wantOk:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			base, ok := ExtractBaseBranch(tt.content)
+			if ok != tt.wantOk {
+				t.Errorf("ExtractBaseBranch() ok = %v, want %v", ok, tt.wantOk)
+			}
+			if base != tt.wantBase {
+				t.Errorf("ExtractBaseBranch() base = %q, want %q", base, tt.wantBase)
+			}
+		})
+	}
+}
+
+func TestExtractBaseBranch_FallbackToMarker(t *testing.T) {
+	tests := []struct {
+		name     string
+		content  string
+		wantBase string
+		wantOk   bool
+	}{
+		{
+			name: "only base branch marker",
+			content: `# Base Branch: main (read-only)
+
+# Title:
+Test`,
+			wantBase: "main",
+			wantOk:   true,
+		},
+		{
+			name: "base branch marker without read-only",
+			content: `# Base Branch: develop
+
+# Title:
+Test`,
+			wantBase: "develop",
+			wantOk:   true,
+		},
+		{
+			name: "base branch marker with extra spaces",
+			content: `# Base Branch:   main   (read-only)
+
+# Title:
+Test`,
+			wantBase: "main",
+			wantOk:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			base, ok := ExtractBaseBranch(tt.content)
+			if ok != tt.wantOk {
+				t.Errorf("ExtractBaseBranch() ok = %v, want %v", ok, tt.wantOk)
+			}
+			if base != tt.wantBase {
+				t.Errorf("ExtractBaseBranch() base = %q, want %q", base, tt.wantBase)
+			}
+		})
+	}
+}
+
+func TestExtractBaseBranch_InvalidFormats(t *testing.T) {
+	tests := []struct {
+		name     string
+		content  string
+		wantBase string
+		wantOk   bool
+	}{
+		{
+			name: "no branch info at all",
+			content: `# Title:
+Test Feature
+
+# Summary:
+Description`,
+			wantBase: "",
+			wantOk:   false,
+		},
+		{
+			name: "malformed creating PR line",
+			content: `# Creating PR: feature/test
+# Title:
+Test`,
+			wantBase: "",
+			wantOk:   false,
+		},
+		{
+			name: "empty content",
+			content:  "",
+			wantBase: "",
+			wantOk:   false,
+		},
+		{
+			name: "stacked format without base",
+			content: `# 📚 Creating stacked PR
+# Title:
+Test`,
+			wantBase: "",
+			wantOk:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			base, ok := ExtractBaseBranch(tt.content)
+			if ok != tt.wantOk {
+				t.Errorf("ExtractBaseBranch() ok = %v, want %v", ok, tt.wantOk)
+			}
+			if base != tt.wantBase {
+				t.Errorf("ExtractBaseBranch() base = %q, want %q", base, tt.wantBase)
+			}
+		})
+	}
+}
+
+func TestExtractBaseBranch_RealTemplateContent(t *testing.T) {
+	// Test with a realistic full template for non-stacked PR
+	nonStackedTemplate := `# Creating PR: feature/auth → main
+# Base Branch: main (read-only)
+
+# Title:
+Implement JWT authentication
+
+# Summary:
+This PR implements JWT-based authentication for the API.
+It includes token generation, validation, and refresh logic.
+
+# Test Plan:
+- Unit tests for token generation
+- Integration tests for auth endpoints
+- Manual testing with Postman
+
+# Reviewers:
+@security-team, @backend-lead
+
+# Draft:
+false
+
+# Ref:
+AUTH-456`
+
+	base, ok := ExtractBaseBranch(nonStackedTemplate)
+	if !ok {
+		t.Fatal("Failed to extract base from non-stacked template")
+	}
+	if base != "main" {
+		t.Errorf("Expected base='main', got %q", base)
+	}
+
+	// Test with a realistic full template for stacked PR
+	stackedTemplate := `# 📚 Creating stacked PR on feature/auth (PR #123: Implement auth foundation)
+# Base Branch: feature/auth (read-only)
+# Current Branch: feature/auth-tests
+
+# Title:
+Add comprehensive auth tests
+
+# Summary:
+This PR stacks on #123 and adds comprehensive test coverage
+for the JWT authentication implementation.
+
+# Test Plan:
+- Run all new unit tests
+- Verify coverage > 90%
+
+# Reviewers:
+@test-team
+
+# Draft:
+false`
+
+	base, ok = ExtractBaseBranch(stackedTemplate)
+	if !ok {
+		t.Fatal("Failed to extract base from stacked template")
+	}
+	if base != "feature/auth" {
+		t.Errorf("Expected base='feature/auth', got %q", base)
+	}
+}

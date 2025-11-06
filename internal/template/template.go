@@ -238,6 +238,61 @@ func ExtractBranchInfo(content string) (string, string, bool) {
 	return "", "", false
 }
 
+// ExtractBaseBranch extracts only the base branch name from template header
+// This is useful for continue mode where head branch is obtained from git
+// Returns (baseBranch, found)
+func ExtractBaseBranch(content string) (string, bool) {
+	scanner := bufio.NewScanner(strings.NewReader(content))
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// Look for "# Creating PR: <head> → <base>"
+		if strings.Contains(line, "# Creating PR:") {
+			parts := strings.Split(line, ":")
+			if len(parts) >= 2 {
+				branchPart := strings.TrimSpace(parts[1])
+				branches := strings.Split(branchPart, "→")
+				if len(branches) == 2 {
+					base := strings.TrimSpace(branches[1])
+					return base, true
+				}
+			}
+		}
+
+		// Look for "# 📚 Creating stacked PR on <base>" or "# 📚 Creating stacked PR on <base> (PR #123: ...)"
+		if strings.Contains(line, "# 📚 Creating stacked PR on") {
+			// Extract base from "# 📚 Creating stacked PR on feature/parent" or
+			// "# 📚 Creating stacked PR on feature/parent (PR #123: Title)"
+			parts := strings.Split(line, " on ")
+			if len(parts) >= 2 {
+				basePart := strings.TrimSpace(parts[1])
+				// Remove optional PR info in parentheses
+				if idx := strings.Index(basePart, "("); idx > 0 {
+					basePart = strings.TrimSpace(basePart[:idx])
+				}
+				if basePart != "" {
+					return basePart, true
+				}
+			}
+		}
+
+		// Look for "# Base Branch: <base> (read-only)"
+		if strings.HasPrefix(line, markerBaseBranch) {
+			basePart := strings.TrimPrefix(line, markerBaseBranch)
+			basePart = strings.TrimSpace(basePart)
+			if idx := strings.Index(basePart, "(read-only)"); idx > 0 {
+				basePart = strings.TrimSpace(basePart[:idx])
+			}
+			if basePart != "" {
+				return basePart, true
+			}
+		}
+	}
+
+	return "", false
+}
+
 // ParseTemplate parses the template content into structured fields
 func ParseTemplate(content string) (*TemplateFields, error) {
 	fields := &TemplateFields{
