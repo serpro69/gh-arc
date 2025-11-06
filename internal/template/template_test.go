@@ -1119,6 +1119,110 @@ func TestFindSavedTemplates(t *testing.T) {
 	}
 }
 
+// Test multiple --continue iterations with validation failures
+func TestContinueMode_PreservesEditsAcrossValidationFailures(t *testing.T) {
+	// Simulate the --continue flow with multiple validation failures
+
+	// Step 1: Initial arc diff fails validation, saves template
+	initialContent := `# Creating PR: feature/test → main
+# Base Branch: main (read-only)
+
+# Title:
+My Feature
+
+# Summary:
+Initial summary content
+
+# Test Plan:
+
+# Reviewers:
+
+# Draft:
+false`
+
+	path1, err := SaveTemplate(initialContent)
+	if err != nil {
+		t.Fatalf("Failed to save initial template: %v", err)
+	}
+	defer os.Remove(path1)
+
+	time.Sleep(10 * time.Millisecond) // Ensure different mod time
+
+	// Step 2: User runs --continue, adds more content, but still no test plan
+	// Simulate editing the template
+	editedContent := `# Creating PR: feature/test → main
+# Base Branch: main (read-only)
+
+# Title:
+My Feature
+
+# Summary:
+Initial summary content
+
+EXTRA CONTENT FROM FIRST CONTINUE - this should be preserved!
+
+# Test Plan:
+
+# Reviewers:
+@reviewer1
+
+# Draft:
+false`
+
+	// Validation fails again, should save the edited content
+	// First remove old template (simulating what continue mode does)
+	if err := os.Remove(path1); err != nil {
+		t.Fatalf("Failed to remove old template: %v", err)
+	}
+
+	// Save new edited template
+	path2, err := SaveTemplate(editedContent)
+	if err != nil {
+		t.Fatalf("Failed to save edited template: %v", err)
+	}
+	defer os.Remove(path2)
+
+	time.Sleep(10 * time.Millisecond) // Ensure different mod time
+
+	// Step 3: User runs --continue again
+	// Should load the newest template with edits from step 2
+	found, err := FindSavedTemplates()
+	if err != nil {
+		t.Fatalf("FindSavedTemplates failed: %v", err)
+	}
+
+	if len(found) == 0 {
+		t.Fatal("Expected to find at least one saved template")
+	}
+
+	// Should get the newest template (path2)
+	newestTemplate := found[0]
+	if newestTemplate != path2 {
+		t.Errorf("Expected to find newest template %s, got %s", path2, newestTemplate)
+	}
+
+	// Load and verify content
+	loadedContent, err := LoadSavedTemplate(newestTemplate)
+	if err != nil {
+		t.Fatalf("Failed to load saved template: %v", err)
+	}
+
+	// Verify the edits from step 2 are preserved
+	if !strings.Contains(loadedContent, "EXTRA CONTENT FROM FIRST CONTINUE") {
+		t.Error("Expected loaded content to contain edits from first --continue iteration")
+		t.Errorf("Loaded content:\n%s", loadedContent)
+	}
+
+	if !strings.Contains(loadedContent, "@reviewer1") {
+		t.Error("Expected loaded content to contain reviewer added in first --continue")
+	}
+
+	// Should NOT contain only the initial content
+	if loadedContent == initialContent {
+		t.Error("Loaded content should not be the initial content, edits were lost!")
+	}
+}
+
 // Test FindSavedTemplates sorting by modification time
 func TestFindSavedTemplates_SortsByModTime(t *testing.T) {
 	// Clean up any existing templates first
