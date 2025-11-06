@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/cli/go-gh/v2/pkg/repository"
@@ -159,7 +158,8 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create output formatter
-	output := diff.NewOutputStyle(true) // TODO: Make color configurable
+	// TODO: Make color configurable via config or environment variable
+	output := diff.NewOutputStyle(true)
 
 	// Create diff workflow
 	workflow := diff.NewDiffWorkflow(gitRepo, client, cfg, repo.Owner, repo.Name)
@@ -204,9 +204,9 @@ func runDiff(cmd *cobra.Command, args []string) error {
 			return nil
 		}
 
-		// Generic error - check if it's a validation error
-		if strings.Contains(err.Error(), "Template validation failed") {
-			// Validation error already formatted nicely
+		// Check if it's a template validation error
+		if errors.Is(err, template.ErrTemplateValidationFailed) {
+			// Validation error already formatted nicely by workflow
 			fmt.Println("\n" + err.Error())
 			return fmt.Errorf("template validation failed")
 		}

@@ -99,7 +99,7 @@ func (e *ContinueModeExecutor) Execute(ctx context.Context, opts *ContinueModeOp
 		templateContent, err = template.OpenEditor(templateContent)
 		if err != nil {
 			if err == template.ErrEditorCancelled {
-				return nil, fmt.Errorf("editor cancelled, no changes made")
+				return nil, template.ErrEditorCancelled
 			}
 			return nil, fmt.Errorf("failed to open editor: %w", err)
 		}
@@ -139,7 +139,7 @@ func (e *ContinueModeExecutor) Execute(ctx context.Context, opts *ContinueModeOp
 		}
 		errMsg += "Fix the issues and run:\n  gh arc diff --continue"
 
-		return nil, fmt.Errorf("%s", errMsg)
+		return nil, fmt.Errorf("%w: %s", template.ErrTemplateValidationFailed, errMsg)
 	}
 
 	logger.Debug().
