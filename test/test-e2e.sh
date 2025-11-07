@@ -44,7 +44,7 @@ NC='\033[0m' # No Color
 TESTS_RUN=0
 TESTS_PASSED=0
 TESTS_FAILED=0
-TOTAL_TESTS=22  # Update this when adding/removing tests
+TOTAL_TESTS=23 # Update this when adding/removing tests
 
 # Script paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -229,7 +229,7 @@ run_arc_diff() {
   cd "$TEST_DIR"
   if [ "$DEBUG_MODE" = "true" ]; then
     log_debug "Running: EDITOR='$EDITOR' $GH_ARC_BIN diff -vvv $*"
-    "$GH_ARC_BIN" diff -vvv "$@"
+    "$GH_ARC_BIN" diff "$@" -vvv
   else
     "$GH_ARC_BIN" diff "$@"
   fi
@@ -1226,7 +1226,7 @@ test_e2e_reviewers_assignment() {
 
   # Create custom editor that adds reviewers
   local editor_script=$(mktemp)
-  cat > "$editor_script" <<'EOF'
+  cat >"$editor_script" <<'EOF'
 #!/bin/bash
 template_file="$1"
 # Add reviewers to template
@@ -1287,7 +1287,7 @@ test_e2e_reviewers_filters_current_user() {
 
   # Create editor that adds current user as reviewer
   local editor_script=$(mktemp)
-  cat > "$editor_script" <<EOF
+  cat >"$editor_script" <<EOF
 #!/bin/bash
 template_file="\$1"
 # Add current user to reviewers (should be filtered)
@@ -1351,7 +1351,7 @@ test_e2e_error_editor_cancelled() {
 
   # Create editor that immediately exits with error (simulates cancellation)
   local editor_script=$(mktemp)
-  cat > "$editor_script" <<'EOF'
+  cat >"$editor_script" <<'EOF'
 #!/bin/bash
 # Simulate editor cancellation
 exit 1
@@ -1752,6 +1752,99 @@ EOF
 }
 
 # =============================================================================
+# NEW TESTS: Auto-Branch with Continue Mode
+# =============================================================================
+
+# Test: Auto-branch with continue mode (validation failure then retry)
+test_e2e_auto_branch_with_continue() {
+  start_test "E2E: Auto-branch + continue mode (validation → retry)"
+
+  local test_passed=true
+  cd "$TEST_DIR"
+
+  # Ensure we're on main
+  git checkout main >/dev/null 2>&1 || git checkout master >/dev/null 2>&1
+  git pull origin main >/dev/null 2>&1 || git pull origin master >/dev/null 2>&1 || true
+
+  # Create commits on main
+  log_step "Creating commits on main..."
+  create_test_commit "Feature commit 1"
+  create_test_commit "Feature commit 2"
+
+  # Run arc diff with incomplete template (validation will fail)
+  log_step "Running arc diff (should trigger auto-branch but fail validation)..."
+  local editor_script=$(mktemp)
+  create_editor_script "$editor_script" "remove_test_plan"
+  export EDITOR_MODIFICATIONS="remove_test_plan"
+
+  cd "$TEST_DIR"
+  "$GH_ARC_BIN" diff --no-edit 2>&1 | grep -q "validation failed" || true
+  log_step "Validation failed as expected"
+
+  # Verify we're still on main (auto-branch not executed yet)
+  local current_branch=$(git branch --show-current)
+  if [ "$current_branch" = "main" ] || [ "$current_branch" = "master" ]; then
+    log_step "Still on $current_branch (auto-branch not executed) ✓"
+  else
+    fail_test "E2E: Auto-branch continue" "Expected to be on main, found $current_branch"
+    cleanup_test "$current_branch"
+    rm -f "$editor_script"
+    return 1
+  fi
+
+  # Run arc diff --continue with complete template
+  log_step "Running arc diff --continue (should execute auto-branch)..."
+  export EDITOR_MODIFICATIONS="add_test_plan"
+  if EDITOR="$editor_script" "$GH_ARC_BIN" diff --continue >/dev/null 2>&1; then
+    # Check what branch we're on now
+    local final_branch=$(git branch --show-current)
+
+    # Should not be on main anymore
+    if [ "$final_branch" != "main" ] && [ "$final_branch" != "master" ]; then
+      log_step "Auto-branch created and checked out: $final_branch ✓"
+
+      # Verify PR exists and targets main
+      if verify_pr_exists "$final_branch"; then
+        local pr_number=$(get_pr_number "$final_branch")
+        register_pr "$pr_number"
+        register_branch "$final_branch"
+        local pr_base=$(get_pr_base "$final_branch")
+
+        if [ "$pr_base" = "main" ] || [ "$pr_base" = "master" ]; then
+          log_step "PR #$pr_number correctly targets main via continue mode ✓"
+          pass_test "E2E: Auto-branch + continue mode"
+        else
+          fail_test "E2E: Auto-branch continue" "PR targets '$pr_base' instead of main"
+          test_passed=false
+        fi
+      else
+        fail_test "E2E: Auto-branch continue" "PR not created"
+        test_passed=false
+      fi
+    else
+      fail_test "E2E: Auto-branch continue" "Still on main (auto-branch not executed)"
+      test_passed=false
+    fi
+  else
+    fail_test "E2E: Auto-branch continue" "Continue mode failed"
+    test_passed=false
+  fi
+
+  # Cleanup
+  local auto_branch=$(git branch --show-current)
+  if [ "$auto_branch" != "main" ] && [ "$auto_branch" != "master" ]; then
+    local pr_number=$(get_pr_number "$auto_branch" 2>/dev/null || echo "")
+    cleanup_test "$auto_branch" "$pr_number"
+  else
+    cleanup_test "" ""
+  fi
+  rm -f "$editor_script"
+  find /tmp -name "gh-arc-saved-*.md" -type f -delete 2>/dev/null || true
+
+  $test_passed
+}
+
+# =============================================================================
 # Test 5: Auto-branch detection and creation
 # =============================================================================
 test_e2e_auto_branch_creation() {
@@ -1851,20 +1944,20 @@ main() {
   local specific_test=""
   while [[ $# -gt 0 ]]; do
     case $1 in
-      -d|--debug)
-        DEBUG_MODE=true
-        shift
-        ;;
-      --no-cleanup)
-        NO_CLEANUP=true
-        shift
-        ;;
-      --cleanup-only)
-        CLEANUP_ONLY=true
-        shift
-        ;;
-      -h|--help)
-        cat <<HELP
+    -d | --debug)
+      DEBUG_MODE=true
+      shift
+      ;;
+    --no-cleanup)
+      NO_CLEANUP=true
+      shift
+      ;;
+    --cleanup-only)
+      CLEANUP_ONLY=true
+      shift
+      ;;
+    -h | --help)
+      cat <<HELP
 Usage: TEST_DIR=/path/to/repo $0 [OPTIONS] [TEST_NAME]
 
 Requires a test repository with GitHub remote. Set up with:
@@ -1891,12 +1984,12 @@ Environment Variables:
   DEBUG_MODE         Enable debug mode (default: false)
   NO_CLEANUP         Skip cleanup (default: false)
 HELP
-        exit 0
-        ;;
-      *)
-        specific_test="$1"
-        shift
-        ;;
+      exit 0
+      ;;
+    *)
+      specific_test="$1"
+      shift
+      ;;
     esac
   done
 
@@ -2022,6 +2115,7 @@ HELP
     # ====================
     log_info "Category: Auto-Branch"
     test_e2e_auto_branch_creation
+    test_e2e_auto_branch_with_continue
 
     # ====================
     # Template Tests

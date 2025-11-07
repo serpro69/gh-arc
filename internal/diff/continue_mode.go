@@ -2,6 +2,7 @@ package diff
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -16,11 +17,12 @@ import (
 // This workflow loads a previously saved template, allows editing to fix
 // validation errors, and then creates or updates the PR.
 type ContinueModeExecutor struct {
-	repo   *git.Repository
-	client *github.Client
-	config *config.DiffConfig
-	owner  string
-	name   string
+	repo               *git.Repository
+	client             *github.Client
+	config             *config.DiffConfig
+	owner              string
+	name               string
+	autoBranchDetector *AutoBranchDetector
 }
 
 // ContinueModeOptions contains options for continue mode execution
@@ -43,12 +45,46 @@ type ContinueModeResult struct {
 // NewContinueModeExecutor creates a new continue mode executor
 func NewContinueModeExecutor(repo *git.Repository, client *github.Client, cfg *config.DiffConfig, owner, name string) *ContinueModeExecutor {
 	return &ContinueModeExecutor{
-		repo:   repo,
-		client: client,
-		config: cfg,
-		owner:  owner,
-		name:   name,
+		repo:               repo,
+		client:             client,
+		config:             cfg,
+		owner:              owner,
+		name:               name,
+		autoBranchDetector: NewAutoBranchDetector(repo, cfg),
 	}
+}
+
+// handleAutoBranch checks if we're in an auto-branch scenario (on main with commits)
+// and prepares the auto-branch context if needed. This handles cases where template
+// validation failed before auto-branch execution could happen.
+func (e *ContinueModeExecutor) handleAutoBranch(ctx context.Context) (*AutoBranchContext, *DetectionResult, error) {
+	logger := logger.Get()
+
+	// Detect if user has commits on main
+	detection, err := e.autoBranchDetector.DetectCommitsOnMain(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to detect commits on main: %w", err)
+	}
+
+	// Check if auto-branch flow should be activated
+	if !e.autoBranchDetector.ShouldAutoBranch(detection) {
+		logger.Debug().Msg("Not in auto-branch scenario for continue mode")
+		return nil, detection, nil
+	}
+
+	logger.Info().Msg("Auto-branch scenario detected in continue mode")
+
+	// Prepare auto-branch context
+	autoBranchCtx, err := e.autoBranchDetector.PrepareAutoBranch(ctx, detection)
+	if err != nil {
+		return nil, detection, err
+	}
+
+	logger.Debug().
+		Str("branchName", autoBranchCtx.BranchName).
+		Msg("Auto-branch context prepared for continue mode")
+
+	return autoBranchCtx, detection, nil
 }
 
 // Execute runs the complete continue mode workflow:
@@ -79,11 +115,29 @@ func (e *ContinueModeExecutor) Execute(ctx context.Context, opts *ContinueModeOp
 		Str("templatePath", savedTemplatePath).
 		Msg("Loaded saved template")
 
-	// Step 2: Extract branch information from template
-	// Head branch is always the current git branch
-	prHeadBranch := opts.CurrentBranch
+	// Step 2: Check for auto-branch scenario
+	autoBranchCtx, _, err := e.handleAutoBranch(ctx)
+	if err != nil {
+		return nil, err
+	}
 
-	// Base branch must be extracted from template
+	// Step 3: Determine PR head branch
+	var prHeadBranch string
+	if autoBranchCtx != nil {
+		// Auto-branch scenario: use generated branch name
+		prHeadBranch = autoBranchCtx.BranchName
+		logger.Debug().
+			Str("branchName", prHeadBranch).
+			Msg("Using auto-generated branch name for PR head")
+	} else {
+		// Normal scenario: use current git branch
+		prHeadBranch = opts.CurrentBranch
+		logger.Debug().
+			Str("branchName", prHeadBranch).
+			Msg("Using current git branch for PR head")
+	}
+
+	// Step 4: Extract base branch from template
 	prBaseBranch, found := template.ExtractBaseBranch(templateContent)
 	if !found {
 		return nil, fmt.Errorf("failed to extract base branch from template (template may be corrupted)")
@@ -92,7 +146,7 @@ func (e *ContinueModeExecutor) Execute(ctx context.Context, opts *ContinueModeOp
 	logger.Debug().
 		Str("headBranch", prHeadBranch).
 		Str("baseBranch", prBaseBranch).
-		Msg("Extracted branch information from template")
+		Msg("Determined branch configuration for PR")
 
 	// Step 3: Open editor to allow fixing validation issues (unless --no-edit)
 	if !opts.NoEdit {
@@ -152,7 +206,32 @@ func (e *ContinueModeExecutor) Execute(ctx context.Context, opts *ContinueModeOp
 		logger.Warn().Err(err).Msg("Failed to remove saved template")
 	}
 
-	// Step 6: Check for existing PR
+	// Step 6: Execute auto-branch if needed (push branch to remote and checkout)
+	autoBranchCheckoutFailed := false
+	if autoBranchCtx != nil {
+		logger.Info().
+			Str("branchName", autoBranchCtx.BranchName).
+			Msg("Executing auto-branch for continue mode")
+
+		finalBranchName, err := e.autoBranchDetector.ExecuteAutoBranch(ctx, autoBranchCtx)
+		if err != nil {
+			// Check if it's a checkout failure (non-fatal)
+			var checkoutErr *AutoBranchCheckoutError
+			if errors.As(err, &checkoutErr) {
+				autoBranchCheckoutFailed = true
+				logger.Warn().Err(err).Msg("Auto-branch checkout failed (non-fatal)")
+				// Continue with PR creation
+			} else {
+				return nil, fmt.Errorf("failed to execute auto-branch: %w", err)
+			}
+		}
+		prHeadBranch = finalBranchName
+		logger.Info().
+			Str("branchName", finalBranchName).
+			Msg("Auto-branch executed successfully")
+	}
+
+	// Step 7: Check for existing PR
 	existingPR, err := e.client.FindExistingPR(ctx, e.owner, e.name, prHeadBranch)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check for existing PR: %w", err)
@@ -198,14 +277,20 @@ func (e *ContinueModeExecutor) Execute(ctx context.Context, opts *ContinueModeOp
 		Bool("wasCreated", prResult.WasCreated).
 		Msg("Continue mode execution completed")
 
-	// Build result
+	// Build result with auto-branch warnings if applicable
+	messages := prResult.Messages
+	if autoBranchCheckoutFailed {
+		checkoutMsg := fmt.Sprintf("⚠️  Note: Failed to checkout %s locally. Run 'git checkout %s' manually.", prHeadBranch, prHeadBranch)
+		messages = append(messages, checkoutMsg)
+	}
+
 	result := &ContinueModeResult{
 		PR:           prResult.PR,
 		WasCreated:   prResult.WasCreated,
 		HeadBranch:   prHeadBranch,
 		BaseBranch:   prBaseBranch,
 		ParsedFields: parsedFields,
-		Messages:     prResult.Messages,
+		Messages:     messages,
 	}
 
 	return result, nil
