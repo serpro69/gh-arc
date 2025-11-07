@@ -127,9 +127,11 @@ func (w *DiffWorkflow) executeContinueMode(ctx context.Context, opts *DiffOption
 
 	// Execute continue mode
 	result, err := w.continueExecutor.Execute(ctx, &ContinueModeOptions{
-		CurrentBranch:  currentBranch,
-		NoEdit:         opts.NoEdit,
+		CurrentBranch:   currentBranch,
+		NoEdit:          opts.NoEdit,
 		RequireTestPlan: w.config.Diff.RequireTestPlan,
+		Draft:           opts.Draft,
+		Ready:           opts.Ready,
 	})
 	if err != nil {
 		return nil, err

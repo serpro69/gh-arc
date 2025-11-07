@@ -2,6 +2,16 @@
 
 Get up and running with `gh arc diff` E2E tests in 4 steps.
 
+## Step 0: Install Prerequisites (macOS only)
+
+If you're on macOS, install GNU sed:
+
+```bash
+brew install gnu-sed
+```
+
+Linux users can skip this step (GNU sed is included by default).
+
 ## Step 1: Clone Test Repository
 
 Clone a test repository with GitHub remote:

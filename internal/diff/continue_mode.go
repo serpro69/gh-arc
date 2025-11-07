@@ -27,9 +27,11 @@ type ContinueModeExecutor struct {
 
 // ContinueModeOptions contains options for continue mode execution
 type ContinueModeOptions struct {
-	CurrentBranch  string
-	NoEdit         bool
+	CurrentBranch   string
+	NoEdit          bool
 	RequireTestPlan bool
+	Draft           bool // Override draft status from template
+	Ready           bool // Override ready status from template
 }
 
 // ContinueModeResult contains the results of continue mode execution
@@ -247,6 +249,21 @@ func (e *ContinueModeExecutor) Execute(ctx context.Context, opts *ContinueModeOp
 		prBody += "\n\n**Ref:** " + parsedFields.Ref[0]
 	}
 
+	// Step 7.5: Determine draft status (flags override template)
+	isDraft := parsedFields.Draft
+	if opts.Draft {
+		isDraft = true
+	} else if opts.Ready {
+		isDraft = false
+	}
+
+	logger.Debug().
+		Bool("templateDraft", parsedFields.Draft).
+		Bool("flagDraft", opts.Draft).
+		Bool("flagReady", opts.Ready).
+		Bool("finalDraft", isDraft).
+		Msg("Determined draft status for continue mode")
+
 	// Step 8: Create PR executor and execute PR creation/update
 	prExecutor := NewPRExecutor(e.client, e.repo, e.owner, e.name)
 
@@ -262,7 +279,7 @@ func (e *ContinueModeExecutor) Execute(ctx context.Context, opts *ContinueModeOp
 		HeadBranch:  prHeadBranch,
 		BaseBranch:  prBaseBranch,
 		Body:        prBody,
-		Draft:       parsedFields.Draft,
+		Draft:       isDraft,
 		Reviewers:   parsedFields.Reviewers,
 		ExistingPR:  existingPR,
 		ParentPR:    nil, // No parent PR in continue mode
