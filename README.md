@@ -17,11 +17,21 @@
 
 ## Installation
 
-Install the extension using the GitHub CLI:
+Install the latest release using the GitHub CLI:
 
 ```bash
 gh extension install serpro69/gh-arc
 ```
+
+### Installation from Source
+
+```bash
+git clone https://github.com/serpro69/gh-arc.git
+cd gh-arc && go build . && gh extension install .
+```
+
+> [!TIP]
+> Clone the repo to a permanent location, gh cli will alias the binary when you run `gh extension install .` command.
 
 ## Usage
 
