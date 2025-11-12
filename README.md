@@ -1,5 +1,15 @@
 # gh-arc
 
+<div markdown="1" style="text-align: center; font-size: 1.2em;">
+
+<b>🚧 Fork in progress, expect some dust 🚧</b>
+
+[![github-tag](https://img.shields.io/github/v/tag/serpro69/gh-arc?style=for-the-badge&logo=semver&logoColor=white)](https://github.com/serpro69/gh-arc/tags)
+[![github-license](https://img.shields.io/github/license/serpro69/gh-arc?style=for-the-badge&logo=unlicense&logoColor=white)](https://opensource.org/license/mit)
+[![github-stars](https://img.shields.io/github/stars/serpro69/gh-arc?logo=github&logoColor=white&color=gold&style=for-the-badge)](https://github.com/serpro69/gh-arc)
+
+</div>
+
 `gh-arc` is a [github cli extension](https://docs.github.com/en/github-cli/github-cli/creating-github-cli-extensions#about-github-cli-extensions) that implements an opinionated [trunk-based development workflow](https://martinfowler.com/articles/branching-patterns.html#Trunk-basedDevelopment) with Github, built upon the great traditions of tools like [phacility/arcanist](https://github.com/phacility/arcanist/tree/master) and [phorge/arcanist](https://github.com/phorgeit/arcanist.git).
 
 > [!TIP]
