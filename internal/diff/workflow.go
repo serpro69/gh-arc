@@ -351,6 +351,20 @@ func (w *DiffWorkflow) executeWithTemplateEditing(
 		}
 	}
 
+	// Step 5.5: Save template immediately after editing to ensure no data loss
+	// This guarantees the template is preserved even if validation passes but
+	// subsequent operations (auto-branch, PR creation) fail
+	var savedTemplatePath string
+	if !skipEditor {
+		savedTemplatePath, err = template.SaveTemplate(templateContent)
+		if err != nil {
+			logger.Warn().Err(err).Msg("Failed to save template (non-fatal)")
+			// Continue - this is not fatal, but user won't have --continue option
+		} else {
+			logger.Debug().Str("path", savedTemplatePath).Msg("Template saved for --continue")
+		}
+	}
+
 	// Step 6: Parse and validate template
 	parsedFields, err := template.ParseTemplate(templateContent)
 	if err != nil {
@@ -368,15 +382,11 @@ func (w *DiffWorkflow) executeWithTemplateEditing(
 
 	valid, validationMessage := template.ValidateFieldsWithContext(parsedFields, w.config.Diff.RequireTestPlan, stackingCtx)
 	if !valid {
-		// Save template for --continue
-		savedPath, err := template.SaveTemplate(templateContent)
-		if err != nil {
-			logger.Warn().Err(err).Msg("Failed to save template for retry")
-		}
-
+		// Template was already saved after editing (Step 5.5)
+		// Just inform user about validation failure and saved path
 		errMsg := validationMessage
-		if savedPath != "" {
-			errMsg += fmt.Sprintf("\n\nTemplate saved to: %s", savedPath)
+		if savedTemplatePath != "" {
+			errMsg += fmt.Sprintf("\n\nTemplate saved to: %s", savedTemplatePath)
 			errMsg += "\nFix the issues and run:\n  gh arc diff --continue"
 		}
 		return nil, fmt.Errorf("%w: %s", template.ErrTemplateValidationFailed, errMsg)
@@ -435,7 +445,19 @@ func (w *DiffWorkflow) executeWithTemplateEditing(
 		CurrentUser: currentUser,
 	})
 	if err != nil {
+		// PR creation failed - template remains saved for --continue
 		return nil, fmt.Errorf("failed to create or update PR: %w", err)
+	}
+
+	// Step 11: Clean up saved template on success
+	// Only delete if PR was successfully created and we saved a template
+	if savedTemplatePath != "" {
+		if err := template.RemoveSavedTemplate(savedTemplatePath); err != nil {
+			logger.Warn().Err(err).Str("path", savedTemplatePath).Msg("Failed to delete saved template")
+			// Non-fatal - user can manually delete if needed
+		} else {
+			logger.Debug().Str("path", savedTemplatePath).Msg("Deleted saved template after successful PR creation")
+		}
 	}
 
 	// Build result

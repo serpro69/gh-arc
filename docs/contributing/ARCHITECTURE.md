@@ -1018,6 +1018,36 @@ Ref: <Linear-123>
 - Draft defaults to config value
 - Ref is optional (Linear integration)
 
+**Template Lifecycle:**
+
+The template persistence strategy is designed to guarantee no data loss:
+
+1. **Generation** - Template created with pre-filled commit analysis
+2. **Editing** - User edits in $EDITOR (can take unlimited time)
+3. **Immediate Save** - Template saved to temp file immediately after editor closes
+4. **Validation** - Template validated against required fields
+   - If validation fails: template already saved, user can retry with `--continue`
+5. **Workflow Execution** - Auto-branch, PR creation operations proceed
+   - If any operation fails: template remains saved for `--continue`
+6. **Cleanup** - Template deleted only after successful PR creation
+
+**Context Timeout Handling:**
+
+The diff command uses an unbounded context to support arbitrarily long editor sessions:
+- No global timeout on the command context
+- Users can spend unlimited time in editor without triggering timeouts
+- Individual GitHub API calls have their own internal timeouts (30s default)
+- This prevents "context deadline exceeded" errors while still protecting against hanging API calls
+
+**Error Recovery:**
+
+If any error occurs during the workflow (validation failure, auto-branch failure, PR creation failure), the template is preserved in the system temp directory with pattern `gh-arc-diff-saved-*.md`. Users can retry with:
+```bash
+gh arc diff --continue
+```
+
+This will load the most recent saved template and allow the user to fix issues or retry the operation.
+
 ## Extension Points
 
 ### Adding New Commands
