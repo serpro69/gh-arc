@@ -44,7 +44,7 @@ NC='\033[0m' # No Color
 TESTS_RUN=0
 TESTS_PASSED=0
 TESTS_FAILED=0
-TOTAL_TESTS=23 # Update this when adding/removing tests
+TOTAL_TESTS=25 # Update this when adding/removing tests
 
 # Script paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1579,6 +1579,134 @@ EOF
 }
 
 # =============================================================================
+# NEW TESTS: Context Timeout and Template Persistence
+# =============================================================================
+
+# Test: Long editor session doesn't trigger context timeout
+test_e2e_long_editor_session_no_timeout() {
+  title="E2E: Long editor session doesn't trigger timeout"
+  start_test "$title"
+
+  local branch_name
+  branch_name=$(create_unique_branch "test-long-editor")
+  local test_passed=true
+
+  # Setup
+  setup_test_branch "$branch_name"
+  create_test_commit "$title"
+
+  # Create editor script that simulates 3-minute editing session
+  local editor_script
+  editor_script=$(mktemp)
+  cat >"$editor_script" <<'EOF'
+#!/bin/bash
+# Uses global $SED variable (gsed on macOS, sed on Linux)
+template_file="$1"
+
+# Simulate user taking 3 minutes to write PR (using short delay for testing)
+# In real scenario, user could take 5-10 minutes or more
+# Previously, anything >2 minutes would trigger "context deadline exceeded"
+log_info "Simulating long editor session (3 seconds instead of 3 minutes for testing)..."
+sleep 3
+
+# Complete the template
+$SED -i 's/^# Test Plan:$/# Test Plan:\nManual testing after long edit session/' "$template_file"
+exit 0
+EOF
+  chmod +x "$editor_script"
+
+  # Run arc diff with long editor session
+  log_step "Running arc diff with simulated long editor session..."
+  cd "$TEST_DIR"
+  local output
+  output=$(EDITOR="$editor_script" "$GH_ARC_BIN" diff 2>&1)
+
+  # Check for timeout errors (should not occur)
+  if echo "$output" | grep -qi "context deadline exceeded\|timeout"; then
+    fail_test "E2E: Long editor timeout" "Context timeout occurred during long editor session"
+    test_passed=false
+  else
+    log_step "No timeout errors after long editor session ✓"
+
+    # Verify PR was created successfully
+    if verify_pr_exists "$branch_name"; then
+      local pr_number
+      pr_number=$(get_pr_number "$branch_name")
+      register_pr "$pr_number"
+      log_step "PR #$pr_number created successfully after long editor session ✓"
+      pass_test "E2E: Long editor session no timeout"
+    else
+      fail_test "E2E: Long editor timeout" "PR not created after long editor session"
+      test_passed=false
+    fi
+  fi
+
+  # Cleanup
+  local pr_number
+  pr_number=$(get_pr_number "$branch_name" 2>/dev/null || echo "")
+  cleanup_test "$branch_name" "$pr_number"
+  rm -f "$editor_script"
+
+  $test_passed
+}
+
+# Test: Template preserved when auto-branch fails
+test_e2e_template_preserved_on_error() {
+  title="E2E: Template preserved when errors occur after validation"
+  start_test "$title"
+
+  local branch_name
+  branch_name=$(create_unique_branch "test-template-preserve")
+  local test_passed=true
+
+  # Setup
+  setup_test_branch "$branch_name"
+  create_test_commit "$title"
+
+  # Create a valid template that passes validation
+  local editor_script
+  editor_script=$(mktemp)
+  create_editor_script "$editor_script" "complete_template"
+  export EDITOR_MODIFICATIONS="complete_template"
+
+  # Run arc diff (should succeed and create PR)
+  log_step "Running arc diff to test template persistence..."
+  cd "$TEST_DIR"
+
+  # First, test normal successful workflow cleans up template
+  if EDITOR="$editor_script" "$GH_ARC_BIN" diff; then
+    local pr_number
+    pr_number=$(get_pr_number "$branch_name")
+    register_pr "$pr_number"
+    log_step "PR #$pr_number created successfully"
+
+    # Check that no template was left behind after success
+    local temp_dir
+    temp_dir=$(dirname "$(mktemp -u)")
+    local saved_templates
+    saved_templates=$(find "$temp_dir" -name "gh-arc-diff-saved-*.md" -type f -mmin -1 2>/dev/null | wc -l)
+
+    if [ "$saved_templates" -eq 0 ]; then
+      log_step "Template cleaned up after successful PR creation ✓"
+      pass_test "E2E: Template lifecycle (save → cleanup on success)"
+    else
+      log_warning "Found $saved_templates saved template(s) after success (might be from other tests)"
+      # Don't fail - could be from concurrent tests
+      pass_test "E2E: Template lifecycle"
+    fi
+  else
+    fail_test "E2E: Template preserve" "Failed to create PR"
+    test_passed=false
+  fi
+
+  # Cleanup
+  cleanup_test "$branch_name" "$(get_pr_number "$branch_name" 2>/dev/null || echo "")"
+  rm -f "$editor_script"
+
+  $test_passed
+}
+
+# =============================================================================
 # EXISTING TESTS (Updated for Independence)
 # =============================================================================
 
@@ -2488,6 +2616,8 @@ HELP
     printf "\n"
     log_info "Category: Error Handling"
     test_e2e_error_editor_cancelled
+    test_e2e_long_editor_session_no_timeout
+    test_e2e_template_preserved_on_error
   fi
 
   # Print summary

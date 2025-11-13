@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/cli/go-gh/v2/pkg/repository"
 	"github.com/spf13/cobra"
@@ -115,9 +114,9 @@ func init() {
 
 // runDiff executes the diff command
 func runDiff(cmd *cobra.Command, args []string) error {
-	// Create context with timeout to prevent hanging on slow operations
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-	defer cancel()
+	// Create context without global timeout - editor sessions can take arbitrary time
+	// Individual API calls have their own timeouts via the GitHub client's HTTP client
+	ctx := context.Background()
 
 	logger.Debug().
 		Bool("draft", diffDraft).
