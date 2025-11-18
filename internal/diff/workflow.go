@@ -344,10 +344,8 @@ func (w *DiffWorkflow) executeWithTemplateEditing(
 	if !skipEditor {
 		templateContent, err = template.OpenEditor(templateContent)
 		if err != nil {
-			if err == template.ErrEditorCancelled {
-				return nil, fmt.Errorf("editor cancelled, no changes made")
-			}
-			return nil, fmt.Errorf("failed to open editor: %w", err)
+			// Return the error as-is to preserve error type for errors.Is() checks
+			return nil, err
 		}
 	}
 

@@ -712,7 +712,7 @@ test_e2e_stacking_basic() {
 
   local parent_branch
   local child_branch
-  current_branch=$(create_unique_branch "test-stack-parent")
+  parent_branch=$(create_unique_branch "test-stack-parent")
   child_branch=$(create_unique_branch "test-stack-child")
   local test_passed=true
 
@@ -1543,6 +1543,7 @@ test_e2e_error_editor_cancelled() {
   cat >"$editor_script" <<'EOF'
 #!/bin/bash
 # Simulate editor cancellation
+# kill -SIGKILL $$
 exit 1
 EOF
   chmod +x "$editor_script"
@@ -1584,7 +1585,7 @@ EOF
 
 # Test: Long editor session doesn't trigger context timeout
 test_e2e_long_editor_session_no_timeout() {
-  title="E2E: Long editor session doesn't trigger timeout"
+  title="E2E: Long editor session completes successfully"
   start_test "$title"
 
   local branch_name
@@ -1603,10 +1604,8 @@ test_e2e_long_editor_session_no_timeout() {
 # Uses global $SED variable (gsed on macOS, sed on Linux)
 template_file="$1"
 
-# Simulate user taking 3 minutes to write PR (using short delay for testing)
-# In real scenario, user could take 5-10 minutes or more
-# Previously, anything >2 minutes would trigger "context deadline exceeded"
-log_info "Simulating long editor session (3 seconds instead of 3 minutes for testing)..."
+# Simulate user taking time to write PR description
+# Using short delay (3 seconds) for testing purposes
 sleep 3
 
 # Complete the template
@@ -1622,11 +1621,13 @@ EOF
   output=$(EDITOR="$editor_script" "$GH_ARC_BIN" diff 2>&1)
 
   # Check for timeout errors (should not occur)
-  if echo "$output" | grep -qi "context deadline exceeded\|timeout"; then
-    fail_test "E2E: Long editor timeout" "Context timeout occurred during long editor session"
+  # Look for actual error patterns, not just the word "timeout" (which appears in PR title)
+  if echo "$output" | grep -Eqi "error.*timeout|timeout.*error|context deadline exceeded|timed out|timeout exceeded"; then
+    log_debug "Output contains timeout error. Full output:\n$output"
+    fail_test "E2E: Long editor session" "Context deadline/timeout occurred during long editor session"
     test_passed=false
   else
-    log_step "No timeout errors after long editor session ✓"
+    log_step "No deadline/timeout errors after long editor session ✓"
 
     # Verify PR was created successfully
     if verify_pr_exists "$branch_name"; then
@@ -1634,9 +1635,9 @@ EOF
       pr_number=$(get_pr_number "$branch_name")
       register_pr "$pr_number"
       log_step "PR #$pr_number created successfully after long editor session ✓"
-      pass_test "E2E: Long editor session no timeout"
+      pass_test "E2E: Long editor session completes successfully"
     else
-      fail_test "E2E: Long editor timeout" "PR not created after long editor session"
+      fail_test "E2E: Long editor session" "PR not created after long editor session"
       test_passed=false
     fi
   fi

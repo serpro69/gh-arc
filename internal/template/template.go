@@ -488,7 +488,8 @@ func OpenEditor(templateContent string) (string, error) {
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("editor exited with error: %w", err)
+		// Editor exited with error - treat as cancellation
+		return "", ErrEditorCancelled
 	}
 
 	// Check if file was modified
