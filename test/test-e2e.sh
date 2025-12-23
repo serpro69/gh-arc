@@ -2085,6 +2085,107 @@ test_e2e_stacking_same_commit() {
 }
 
 # =============================================================================
+# Test: Independent branches from main should NOT stack (Issue #4)
+# =============================================================================
+test_e2e_stacking_independent_branches_no_stack() {
+  title="E2E: Independent branches from main should NOT stack"
+  start_test "$title"
+
+  local test_passed=true
+  cd "$TEST_DIR"
+
+  # Get main branch name
+  local main_branch="main"
+  if ! git rev-parse --verify main >/dev/null 2>&1; then
+    main_branch="master"
+  fi
+
+  # Create editor script
+  local editor_script
+  editor_script=$(mktemp)
+  create_editor_script "$editor_script" "complete_template"
+  export EDITOR_MODIFICATIONS="complete_template"
+
+  # Create first feature branch from main
+  local feature1_branch
+  feature1_branch=$(create_unique_branch "test-independent-1")
+  log_step "Creating first feature branch from $main_branch..."
+  git checkout "$main_branch" >/dev/null 2>&1
+  git pull origin "$main_branch" >/dev/null 2>&1 || true
+  git checkout -b "$feature1_branch" >/dev/null 2>&1
+  register_branch "$feature1_branch"
+  create_test_commit "$title - Feature 1"
+
+  # Create PR for first branch (feature1 → main)
+  log_step "Creating PR for feature 1 (should target $main_branch)..."
+  if ! EDITOR="$editor_script" run_arc_diff; then
+    fail_test "E2E: Independent branches" "Failed to create feature 1 PR"
+    cleanup_test "$feature1_branch"
+    rm -f "$editor_script"
+    return 1
+  fi
+
+  local feature1_pr
+  feature1_pr=$(get_pr_number "$feature1_branch")
+  register_pr "$feature1_pr"
+  log_step "Feature 1 PR #$feature1_pr created"
+
+  # Verify first PR targets main
+  local feature1_base
+  feature1_base=$(get_pr_base "$feature1_branch")
+  if [ "$feature1_base" != "$main_branch" ]; then
+    fail_test "E2E: Independent branches" "Feature 1 PR targets '$feature1_base' instead of '$main_branch'"
+    cleanup_test "$feature1_branch" "$feature1_pr"
+    rm -f "$editor_script"
+    return 1
+  fi
+  log_step "Feature 1 PR correctly targets $main_branch ✓"
+
+  # Create second feature branch from main (NOT from feature1)
+  local feature2_branch
+  feature2_branch=$(create_unique_branch "test-independent-2")
+  log_step "Creating second feature branch from $main_branch (not from feature 1)..."
+  git checkout "$main_branch" >/dev/null 2>&1
+  git checkout -b "$feature2_branch" >/dev/null 2>&1
+  register_branch "$feature2_branch"
+  create_test_commit "$title - Feature 2"
+
+  # Create PR for second branch (should target main, NOT feature1)
+  log_step "Creating PR for feature 2 (should target $main_branch, NOT $feature1_branch)..."
+  if EDITOR="$editor_script" run_arc_diff; then
+    local feature2_pr
+    feature2_pr=$(get_pr_number "$feature2_branch")
+    register_pr "$feature2_pr"
+
+    local feature2_base
+    feature2_base=$(get_pr_base "$feature2_branch")
+
+    if [ "$feature2_base" = "$main_branch" ]; then
+      log_step "Feature 2 PR correctly targets $main_branch (not stacked) ✓"
+      pass_test "E2E: Independent branches from main should NOT stack"
+    elif [ "$feature2_base" = "$feature1_branch" ]; then
+      fail_test "E2E: Independent branches" "BUG: Feature 2 incorrectly stacks on $feature1_branch"
+      test_passed=false
+    else
+      fail_test "E2E: Independent branches" "Feature 2 PR targets unexpected base '$feature2_base'"
+      test_passed=false
+    fi
+  else
+    fail_test "E2E: Independent branches" "Failed to create feature 2 PR"
+    test_passed=false
+  fi
+
+  # Cleanup
+  local feature2_pr
+  feature2_pr=$(get_pr_number "$feature2_branch" 2>/dev/null || echo "")
+  cleanup_test "$feature2_branch" "$feature2_pr"
+  cleanup_test "$feature1_branch" "$feature1_pr"
+  rm -f "$editor_script"
+
+  $test_passed
+}
+
+# =============================================================================
 # Test 4: Template sorting by modification time
 # =============================================================================
 test_e2e_template_sorting() {
@@ -2587,6 +2688,7 @@ HELP
     log_info "Category: Stacking"
     test_e2e_stacking_basic
     test_e2e_stacking_same_commit
+    test_e2e_stacking_independent_branches_no_stack
 
     # ====================
     # Continue Mode Tests
