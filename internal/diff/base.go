@@ -226,14 +226,43 @@ func (d *BaseBranchDetector) detectStackingBase(
 		//
 		// Stacking conditions:
 		// 1. merge-base(current, candidate) != merge-base(current, default)
-		//    This means current diverged from candidate, not just from default
+		//    AND merge-base(current, candidate) != merge-base(candidate, default)
+		//    This means current branched from candidate's unique commits (after candidate
+		//    diverged from default), not just from the same point where candidate diverged.
 		// 2. OR merge-base(current, candidate) == merge-base(current, default)
 		//    AND candidate branch is at the merge-base (meaning current was branched from candidate)
 		//    This handles the case where local main and candidate are at the same commit
 		//    (e.g., after auto-branch creation from main)
 		if mergeBaseWithCandidate != mergeBaseWithDefault {
-			// Case 1: Merge-bases are different, current diverged from candidate
-			// Check if candidate branch is an ancestor of current branch
+			// Case 1: Merge-bases are different
+			// We need to verify that current actually branched from candidate's unique commits,
+			// not just that they have a different common ancestor than main.
+
+			// Get where candidate diverged from default
+			candidateDivergence, err := d.repo.GetMergeBase(branch, defaultBranch)
+			if err != nil {
+				logger.Debug().
+					Err(err).
+					Str("candidate", branch).
+					Str("default", defaultBranch).
+					Msg("Failed to get candidate's divergence point from default")
+				continue
+			}
+
+			// If merge-base(current, candidate) == merge-base(candidate, default),
+			// it means both current and candidate branched from the same point in
+			// default's history. This is NOT stacking - they're independent branches.
+			if mergeBaseWithCandidate == candidateDivergence {
+				logger.Debug().
+					Str("candidate", branch).
+					Str("mergeBase", mergeBaseWithCandidate).
+					Msg("Not stacking: current and candidate both diverged from same point on default")
+				continue
+			}
+
+			// merge-base(current, candidate) is different from where candidate diverged from default.
+			// This means current branched from somewhere on candidate's unique commits.
+			// Verify the merge-base is actually an ancestor of current branch.
 			isAncestor, err := d.isAncestor(mergeBaseWithCandidate, currentBranch)
 			if err != nil {
 				logger.Debug().

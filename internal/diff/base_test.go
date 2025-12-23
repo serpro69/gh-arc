@@ -321,6 +321,142 @@ func TestDetectBaseBranch_StackingDetected_SameCommitAsMain(t *testing.T) {
 	}
 }
 
+// TestDetectBaseBranch_IndependentBranches_NoStacking tests that two independent
+// branches from main do NOT stack, even when one has an open PR.
+// This reproduces the bug from issue #4.
+func TestDetectBaseBranch_IndependentBranches_NoStacking(t *testing.T) {
+	// Scenario from issue #4:
+	// main: A (initial commit)
+	// feature-1: A → B → C → D (branched from main at A, has PR #41)
+	// feature-2: A → E → F (branched from main at A, NO PR yet)
+	// When running arc diff on feature-2, it should NOT stack on feature-1
+	mockRepo := &mockRepository{
+		defaultBranch: "main",
+		branches: []git.BranchInfo{
+			{Name: "main", Hash: "aaa111"},       // main at commit A
+			{Name: "feature-1", Hash: "ddd444"}, // feature-1 at commit D
+			{Name: "feature-2", Hash: "fff666"}, // feature-2 at commit F (current)
+		},
+		mergeBaseFunc: func(ref1, ref2 string) (string, error) {
+			// Both branches diverged from the same point (A) on main
+			// All merge-bases should return A
+			return "aaa111", nil
+		},
+	}
+	mockClient := &mockGitHubClient{
+		pullRequests: []*github.PullRequest{
+			{
+				Number: 41,
+				Title:  "Feature One",
+				Head:   github.PRBranch{Ref: "feature-1"},
+				Base:   github.PRBranch{Ref: "main"},
+			},
+		},
+	}
+	cfg := &config.DiffConfig{
+		EnableStacking: true,
+	}
+
+	detector := NewBaseBranchDetector(mockRepo, mockClient, cfg, "owner", "repo")
+
+	result, err := detector.DetectBaseBranch(context.Background(), "feature-2", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Expected: Should NOT stack, should use main
+	if result.Base != "main" {
+		t.Errorf("expected base 'main', got '%s'", result.Base)
+	}
+	if result.IsStacking {
+		t.Error("expected IsStacking to be false for independent branches")
+	}
+	if result.Method != "default-branch" {
+		t.Errorf("expected method 'default-branch', got '%s'", result.Method)
+	}
+}
+
+// TestDetectBaseBranch_IndependentBranches_DifferentMergeBases_NoStacking tests
+// the scenario where main has moved forward after feature-1 was created, and
+// feature-2 was created from the updated main. They should NOT stack.
+func TestDetectBaseBranch_IndependentBranches_DifferentMergeBases_NoStacking(t *testing.T) {
+	// Scenario: main moved forward between branch creations
+	// Timeline:
+	// 1. main at A
+	// 2. feature-1 created from A, makes commits B, C, D
+	// 3. main moves to A' (new commits or pull)
+	// 4. feature-2 created from A', makes commits E, F
+	//
+	// Git graph:
+	// A --- A' (main)
+	// |      \
+	// |       E --- F (feature-2, branched from A')
+	// |
+	// B --- C --- D (feature-1, branched from A)
+	//
+	// merge-base(feature-2, feature-1) = A (common ancestor)
+	// merge-base(feature-2, main) = A' (feature-2 branched from A')
+	// These are DIFFERENT! But feature-2 should NOT stack on feature-1.
+	mockRepo := &mockRepository{
+		defaultBranch: "main",
+		branches: []git.BranchInfo{
+			{Name: "main", Hash: "aaa222"},       // main at A'
+			{Name: "feature-1", Hash: "ddd444"}, // feature-1 at D
+			{Name: "feature-2", Hash: "fff666"}, // feature-2 at F (current)
+		},
+		mergeBaseFunc: func(ref1, ref2 string) (string, error) {
+			// feature-2 with main: A' (where feature-2 branched)
+			if (ref1 == "feature-2" && ref2 == "main") ||
+				(ref1 == "main" && ref2 == "feature-2") {
+				return "aaa222", nil
+			}
+			// feature-2 with feature-1: A (common ancestor before main moved)
+			if (ref1 == "feature-2" && ref2 == "feature-1") ||
+				(ref1 == "feature-1" && ref2 == "feature-2") {
+				return "aaa111", nil
+			}
+			return "aaa111", nil
+		},
+		isAncestorFunc: func(ancestorRef, descendantRef string) (bool, error) {
+			// A (aaa111) is an ancestor of feature-2 (through A → A' → E → F)
+			if ancestorRef == "aaa111" && descendantRef == "feature-2" {
+				return true, nil
+			}
+			return false, nil
+		},
+	}
+	mockClient := &mockGitHubClient{
+		pullRequests: []*github.PullRequest{
+			{
+				Number: 41,
+				Title:  "Feature One",
+				Head:   github.PRBranch{Ref: "feature-1"},
+				Base:   github.PRBranch{Ref: "main"},
+			},
+		},
+	}
+	cfg := &config.DiffConfig{
+		EnableStacking: true,
+	}
+
+	detector := NewBaseBranchDetector(mockRepo, mockClient, cfg, "owner", "repo")
+
+	result, err := detector.DetectBaseBranch(context.Background(), "feature-2", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Expected: Should NOT stack, should use main
+	// BUG: Currently this will incorrectly stack because Case 1 triggers
+	// (merge-bases are different) and isAncestor(A, feature-2) is true
+	if result.Base != "main" {
+		t.Errorf("expected base 'main', got '%s'", result.Base)
+	}
+	if result.IsStacking {
+		t.Error("expected IsStacking to be false for independent branches")
+	}
+}
+
 func TestFormatStackingMessage_NoStacking(t *testing.T) {
 	result := &BaseBranchResult{
 		Base:       "main",
