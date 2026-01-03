@@ -15,6 +15,9 @@
 > [!TIP]
 > Check out this [DORA Trunk-based development](https://dora.dev/capabilities/trunk-based-development/) page if, by any chance, this is the first time you're hearing about it and interested to learn more about about this methodology.
 
+> [!WARNING]
+> This project was created with the help of Claude-Code and I'm using it as a "pet project" to try out different CC workflows. That said, I try (yeah, I know, "do or do not...", but you know, our desires don't always conicide with our possibiltiies) not to compromise on quality and testing. I also use this extension daily when working with github code reviews. That said, if you have any problems with code that is written by AI - you've been warned.
+
 ## Installation
 
 Install the latest release using the GitHub CLI:
