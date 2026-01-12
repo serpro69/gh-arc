@@ -1,6 +1,6 @@
 ---
 name: testing-process
-description: Guidelines on how to test the application code. ALWAYS use after adding new code or updating existing code, for example after implementing a new feature or fixing a bug.
+description: Guidelines describing how to test the code. Use whenever writing new or updating existing code, for example after implementing a new feature or fixing a bug.
 ---
 
 # Testing & Quality Assurance Process
@@ -9,9 +9,7 @@ description: Guidelines on how to test the application code. ALWAYS use after ad
 
 1. Always try to add tests for any new functionality, and make sure to cover all cases and code branches, according to requirements.
 2. Always try to add tests for any bug-fixes, if the discovered bug is not already covered by tests. If the bug was already covered by tests, fix the existing tests as needed.
-3. Always run all existing unit and integration tests after you are done with a given implementation or bug-fix.
-
-## Working with Test Code
+3. Always run all existing tests after you are done with a given implementation or bug-fix.
 
 Use the following guidelines when working with tests:
 

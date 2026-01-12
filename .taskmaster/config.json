@@ -2,19 +2,19 @@
   "models": {
     "main": {
       "provider": "claude-code",
-      "modelId": "sonnet",
+      "modelId": "sonnet[1m]",
       "maxTokens": 64000,
       "temperature": 0.2
     },
     "research": {
       "provider": "claude-code",
-      "modelId": "opus",
-      "maxTokens": 32000,
+      "modelId": "claude-opus-4-5",
+      "maxTokens": 64000,
       "temperature": 0.1
     },
     "fallback": {
       "provider": "claude-code",
-      "modelId": "sonnet",
+      "modelId": "sonnet[1m]",
       "maxTokens": 64000,
       "temperature": 0.2
     }
@@ -37,6 +37,6 @@
   "claudeCode": {
     "customSystemPrompt": "You are a Go-lang expert specializing in modern Go 1.21+ development with advanced concurrency patterns, performance optimization, production-ready system design, with deep knowledge in developing CLI tools and applications and Github CLI extensions in Golang.",
     "appendSystemPrompt": "Always follow Go 1.21+ coding best practices, clean architecture, domain-driven design with Go idioms. Use context7 MCP to lookup documentation for dependencies, libraries, SDKs, APIs and other external frameworks and tools, whenever necessary.",
-    "permissionMode": "default"
+    "permissionMode": ""
   }
 }
