@@ -1,19 +1,14 @@
 {
-  "env": {
-    "MAX_MCP_OUTPUT_TOKENS": "64000"
-  },
   "permissions": {
     "allow": [
       "Bash(cat:*)",
-      "Bash(git add:*)",
-      "Bash(git commit:*)",
-      "Bash(git log:*)",
       "Bash(go build:*)",
       "Bash(go get:*)",
       "Bash(go list:*)",
       "Bash(go mod:*)",
       "Bash(go test:*)",
       "Bash(go tool cover:*)",
+      "Bash(chmod:*)",
       "Bash(grep:*)",
       "Bash(ls:*)",
       "Bash(mkdir:*)",
@@ -33,6 +28,7 @@
       "mcp__task-master-ai__analyze_project_complexity",
       "mcp__task-master-ai__complexity_report",
       "mcp__task-master-ai__expand_all",
+      "mcp__task-master-ai__expand_task",
       "mcp__task-master-ai__get_task",
       "mcp__task-master-ai__get_tasks",
       "mcp__task-master-ai__next_task",
@@ -74,6 +70,10 @@
     "ask": []
   },
   "enabledMcpjsonServers": [],
+  "env": {
+    "CLAUDE_CODE_MAX_OUTPUT_TOKENS": 64000,
+    "MAX_MCP_OUTPUT_TOKENS": 64000
+  },
   "hooks": {
     "PreToolUse": [
       {
@@ -86,5 +86,10 @@
         ]
       }
     ]
+  },
+  "model": "claude-opus-4-5",
+  "statusLine": {
+    "type": "command",
+    "command": "bash $CLAUDE_PROJECT_DIR/.claude/scripts/statusline.sh"
   }
 }
