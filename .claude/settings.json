@@ -36,10 +36,10 @@
       "mcp__task-master-ai__set_task_status",
       "mcp__task-master-ai__update_subtask",
       "mcp__zen__codereview",
-      "Skill(analysis)",
-      "Skill(development)",
-      "Skill(documentation)",
-      "Skill(testing)",
+      "Skill(analysis-process)",
+      "Skill(development-process)",
+      "Skill(documentation-process)",
+      "Skill(testing-process)",
       "WebSearch"
     ],
     "deny": [
