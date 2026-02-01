@@ -2,12 +2,6 @@
   "permissions": {
     "allow": [
       "Bash(cat:*)",
-      "Bash(go build:*)",
-      "Bash(go get:*)",
-      "Bash(go list:*)",
-      "Bash(go mod:*)",
-      "Bash(go test:*)",
-      "Bash(go tool cover:*)",
       "Bash(chmod:*)",
       "Bash(grep:*)",
       "Bash(ls:*)",
@@ -36,13 +30,10 @@
       "mcp__task-master-ai__set_task_status",
       "mcp__task-master-ai__update_subtask",
       "mcp__zen__codereview",
-      "Skill(analysis-process)",
-      "Skill(development-process)",
-      "Skill(documentation-process)",
-      "Skill(testing-process)",
       "WebSearch"
     ],
     "deny": [
+      "Bash(rm:*)",
       "Bash(task-master:*)",
       "Read(./examples)",
       "Read(./**/consensus*.md)",
