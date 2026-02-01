@@ -1,8 +1,8 @@
 {
   "schema_version": "1",
   "upstream_repo": "serpro69/claude-starter-kit",
-  "template_version": "f320ca582c49e1305909e2b860245f818ec71b48",
-  "synced_at": "2026-02-01T16:48:43Z",
+  "template_version": "b7f48cf8f36567704967a1172772a1ee52914d2f",
+  "synced_at": "2026-02-01T17:34:22Z",
   "variables": {
     "PROJECT_NAME": "gh-arc",
     "LANGUAGES": "go",
