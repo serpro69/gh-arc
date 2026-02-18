@@ -27,6 +27,13 @@ type GitHubClient interface {
 	GetPullRequests(ctx context.Context, owner, repo string, opts *github.PullRequestListOptions) ([]*github.PullRequest, error)
 }
 
+// stackingCandidate holds a potential stacking parent found during detection
+type stackingCandidate struct {
+	branch    string
+	mergeBase string
+	parentPR  *github.PullRequest
+}
+
 // BaseBranchResult contains the result of base branch detection
 type BaseBranchResult struct {
 	Base       string                 // The detected base branch name
@@ -194,6 +201,11 @@ func (d *BaseBranchDetector) detectStackingBase(
 		return nil, nil // Not an error, just no stacking detected
 	}
 
+	// Collect all valid stacking candidates, then pick the closest one.
+	// This avoids returning on the first match, which could be a grandparent
+	// instead of the direct parent in multi-level stacking chains.
+	var candidates []stackingCandidate
+
 	// Check each local branch (excluding current and default)
 	for _, branchInfo := range branchInfos {
 		branch := branchInfo.Name
@@ -283,12 +295,11 @@ func (d *BaseBranchDetector) detectStackingBase(
 					Str("mergeBase", shortSHA).
 					Msg("Detected stacking opportunity (diverged from candidate)")
 
-				return &BaseBranchResult{
-					Base:       branch,
-					IsStacking: true,
-					ParentPR:   parentPR,
-					Method:     "auto-detected-stacking",
-				}, nil
+				candidates = append(candidates, stackingCandidate{
+					branch:    branch,
+					mergeBase: mergeBaseWithCandidate,
+					parentPR:  parentPR,
+				})
 			}
 		} else {
 			// Case 2: Merge-bases are equal (candidate and default are at same commit)
@@ -308,19 +319,44 @@ func (d *BaseBranchDetector) detectStackingBase(
 					Str("mergeBase", shortSHA).
 					Msg("Detected stacking opportunity (branched from candidate at same commit as default)")
 
-				return &BaseBranchResult{
-					Base:       branch,
-					IsStacking: true,
-					ParentPR:   parentPR,
-					Method:     "auto-detected-stacking",
-				}, nil
+				candidates = append(candidates, stackingCandidate{
+					branch:    branch,
+					mergeBase: mergeBaseWithCandidate,
+					parentPR:  parentPR,
+				})
 			}
 		}
 	}
 
-	// No stacking opportunity detected
-	logger.Debug().Msg("No stacking opportunity detected")
-	return nil, nil
+	if len(candidates) == 0 {
+		logger.Debug().Msg("No stacking opportunity detected")
+		return nil, nil
+	}
+
+	// Pick the closest parent: the candidate whose merge-base is the most recent
+	// (i.e., not an ancestor of any other candidate's merge-base).
+	// In a chain A→B→C, mergeBase with A is an ancestor of mergeBase with B,
+	// so B is the more direct parent.
+	best := candidates[0]
+	for _, c := range candidates[1:] {
+		isCloser, err := d.repo.IsAncestor(best.mergeBase, c.mergeBase)
+		if err == nil && isCloser {
+			best = c
+		}
+	}
+
+	logger.Info().
+		Str("parentBranch", best.branch).
+		Str("parentPR", fmt.Sprintf("#%d", best.parentPR.Number)).
+		Int("totalCandidates", len(candidates)).
+		Msg("Selected closest stacking parent")
+
+	return &BaseBranchResult{
+		Base:       best.branch,
+		IsStacking: true,
+		ParentPR:   best.parentPR,
+		Method:     "auto-detected-stacking",
+	}, nil
 }
 
 // isAncestor checks if ancestorSHA is an ancestor of descendantBranch

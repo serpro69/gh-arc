@@ -44,7 +44,7 @@ NC='\033[0m' # No Color
 TESTS_RUN=0
 TESTS_PASSED=0
 TESTS_FAILED=0
-TOTAL_TESTS=25 # Update this when adding/removing tests
+TOTAL_TESTS=26 # Update this when adding/removing tests
 
 # Script paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -2186,6 +2186,130 @@ test_e2e_stacking_independent_branches_no_stack() {
 }
 
 # =============================================================================
+# Test: Multi-level stacking picks direct parent over grandparent
+# When branches form a chain (main → A → B → C), C should stack on B, not A.
+# =============================================================================
+test_e2e_stacking_multi_level_picks_closest_parent() {
+  title="E2E: Multi-level stacking picks closest parent"
+  start_test "$title"
+
+  local test_passed=true
+  cd "$TEST_DIR"
+
+  # Get main branch name
+  local main_branch="main"
+  if ! git rev-parse --verify main >/dev/null 2>&1; then
+    main_branch="master"
+  fi
+
+  # Create editor script
+  local editor_script
+  editor_script=$(mktemp)
+  create_editor_script "$editor_script" "complete_template"
+  export EDITOR_MODIFICATIONS="complete_template"
+
+  # Create grandparent branch from main (A)
+  local grandparent_branch
+  grandparent_branch=$(create_unique_branch "test-multilevel-gp")
+  log_step "Creating grandparent branch from $main_branch..."
+  git checkout "$main_branch" >/dev/null 2>&1
+  git pull origin "$main_branch" >/dev/null 2>&1 || true
+  git checkout -b "$grandparent_branch" >/dev/null 2>&1
+  register_branch "$grandparent_branch"
+  create_test_commit "$title - Grandparent Feature"
+
+  # Create PR for grandparent (A → main)
+  log_step "Creating grandparent PR (should target $main_branch)..."
+  if ! EDITOR="$editor_script" run_arc_diff; then
+    fail_test "E2E: Multi-level stacking" "Failed to create grandparent PR"
+    cleanup_test "$grandparent_branch"
+    rm -f "$editor_script"
+    return 1
+  fi
+
+  local grandparent_pr
+  grandparent_pr=$(get_pr_number "$grandparent_branch")
+  register_pr "$grandparent_pr"
+  log_step "Grandparent PR #$grandparent_pr created"
+
+  # Create parent branch from grandparent (B from A)
+  local parent_branch
+  parent_branch=$(create_unique_branch "test-multilevel-parent")
+  log_step "Creating parent branch from grandparent..."
+  git checkout -b "$parent_branch" >/dev/null 2>&1
+  register_branch "$parent_branch"
+  create_test_commit "$title - Parent Feature"
+
+  # Create PR for parent (B → A)
+  log_step "Creating parent PR (should stack on grandparent)..."
+  if ! EDITOR="$editor_script" run_arc_diff; then
+    fail_test "E2E: Multi-level stacking" "Failed to create parent PR"
+    cleanup_test "$parent_branch"
+    cleanup_test "$grandparent_branch" "$grandparent_pr"
+    rm -f "$editor_script"
+    return 1
+  fi
+
+  local parent_pr
+  parent_pr=$(get_pr_number "$parent_branch")
+  register_pr "$parent_pr"
+  local parent_base
+  parent_base=$(get_pr_base "$parent_branch")
+
+  if [ "$parent_base" != "$grandparent_branch" ]; then
+    fail_test "E2E: Multi-level stacking" "Parent PR targets '$parent_base' instead of '$grandparent_branch'"
+    cleanup_test "$parent_branch" "$parent_pr"
+    cleanup_test "$grandparent_branch" "$grandparent_pr"
+    rm -f "$editor_script"
+    return 1
+  fi
+  log_step "Parent PR #$parent_pr correctly stacks on grandparent ($grandparent_branch) ✓"
+
+  # Create child branch from parent (C from B)
+  local child_branch
+  child_branch=$(create_unique_branch "test-multilevel-child")
+  log_step "Creating child branch from parent..."
+  git checkout -b "$child_branch" >/dev/null 2>&1
+  register_branch "$child_branch"
+  create_test_commit "$title - Child Feature"
+
+  # Create PR for child - should stack on parent (B), NOT grandparent (A)
+  log_step "Creating child PR (should stack on parent, NOT grandparent)..."
+  if EDITOR="$editor_script" run_arc_diff; then
+    local child_pr
+    child_pr=$(get_pr_number "$child_branch")
+    register_pr "$child_pr"
+
+    local child_base
+    child_base=$(get_pr_base "$child_branch")
+
+    if [ "$child_base" = "$parent_branch" ]; then
+      log_step "Child PR #$child_pr correctly stacks on parent ($parent_branch) ✓"
+      pass_test "E2E: Multi-level stacking picks closest parent"
+    elif [ "$child_base" = "$grandparent_branch" ]; then
+      fail_test "E2E: Multi-level stacking" "BUG: Child PR stacks on grandparent ($grandparent_branch) instead of parent ($parent_branch)"
+      test_passed=false
+    else
+      fail_test "E2E: Multi-level stacking" "Child PR targets unexpected base '$child_base'"
+      test_passed=false
+    fi
+  else
+    fail_test "E2E: Multi-level stacking" "Failed to create child PR"
+    test_passed=false
+  fi
+
+  # Cleanup (reverse order)
+  local child_pr_cleanup
+  child_pr_cleanup=$(get_pr_number "$child_branch" 2>/dev/null || echo "")
+  cleanup_test "$child_branch" "$child_pr_cleanup"
+  cleanup_test "$parent_branch" "$parent_pr"
+  cleanup_test "$grandparent_branch" "$grandparent_pr"
+  rm -f "$editor_script"
+
+  $test_passed
+}
+
+# =============================================================================
 # Test 4: Template sorting by modification time
 # =============================================================================
 test_e2e_template_sorting() {
@@ -2689,6 +2813,7 @@ HELP
     test_e2e_stacking_basic
     test_e2e_stacking_same_commit
     test_e2e_stacking_independent_branches_no_stack
+    test_e2e_stacking_multi_level_picks_closest_parent
 
     # ====================
     # Continue Mode Tests

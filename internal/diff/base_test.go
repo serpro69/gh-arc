@@ -447,8 +447,6 @@ func TestDetectBaseBranch_IndependentBranches_DifferentMergeBases_NoStacking(t *
 	}
 
 	// Expected: Should NOT stack, should use main
-	// BUG: Currently this will incorrectly stack because Case 1 triggers
-	// (merge-bases are different) and isAncestor(A, feature-2) is true
 	if result.Base != "main" {
 		t.Errorf("expected base 'main', got '%s'", result.Base)
 	}
@@ -516,4 +514,104 @@ func containsSubstring(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// TestDetectBaseBranch_MultiLevelStacking_PicksClosestParent tests that when
+// multiple branches form a chain (main → A → B → current), the detection
+// picks B (direct parent) over A (grandparent).
+func TestDetectBaseBranch_MultiLevelStacking_PicksClosestParent(t *testing.T) {
+	// Scenario:
+	// main at commitM
+	//   └─ gw_sec_policy at commitC (PR #351 → main)
+	//       └─ pdbs at commitD (PR #352 → gw_sec_policy)
+	//           └─ cert_mgr_cleanup at commitE (current, no PR yet)
+	//
+	// Both gw_sec_policy and pdbs are valid stacking parents, but pdbs
+	// is the direct parent and should be selected.
+	mockRepo := &mockRepository{
+		defaultBranch: "main",
+		branches: []git.BranchInfo{
+			{Name: "main", Hash: "commitM"},
+			{Name: "gw_sec_policy", Hash: "commitC"},
+			{Name: "pdbs", Hash: "commitD"},
+			{Name: "cert_mgr_cleanup", Hash: "commitE"},
+		},
+		mergeBaseFunc: func(ref1, ref2 string) (string, error) {
+			pair := ref1 + "+" + ref2
+			switch pair {
+			// cert_mgr_cleanup with main → commitM
+			case "cert_mgr_cleanup+main", "main+cert_mgr_cleanup":
+				return "commitM", nil
+			// cert_mgr_cleanup with gw_sec_policy → commitC (grandparent divergence)
+			case "cert_mgr_cleanup+gw_sec_policy", "gw_sec_policy+cert_mgr_cleanup":
+				return "commitC", nil
+			// cert_mgr_cleanup with pdbs → commitD (direct parent divergence)
+			case "cert_mgr_cleanup+pdbs", "pdbs+cert_mgr_cleanup":
+				return "commitD", nil
+			// gw_sec_policy with main → commitM
+			case "gw_sec_policy+main", "main+gw_sec_policy":
+				return "commitM", nil
+			// pdbs with main → commitM
+			case "pdbs+main", "main+pdbs":
+				return "commitM", nil
+			default:
+				return "commitM", nil
+			}
+		},
+		isAncestorFunc: func(ancestorRef, descendantRef string) (bool, error) {
+			// commitC is ancestor of commitD and commitE
+			// commitD is ancestor of commitE
+			// commitM is ancestor of everything
+			ancestors := map[string]map[string]bool{
+				"commitM": {"commitC": true, "commitD": true, "commitE": true, "cert_mgr_cleanup": true, "gw_sec_policy": true, "pdbs": true},
+				"commitC": {"commitD": true, "commitE": true, "cert_mgr_cleanup": true, "pdbs": true},
+				"commitD": {"commitE": true, "cert_mgr_cleanup": true},
+			}
+			if descendants, ok := ancestors[ancestorRef]; ok {
+				return descendants[descendantRef], nil
+			}
+			return false, nil
+		},
+	}
+	mockClient := &mockGitHubClient{
+		pullRequests: []*github.PullRequest{
+			{
+				Number: 351,
+				Title:  "Gateway security policy",
+				Head:   github.PRBranch{Ref: "gw_sec_policy"},
+				Base:   github.PRBranch{Ref: "main"},
+			},
+			{
+				Number: 352,
+				Title:  "Add PDBs",
+				Head:   github.PRBranch{Ref: "pdbs"},
+				Base:   github.PRBranch{Ref: "gw_sec_policy"},
+			},
+		},
+	}
+	cfg := &config.DiffConfig{
+		EnableStacking: true,
+	}
+
+	detector := NewBaseBranchDetector(mockRepo, mockClient, cfg, "owner", "repo")
+
+	result, err := detector.DetectBaseBranch(context.Background(), "cert_mgr_cleanup", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.Base != "pdbs" {
+		t.Errorf("expected base 'pdbs' (direct parent), got '%s'", result.Base)
+	}
+	if !result.IsStacking {
+		t.Error("expected IsStacking to be true")
+	}
+	if result.ParentPR == nil {
+		t.Error("expected ParentPR to be set")
+	} else if result.ParentPR.Number != 352 {
+		t.Errorf("expected ParentPR number 352, got %d", result.ParentPR.Number)
+	}
+	if result.Method != "auto-detected-stacking" {
+		t.Errorf("expected method 'auto-detected-stacking', got '%s'", result.Method)
+	}
 }
