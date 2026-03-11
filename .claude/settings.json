@@ -1,4 +1,8 @@
 {
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
   "permissions": {
     "allow": [
       "Bash(cat:*)",
@@ -24,17 +28,6 @@
       "mcp__serena__replace_symbol_body",
       "mcp__serena__search_for_pattern",
       "mcp__serena__think_about_collected_information",
-      "mcp__task-master-ai__add_task",
-      "mcp__task-master-ai__analyze_project_complexity",
-      "mcp__task-master-ai__complexity_report",
-      "mcp__task-master-ai__expand_all",
-      "mcp__task-master-ai__expand_task",
-      "mcp__task-master-ai__get_task",
-      "mcp__task-master-ai__get_tasks",
-      "mcp__task-master-ai__next_task",
-      "mcp__task-master-ai__parse_prd",
-      "mcp__task-master-ai__set_task_status",
-      "mcp__task-master-ai__update_subtask",
       "mcp__zen__codereview",
       "Skill(analysis-process)",
       "Skill(development-process)",
@@ -44,7 +37,6 @@
     ],
     "deny": [
       "Bash(rm:*)",
-      "Bash(task-master:*)",
       "Read(./examples)",
       "Read(./**/consensus*.md)",
       "Read(./**/review*.md)",
@@ -73,7 +65,9 @@
   "enabledMcpjsonServers": [],
   "env": {
     "CLAUDE_CODE_MAX_OUTPUT_TOKENS": 64000,
-    "MAX_MCP_OUTPUT_TOKENS": 64000
+    "MAX_MCP_OUTPUT_TOKENS": 64000,
+    "CLAUDE_STATUSLINE_THEME": "catppuccin",
+    "CLAUDE_STATUSLINE_MODE": "dark"
   },
   "hooks": {
     "PreToolUse": [
@@ -91,6 +85,6 @@
   "model": "opus",
   "statusLine": {
     "type": "command",
-    "command": "bash $CLAUDE_PROJECT_DIR/.claude/scripts/statusline.sh"
+    "command": "bash $CLAUDE_PROJECT_DIR/.claude/scripts/statusline_enhanced.sh"
   }
 }
