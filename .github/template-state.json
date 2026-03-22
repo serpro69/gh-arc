@@ -6,7 +6,7 @@
   "variables": {
     "PROJECT_NAME": "gh-arc",
     "LANGUAGES": "go",
-    "CC_MODEL": "claude-opus-4-5",
+    "CC_MODEL": "opus",
     "SERENA_INITIAL_PROMPT": ""
   },
   "plugin_migrated": true
