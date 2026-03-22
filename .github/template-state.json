@@ -1,8 +1,8 @@
 {
   "schema_version": "1",
-  "upstream_repo": "serpro69/claude-starter-kit",
-  "template_version": "b3dda894fd318ac6afc16ead5ac8d24d9da1a658",
-  "synced_at": "2026-03-11T11:49:31Z",
+  "upstream_repo": "serpro69/claude-toolbox",
+  "template_version": "v0.5.0",
+  "synced_at": "2026-03-22T11:11:54Z",
   "variables": {
     "PROJECT_NAME": "gh-arc",
     "LANGUAGES": "go",
@@ -11,5 +11,6 @@
     "TM_CUSTOM_SYSTEM_PROMPT": "You are a Go-lang expert specializing in modern Go 1.21+ development with advanced concurrency patterns, performance optimization, production-ready system design, with deep knowledge in developing CLI tools and applications and Github CLI extensions in Golang.",
     "TM_APPEND_SYSTEM_PROMPT": "Always follow Go 1.21+ coding best practices, clean architecture, domain-driven design with Go idioms. Use context7 MCP to lookup documentation for dependencies, libraries, SDKs, APIs and other external frameworks and tools, whenever necessary.",
     "TM_PERMISSION_MODE": ""
-  }
+  },
+  "plugin_migrated": true
 }
