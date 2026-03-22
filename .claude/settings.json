@@ -29,10 +29,6 @@
       "mcp__serena__search_for_pattern",
       "mcp__serena__think_about_collected_information",
       "mcp__zen__codereview",
-      "Skill(analysis-process)",
-      "Skill(development-process)",
-      "Skill(documentation-process)",
-      "Skill(testing-process)",
       "WebSearch"
     ],
     "deny": [
@@ -69,18 +65,13 @@
     "CLAUDE_STATUSLINE_THEME": "catppuccin",
     "CLAUDE_STATUSLINE_MODE": "dark"
   },
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash $CLAUDE_PROJECT_DIR/.claude/scripts/validate-bash.sh"
-          }
-        ]
+  "extraKnownMarketplaces": {
+    "claude-toolbox": {
+      "source": {
+        "source": "github",
+        "repo": "serpro69/claude-toolbox"
       }
-    ]
+    }
   },
   "model": "opus",
   "statusLine": {
