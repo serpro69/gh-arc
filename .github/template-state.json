@@ -1,12 +1,13 @@
 {
   "schema_version": "1",
-  "upstream_repo": "serpro69/claude-starter-kit",
-  "template_version": "b3dda894fd318ac6afc16ead5ac8d24d9da1a658",
-  "synced_at": "2026-03-11T11:49:31Z",
+  "upstream_repo": "serpro69/claude-toolbox",
+  "template_version": "v0.5.0",
+  "synced_at": "2026-03-22T11:16:37Z",
   "variables": {
     "PROJECT_NAME": "gh-arc",
     "LANGUAGES": "go",
     "CC_MODEL": "claude-opus-4-5",
     "SERENA_INITIAL_PROMPT": ""
-  }
+  },
+  "plugin_migrated": true
 }

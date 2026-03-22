@@ -111,3 +111,5 @@ Based on @./README.md, the extension will implement commands for:
     - https://raw.githubusercontent.com/phorgeit/phorge/refs/heads/master/src/docs/user/userguide/arcanist_windows.diviner
 - [Arcanist CLI Repo](https://github.com/phorgeit/arcanist)
 - [Trunk-based Development](https://martinfowler.com/articles/branching-patterns.html#Trunk-basedDevelopment)
+# Extra Instructions
+@.claude/CLAUDE.extra.md

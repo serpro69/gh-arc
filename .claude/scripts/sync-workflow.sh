@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-UPSTREAM_REPO="serpro69/claude-starter-kit"
+UPSTREAM_REPO="serpro69/claude-toolbox"
 UPSTREAM_URL="https://github.com/$UPSTREAM_REPO"
 RAW_URL="https://raw.githubusercontent.com/$UPSTREAM_REPO"
 
@@ -57,7 +57,7 @@ fetch_file() {
   local local_path="$3"
 
   local url="$RAW_URL/$version/$remote_path"
-  if ! curl -fsSL "$url" -o "$local_path" 2>/dev/null; then
+  if ! curl -fsSL -H "Cache-Control: no-cache, no-store" "$url" -o "$local_path" 2>/dev/null; then
     log_error "Failed to fetch $url"
     echo "  Download manually: $UPSTREAM_URL/blob/$version/$remote_path"
     return 1
