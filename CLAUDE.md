@@ -111,9 +111,3 @@ Based on @./README.md, the extension will implement commands for:
     - https://raw.githubusercontent.com/phorgeit/phorge/refs/heads/master/src/docs/user/userguide/arcanist_windows.diviner
 - [Arcanist CLI Repo](https://github.com/phorgeit/arcanist)
 - [Trunk-based Development](https://martinfowler.com/articles/branching-patterns.html#Trunk-basedDevelopment)
-
-## Task Master AI Instructions
-
-**IMPORTANT!!! Import Task Master's development workflow commands and guidelines, treat as if import is in the main CLAUDE.md file.**
-
-@./.taskmaster/CLAUDE.md
