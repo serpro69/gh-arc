@@ -1,5 +1,10 @@
 {
   "enabledMcpjsonServers": [
     "capy"
-  ]
+  ],
+  "permissions": {
+    "allow": [
+      "mcp__capy__capy_fetch_and_index"
+    ]
+  }
 }
