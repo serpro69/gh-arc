@@ -21,63 +21,6 @@
       }
     }
   },
-  "hooks": {
-    "PostToolUse": [
-      {
-        "hooks": [
-          {
-            "command": "/opt/homebrew/bin/capy hook posttooluse",
-            "type": "command"
-          }
-        ],
-        "matcher": ""
-      }
-    ],
-    "PreCompact": [
-      {
-        "hooks": [
-          {
-            "command": "/opt/homebrew/bin/capy hook precompact",
-            "type": "command"
-          }
-        ],
-        "matcher": ""
-      }
-    ],
-    "PreToolUse": [
-      {
-        "hooks": [
-          {
-            "command": "/opt/homebrew/bin/capy hook pretooluse",
-            "type": "command"
-          }
-        ],
-        "matcher": "Bash|WebFetch|Read|Grep|Agent|Task|mcp__*capy*"
-      }
-    ],
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "command": "/opt/homebrew/bin/capy hook sessionstart",
-            "type": "command"
-          }
-        ],
-        "matcher": ""
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "command": "/opt/homebrew/bin/capy hook userpromptsubmit",
-            "type": "command"
-          }
-        ],
-        "matcher": ""
-      }
-    ]
-  },
   "model": "opus",
   "permissions": {
     "allow": [
