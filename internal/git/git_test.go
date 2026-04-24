@@ -2731,4 +2731,15 @@ func TestWorktreeSupport(t *testing.T) {
 		assert.Equal(t, "wt-branch", state.CurrentBranch)
 		assert.NotEmpty(t, state.HeadCommit)
 	})
+
+	t.Run("GetDefaultBranch works in worktree", func(t *testing.T) {
+		_, wtDir := createRepoWithWorktree(t)
+
+		repo, err := OpenRepository(wtDir)
+		require.NoError(t, err)
+
+		defaultBranch, err := repo.GetDefaultBranch()
+		require.NoError(t, err)
+		assert.NotEmpty(t, defaultBranch)
+	})
 }
