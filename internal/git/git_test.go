@@ -2543,3 +2543,115 @@ func TestGetRemoteRefAge(t *testing.T) {
 		assert.GreaterOrEqual(t, age, time.Duration(0), "age should be non-negative")
 	})
 }
+
+// createRepoWithWorktree is a helper that creates a main repo with a commit,
+// then adds a git worktree. Returns the worktree path and a cleanup function.
+func createRepoWithWorktree(t *testing.T) (mainDir, worktreeDir string) {
+	t.Helper()
+
+	mainDir = t.TempDir()
+
+	// Init and create initial commit
+	cmd := exec.Command("git", "init", mainDir)
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, "git init failed: %s", output)
+
+	testFile := filepath.Join(mainDir, "test.txt")
+	require.NoError(t, os.WriteFile(testFile, []byte("initial"), 0644))
+
+	cmd = exec.Command("git", "-C", mainDir, "add", "test.txt")
+	output, err = cmd.CombinedOutput()
+	require.NoError(t, err, "git add failed: %s", output)
+
+	cmd = exec.Command("git", "-C", mainDir, "commit", "-m", "initial commit")
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=test@test.com",
+		"GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=test@test.com")
+	output, err = cmd.CombinedOutput()
+	require.NoError(t, err, "git commit failed: %s", output)
+
+	// Create a branch for the worktree
+	worktreeDir = filepath.Join(t.TempDir(), "wt")
+	cmd = exec.Command("git", "-C", mainDir, "worktree", "add", worktreeDir, "-b", "wt-branch")
+	output, err = cmd.CombinedOutput()
+	require.NoError(t, err, "git worktree add failed: %s", output)
+
+	return mainDir, worktreeDir
+}
+
+func TestWorktreeSupport(t *testing.T) {
+	t.Run("OpenRepository works in worktree", func(t *testing.T) {
+		_, wtDir := createRepoWithWorktree(t)
+
+		repo, err := OpenRepository(wtDir)
+		require.NoError(t, err)
+		assert.NotNil(t, repo)
+	})
+
+	t.Run("FindRepositoryRoot works in worktree", func(t *testing.T) {
+		_, wtDir := createRepoWithWorktree(t)
+
+		root, err := FindRepositoryRoot(wtDir)
+		require.NoError(t, err)
+		assert.Equal(t, wtDir, root)
+	})
+
+	t.Run("GetCurrentBranch works in worktree", func(t *testing.T) {
+		_, wtDir := createRepoWithWorktree(t)
+
+		repo, err := OpenRepository(wtDir)
+		require.NoError(t, err)
+
+		branch, err := repo.GetCurrentBranch()
+		require.NoError(t, err)
+		assert.Equal(t, "wt-branch", branch)
+	})
+
+	t.Run("IsDetachedHead works in worktree", func(t *testing.T) {
+		_, wtDir := createRepoWithWorktree(t)
+
+		repo, err := OpenRepository(wtDir)
+		require.NoError(t, err)
+
+		isDetached, err := repo.IsDetachedHead()
+		require.NoError(t, err)
+		assert.False(t, isDetached)
+	})
+
+	t.Run("GetRepositoryState works in worktree", func(t *testing.T) {
+		_, wtDir := createRepoWithWorktree(t)
+
+		repo, err := OpenRepository(wtDir)
+		require.NoError(t, err)
+
+		state, err := repo.GetRepositoryState()
+		require.NoError(t, err)
+		assert.True(t, state.IsValid)
+		assert.False(t, state.IsDetached)
+		assert.Equal(t, "wt-branch", state.CurrentBranch)
+		assert.NotEmpty(t, state.HeadCommit)
+	})
+
+	t.Run("GetWorkingDirectoryStatus works in worktree", func(t *testing.T) {
+		_, wtDir := createRepoWithWorktree(t)
+
+		repo, err := OpenRepository(wtDir)
+		require.NoError(t, err)
+
+		// go-git's worktree status may not be fully accurate in git worktrees,
+		// but it should not error out
+		_, err = repo.GetWorkingDirectoryStatus()
+		require.NoError(t, err)
+	})
+
+	t.Run("FindRepositoryRoot from worktree subdirectory", func(t *testing.T) {
+		_, wtDir := createRepoWithWorktree(t)
+
+		subDir := filepath.Join(wtDir, "subdir")
+		require.NoError(t, os.Mkdir(subDir, 0755))
+
+		root, err := FindRepositoryRoot(subDir)
+		require.NoError(t, err)
+		assert.Equal(t, wtDir, root)
+	})
+}
