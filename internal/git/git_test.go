@@ -2563,7 +2563,7 @@ func createRepoWithWorktree(t *testing.T) (mainDir, worktreeDir string) {
 	output, err = cmd.CombinedOutput()
 	require.NoError(t, err, "git add failed: %s", output)
 
-	cmd = exec.Command("git", "-C", mainDir, "commit", "-m", "initial commit")
+	cmd = exec.Command("git", "-C", mainDir, "-c", "commit.gpgsign=false", "commit", "-m", "initial commit")
 	cmd.Env = append(os.Environ(),
 		"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=test@test.com",
 		"GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=test@test.com")
@@ -2577,6 +2577,45 @@ func createRepoWithWorktree(t *testing.T) (mainDir, worktreeDir string) {
 	require.NoError(t, err, "git worktree add failed: %s", output)
 
 	return mainDir, worktreeDir
+}
+
+// createDetachedWorktree creates a main repo and a worktree in detached HEAD state.
+func createDetachedWorktree(t *testing.T) (mainDir, worktreeDir string, commitSHA string) {
+	t.Helper()
+
+	mainDir = t.TempDir()
+
+	cmd := exec.Command("git", "init", mainDir)
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, "git init failed: %s", output)
+
+	testFile := filepath.Join(mainDir, "test.txt")
+	require.NoError(t, os.WriteFile(testFile, []byte("initial"), 0644))
+
+	cmd = exec.Command("git", "-C", mainDir, "add", "test.txt")
+	output, err = cmd.CombinedOutput()
+	require.NoError(t, err, "git add failed: %s", output)
+
+	cmd = exec.Command("git", "-C", mainDir, "-c", "commit.gpgsign=false", "commit", "-m", "initial commit")
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=test@test.com",
+		"GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=test@test.com")
+	output, err = cmd.CombinedOutput()
+	require.NoError(t, err, "git commit failed: %s", output)
+
+	// Get the commit SHA
+	cmd = exec.Command("git", "-C", mainDir, "rev-parse", "HEAD")
+	output, err = cmd.CombinedOutput()
+	require.NoError(t, err, "git rev-parse failed: %s", output)
+	commitSHA = strings.TrimSpace(string(output))
+
+	// Create a detached worktree at the commit
+	worktreeDir = filepath.Join(t.TempDir(), "wt-detached")
+	cmd = exec.Command("git", "-C", mainDir, "worktree", "add", "--detach", worktreeDir, commitSHA)
+	output, err = cmd.CombinedOutput()
+	require.NoError(t, err, "git worktree add --detach failed: %s", output)
+
+	return mainDir, worktreeDir, commitSHA
 }
 
 func TestWorktreeSupport(t *testing.T) {
@@ -2653,5 +2692,43 @@ func TestWorktreeSupport(t *testing.T) {
 		root, err := FindRepositoryRoot(subDir)
 		require.NoError(t, err)
 		assert.Equal(t, wtDir, root)
+	})
+
+	t.Run("detached HEAD - GetCurrentBranch returns SHA", func(t *testing.T) {
+		_, wtDir, commitSHA := createDetachedWorktree(t)
+
+		repo, err := OpenRepository(wtDir)
+		require.NoError(t, err)
+
+		branch, err := repo.GetCurrentBranch()
+		require.NoError(t, err)
+		assert.Equal(t, commitSHA, branch)
+	})
+
+	t.Run("detached HEAD - IsDetachedHead returns true", func(t *testing.T) {
+		_, wtDir, _ := createDetachedWorktree(t)
+
+		repo, err := OpenRepository(wtDir)
+		require.NoError(t, err)
+
+		isDetached, err := repo.IsDetachedHead()
+		require.NoError(t, err)
+		assert.True(t, isDetached)
+	})
+
+	t.Run("worktree with uncommitted changes", func(t *testing.T) {
+		_, wtDir := createRepoWithWorktree(t)
+
+		// Create a new file in the worktree
+		newFile := filepath.Join(wtDir, "new.txt")
+		require.NoError(t, os.WriteFile(newFile, []byte("new content"), 0644))
+
+		repo, err := OpenRepository(wtDir)
+		require.NoError(t, err)
+
+		state, err := repo.GetRepositoryState()
+		require.NoError(t, err)
+		assert.Equal(t, "wt-branch", state.CurrentBranch)
+		assert.NotEmpty(t, state.HeadCommit)
 	})
 }
