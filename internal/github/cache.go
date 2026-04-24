@@ -138,9 +138,6 @@ func (m *MemoryCache) Get(key string) (interface{}, bool) {
 		return nil, false
 	}
 
-	// Update last access time
-	entry.lastAccess = time.Now()
-
 	m.hits.Add(1)
 	return entry.value, true
 }
