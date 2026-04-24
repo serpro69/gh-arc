@@ -321,7 +321,8 @@ func (r *Repository) GetDefaultBranch() (string, error) {
 		return firstBranch, nil
 	}
 
-	return "", fmt.Errorf("no branches found in repository")
+	// Fallback to CLI (handles worktrees where go-git can't enumerate branches)
+	return r.getDefaultBranchViaCLI()
 }
 
 // CreateBranch creates a new branch from the specified base branch.
@@ -967,6 +968,53 @@ func (r *Repository) getHeadHashViaCLI() (string, error) {
 		return "", fmt.Errorf("failed to resolve HEAD hash via CLI: %w", err)
 	}
 	return strings.TrimSpace(string(output)), nil
+}
+
+// getDefaultBranchViaCLI detects the default branch using git CLI.
+// This handles worktrees where go-git can't enumerate branches from the main repo.
+func (r *Repository) getDefaultBranchViaCLI() (string, error) {
+	// Try reading origin's HEAD symbolic ref (no network required)
+	cmd := exec.Command("git", "symbolic-ref", "refs/remotes/origin/HEAD")
+	cmd.Dir = r.path
+	if output, err := cmd.Output(); err == nil {
+		ref := strings.TrimSpace(string(output))
+		// "refs/remotes/origin/main" → "main"
+		if parts := strings.SplitAfter(ref, "refs/remotes/origin/"); len(parts) == 2 {
+			return parts[1], nil
+		}
+	}
+
+	// Fallback: enumerate local branches via CLI, check for common defaults
+	cmd = exec.Command("git", "branch", "--list", "--format=%(refname:short)")
+	cmd.Dir = r.path
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("no branches found in repository")
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	commonDefaults := []string{"main", "master", "trunk", "development"}
+	branchSet := make(map[string]bool, len(lines))
+	for _, line := range lines {
+		if b := strings.TrimSpace(line); b != "" {
+			branchSet[b] = true
+		}
+	}
+
+	for _, name := range commonDefaults {
+		if branchSet[name] {
+			return name, nil
+		}
+	}
+
+	// Return the first branch if any exist
+	for _, line := range lines {
+		if b := strings.TrimSpace(line); b != "" {
+			return b, nil
+		}
+	}
+
+	return "", fmt.Errorf("no branches found in repository")
 }
 
 // isBinaryFile checks if a file is binary based on its content.
