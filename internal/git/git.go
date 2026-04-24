@@ -112,7 +112,7 @@ func FindRepositoryRoot(startPath string) (string, error) {
 	currentPath := absPath
 	for {
 		gitDir := filepath.Join(currentPath, ".git")
-		if info, err := os.Stat(gitDir); err == nil && info.IsDir() {
+		if info, err := os.Stat(gitDir); err == nil && (info.IsDir() || info.Mode().IsRegular()) {
 			return currentPath, nil
 		}
 
@@ -147,7 +147,7 @@ func (r *Repository) Repo() *git.Repository {
 func (r *Repository) IsDetachedHead() (bool, error) {
 	head, err := r.repo.Head()
 	if err != nil {
-		return false, fmt.Errorf("failed to get HEAD: %w", err)
+		return r.isDetachedHeadViaCLI()
 	}
 
 	// If HEAD reference name is not a branch reference, it's detached
@@ -211,16 +211,25 @@ func (r *Repository) GetRepositoryState() (*RepositoryState, error) {
 	// Get HEAD reference
 	head, err := r.repo.Head()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get HEAD: %w", err)
+		// Fallback to CLI (handles worktrees where go-git can't resolve HEAD)
+		headCommit, cliErr := r.getHeadHashViaCLI()
+		if cliErr != nil {
+			return nil, fmt.Errorf("failed to get HEAD: %w", err)
+		}
+		state.HeadCommit = headCommit
+		if !isDetached {
+			branch, cliErr := r.getCurrentBranchViaCLI()
+			if cliErr != nil {
+				return nil, fmt.Errorf("failed to get current branch: %w", cliErr)
+			}
+			state.CurrentBranch = branch
+		}
+	} else {
+		if !isDetached {
+			state.CurrentBranch = head.Name().Short()
+		}
+		state.HeadCommit = head.Hash().String()
 	}
-
-	// Get current branch name (if not detached)
-	if !isDetached {
-		state.CurrentBranch = head.Name().Short()
-	}
-
-	// Get HEAD commit SHA
-	state.HeadCommit = head.Hash().String()
 
 	// Get working directory status
 	wdStatus, err := r.GetWorkingDirectoryStatus()
@@ -237,7 +246,7 @@ func (r *Repository) GetRepositoryState() (*RepositoryState, error) {
 func (r *Repository) GetCurrentBranch() (string, error) {
 	head, err := r.repo.Head()
 	if err != nil {
-		return "", fmt.Errorf("failed to get HEAD: %w", err)
+		return r.getCurrentBranchViaCLI()
 	}
 
 	// Check if HEAD is detached
@@ -328,9 +337,15 @@ func (r *Repository) CreateBranch(name string, baseBranch string) error {
 		// Use current HEAD
 		head, err := r.repo.Head()
 		if err != nil {
-			return fmt.Errorf("failed to get HEAD: %w", err)
+			// Fallback to CLI (handles worktrees where go-git can't resolve HEAD)
+			hashStr, cliErr := r.getHeadHashViaCLI()
+			if cliErr != nil {
+				return fmt.Errorf("failed to get HEAD: %w", err)
+			}
+			baseHash = plumbing.NewHash(hashStr)
+		} else {
+			baseHash = head.Hash()
 		}
-		baseHash = head.Hash()
 	} else {
 		// Resolve the base branch reference
 		ref, err := r.repo.Reference(plumbing.NewBranchReferenceName(baseBranch), true)
@@ -907,6 +922,51 @@ func (r *Repository) getDiffViaCLI(args ...string) (string, error) {
 	}
 
 	return string(output), nil
+}
+
+// getCurrentBranchViaCLI returns the current branch name using git CLI.
+// Falls back to commit SHA if HEAD is detached.
+// This handles worktrees where go-git can't resolve the worktree-specific HEAD.
+func (r *Repository) getCurrentBranchViaCLI() (string, error) {
+	cmd := exec.Command("git", "symbolic-ref", "--short", "HEAD")
+	cmd.Dir = r.path
+	output, err := cmd.Output()
+	if err == nil {
+		return strings.TrimSpace(string(output)), nil
+	}
+
+	cmd = exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = r.path
+	output, err = cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve HEAD via CLI: %w", err)
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+// isDetachedHeadViaCLI checks detached HEAD state using git CLI.
+func (r *Repository) isDetachedHeadViaCLI() (bool, error) {
+	cmd := exec.Command("git", "symbolic-ref", "HEAD")
+	cmd.Dir = r.path
+	err := cmd.Run()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			return true, nil
+		}
+		return false, fmt.Errorf("failed to check detached HEAD via CLI: %w", err)
+	}
+	return false, nil
+}
+
+// getHeadHashViaCLI returns the HEAD commit SHA using git CLI.
+func (r *Repository) getHeadHashViaCLI() (string, error) {
+	cmd := exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = r.path
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve HEAD hash via CLI: %w", err)
+	}
+	return strings.TrimSpace(string(output)), nil
 }
 
 // isBinaryFile checks if a file is binary based on its content.
