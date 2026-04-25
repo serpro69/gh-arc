@@ -82,7 +82,7 @@ Add method `GetRequiredStatusChecks(ctx, owner, repo, branch string) ([]string, 
 - `GET /repos/{owner}/{repo}/branches/{branch}/protection/required_status_checks`
 - Returns list of required check context names
 - If 404 (no branch protection): return empty list (no required checks)
-- If 403 (insufficient permissions): return empty list with a logged warning — fall back gracefully
+- If 403 (insufficient permissions): return empty list with a logged warning — fall back gracefully (means `requireCI: "required"` effectively becomes `"none"` for users without admin access; document this in log warning)
 
 ### Verification
 
@@ -130,8 +130,8 @@ Create types:
 
 Create methods:
 - `Execute(ctx, *MergeRequest) (*MergeResult, error)` — main entry point
-- `prepareCommitMessage(pr *github.PullRequest, edit bool) (title, body string, error)` — extracts PR title/body, optionally opens `$EDITOR`
-- `openEditor(title, body string) (string, string, error)` — writes temp file, opens editor, parses result. Reuse editor detection from `internal/template/` (the `FindEditor()` function or equivalent)
+- `prepareCommitMessage(pr *github.PullRequest, edit bool, isRebase bool) (title, body string, error)` — extracts PR title/body, optionally opens `$EDITOR`. If `edit` is true but `isRebase` is also true, skip editor with a warning ("--edit is ignored with --rebase")
+- `openEditor(title, body string) (string, string, error)` — writes temp file, opens editor, parses result. Reuse `GetEditorCommand()` from `internal/template/template.go:627` for editor detection
 
 The editor temp file format:
 ```
@@ -175,11 +175,11 @@ Sequence inside `Execute()`:
 2. `repo.GetCurrentBranch()` + `checker.CheckNotOnTrunk()` — fail if on trunk
 3. `checker.CheckPRExists(ctx, branch)` — fail if no PR; print `✓ Found PR #N: "title"`
 4. `client.EnrichPullRequest()` — fetch reviews + checks in parallel
-5. `checker.CheckApproval()` — print result, handle strict/prompt/force
+5. `checker.CheckApproval()` — print result, handle strict/prompt/force. Prompt mode: detect non-TTY and auto-decline with `--force` suggestion
 6. `checker.CheckCI()` — print result, handle required/all/force
 7. `checker.CheckDependentPRs()` — print warning if found
-8. Resolve merge method: flag override → config default
-9. `merger.Execute()` — prepare commit message, call merge API; print `✓ Squash-merged into main (sha)`
+8. Resolve merge method: flag override → config default. If `--edit` and rebase: warn and skip editor
+9. `merger.Execute()` — prepare commit message (skip editor for rebase), call merge API; print `✓ Squash-merged into main (sha)`
 10. `cleanup.Execute()` — checkout, pull, delete; print each step
 11. Return `LandResult`
 

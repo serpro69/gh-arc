@@ -103,7 +103,7 @@
 - [ ] 7.2 Implement `NewLandWorkflow(repo, client, cfg, owner, name)` constructor — creates sub-components
 - [ ] 7.3 Implement `Execute(ctx, *LandOptions)` — the full 10-step sequence: check clean WD → check not on trunk → find PR → enrich PR → check approval → check CI → check dependent PRs → resolve merge method → execute merge → run cleanup
 - [ ] 7.4 Add inline output printing during execution (progress steps printed in real time, not buffered)
-- [ ] 7.5 Add prompt handling for `requireApproval: "prompt"` — read stdin for `y/N` confirmation
+- [ ] 7.5 Add prompt handling for `requireApproval: "prompt"` — read stdin for `y/N` confirmation; detect non-TTY (`term.IsTerminal(int(os.Stdin.Fd()))`) and auto-decline with message suggesting `--force`
 - [ ] 7.6 Write integration-style tests with mocked git/github: full happy path, force bypass, prompt mode, merge failure, cleanup failure (non-fatal)
 
 → verify: `go test ./internal/land/...` passes
