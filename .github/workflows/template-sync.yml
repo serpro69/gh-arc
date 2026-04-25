@@ -158,7 +158,7 @@ jobs:
         uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ vars.CLAUDE_TOOLBOX_APP_ID || vars.JEAN_CLAWDER_APP_ID }}
-          private-key: ${{ secrets.CLAUDE_TOOLBOX_APP_ID || secrets.JEAN_CLAWDER_APP_KEY }}
+          private-key: ${{ secrets.CLAUDE_TOOLBOX_APP_KEY || secrets.JEAN_CLAWDER_APP_KEY }}
 
       - name: Checkout Repository
         uses: actions/checkout@v6
@@ -223,6 +223,24 @@ jobs:
             cp -r "$STAGING_DIR/scripts/"* .github/scripts/ 2>/dev/null || true
             chmod +x .github/scripts/*.sh 2>/dev/null || true
             echo "Applied changes to .github/scripts/"
+          fi
+
+          # Ensure .codex is not gitignored in downstream repos
+          # Many repos use ".*" to ignore all dotdirs; without "!.codex" the synced files are silently dropped
+          if [[ -d "$STAGING_DIR/codex" && -f ".gitignore" ]]; then
+            if git check-ignore -q .codex 2>/dev/null; then
+              if ! grep -q '^!\.codex' .gitignore; then
+                # Find the right place: after existing !.claude or !.serena lines
+                if grep -q '^!\.claude' .gitignore; then
+                  sed -i '/^!\.claude$/a !.codex' .gitignore
+                elif grep -q '^!\.serena' .gitignore; then
+                  sed -i '/^!\.serena$/a !.codex' .gitignore
+                else
+                  printf '!.codex\n' >> .gitignore
+                fi
+                echo "Added !.codex to .gitignore (was excluded by .* pattern)"
+              fi
+            fi
           fi
 
           # Auto-append @import reference for CLAUDE.extra.md on first sync
