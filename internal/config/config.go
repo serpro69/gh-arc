@@ -48,9 +48,8 @@ type DiffConfig struct {
 type LandConfig struct {
 	DefaultMergeMethod string `mapstructure:"defaultMergeMethod"`
 	DeleteLocalBranch  bool   `mapstructure:"deleteLocalBranch"`
-	DeleteRemoteBranch bool   `mapstructure:"deleteRemoteBranch"`
-	RequireApproval    bool   `mapstructure:"requireApproval"`
-	RequireCI          bool   `mapstructure:"requireCI"`
+	RequireApproval    string `mapstructure:"requireApproval"`
+	RequireCI          string `mapstructure:"requireCI"`
 }
 
 // TestConfig contains test execution settings
@@ -195,9 +194,8 @@ func setDefaults(v *viper.Viper) {
 	// Land defaults
 	v.SetDefault("land.defaultMergeMethod", "squash")
 	v.SetDefault("land.deleteLocalBranch", true)
-	v.SetDefault("land.deleteRemoteBranch", true)
-	v.SetDefault("land.requireApproval", true)
-	v.SetDefault("land.requireCI", true)
+	v.SetDefault("land.requireApproval", "strict")
+	v.SetDefault("land.requireCI", "required")
 
 	// Test defaults (empty runners - auto-detect)
 	v.SetDefault("test.runners", []TestRunner{})
@@ -220,11 +218,30 @@ func (c *Config) Validate() error {
 	// Validate merge method
 	validMergeMethods := map[string]bool{
 		"squash": true,
-		"merge":  true,
 		"rebase": true,
 	}
 	if !validMergeMethods[c.Land.DefaultMergeMethod] {
-		return fmt.Errorf("invalid merge method: %s (must be squash, merge, or rebase)", c.Land.DefaultMergeMethod)
+		return fmt.Errorf("invalid merge method: %s (must be squash or rebase)", c.Land.DefaultMergeMethod)
+	}
+
+	// Validate requireApproval enum
+	validApprovalModes := map[string]bool{
+		"strict": true,
+		"prompt": true,
+		"none":   true,
+	}
+	if !validApprovalModes[c.Land.RequireApproval] {
+		return fmt.Errorf("invalid land.requireApproval value: %s (must be strict, prompt, or none)", c.Land.RequireApproval)
+	}
+
+	// Validate requireCI enum
+	validCIModes := map[string]bool{
+		"required": true,
+		"all":      true,
+		"none":     true,
+	}
+	if !validCIModes[c.Land.RequireCI] {
+		return fmt.Errorf("invalid land.requireCI value: %s (must be required, all, or none)", c.Land.RequireCI)
 	}
 
 	// Validate mega-linter enabled value

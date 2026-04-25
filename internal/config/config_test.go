@@ -25,6 +25,12 @@ func TestLoad(t *testing.T) {
 		if cfg.Land.DefaultMergeMethod != "squash" {
 			t.Errorf("Expected default merge method 'squash', got '%s'", cfg.Land.DefaultMergeMethod)
 		}
+		if cfg.Land.RequireApproval != "strict" {
+			t.Errorf("Expected default requireApproval 'strict', got '%s'", cfg.Land.RequireApproval)
+		}
+		if cfg.Land.RequireCI != "required" {
+			t.Errorf("Expected default requireCI 'required', got '%s'", cfg.Land.RequireCI)
+		}
 		if cfg.Diff.CreateAsDraft {
 			t.Error("Expected createAsDraft to be false by default")
 		}
@@ -63,7 +69,7 @@ func TestLoad(t *testing.T) {
 				"defaultReviewers": ["testuser"]
 			},
 			"land": {
-				"defaultMergeMethod": "merge"
+				"defaultMergeMethod": "rebase"
 			}
 		}`
 
@@ -86,8 +92,8 @@ func TestLoad(t *testing.T) {
 		if len(cfg.GitHub.DefaultReviewers) != 1 {
 			t.Errorf("Expected '%v' to have len 1, got '%d'", cfg.GitHub.DefaultReviewers, len(cfg.GitHub.DefaultReviewers))
 		}
-		if cfg.Land.DefaultMergeMethod != "merge" {
-			t.Errorf("Expected merge method 'merge', got '%s'", cfg.Land.DefaultMergeMethod)
+		if cfg.Land.DefaultMergeMethod != "rebase" {
+			t.Errorf("Expected merge method 'rebase', got '%s'", cfg.Land.DefaultMergeMethod)
 		}
 	})
 
@@ -198,7 +204,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "valid config with squash",
 			config: Config{
-				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Land: LandConfig{DefaultMergeMethod: "squash", RequireApproval: "strict", RequireCI: "required"},
 				Lint: LintConfig{
 					MegaLinter: MegaLinterConfig{Enabled: "auto"},
 				},
@@ -206,19 +212,20 @@ func TestValidate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "valid config with merge",
+			name: "merge method no longer valid",
 			config: Config{
-				Land: LandConfig{DefaultMergeMethod: "merge"},
+				Land: LandConfig{DefaultMergeMethod: "merge", RequireApproval: "strict", RequireCI: "required"},
 				Lint: LintConfig{
 					MegaLinter: MegaLinterConfig{Enabled: "true"},
 				},
 			},
-			wantErr: false,
+			wantErr: true,
+			errMsg:  "invalid merge method",
 		},
 		{
 			name: "valid config with rebase",
 			config: Config{
-				Land: LandConfig{DefaultMergeMethod: "rebase"},
+				Land: LandConfig{DefaultMergeMethod: "rebase", RequireApproval: "strict", RequireCI: "required"},
 				Lint: LintConfig{
 					MegaLinter: MegaLinterConfig{Enabled: "false"},
 				},
@@ -228,7 +235,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "invalid merge method",
 			config: Config{
-				Land: LandConfig{DefaultMergeMethod: "invalid"},
+				Land: LandConfig{DefaultMergeMethod: "invalid", RequireApproval: "strict", RequireCI: "required"},
 				Lint: LintConfig{
 					MegaLinter: MegaLinterConfig{Enabled: "auto"},
 				},
@@ -237,9 +244,71 @@ func TestValidate(t *testing.T) {
 			errMsg:  "invalid merge method",
 		},
 		{
+			name: "valid requireApproval prompt",
+			config: Config{
+				Land: LandConfig{DefaultMergeMethod: "squash", RequireApproval: "prompt", RequireCI: "required"},
+				Lint: LintConfig{
+					MegaLinter: MegaLinterConfig{Enabled: "auto"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid requireApproval none",
+			config: Config{
+				Land: LandConfig{DefaultMergeMethod: "squash", RequireApproval: "none", RequireCI: "required"},
+				Lint: LintConfig{
+					MegaLinter: MegaLinterConfig{Enabled: "auto"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid requireApproval value",
+			config: Config{
+				Land: LandConfig{DefaultMergeMethod: "squash", RequireApproval: "always", RequireCI: "required"},
+				Lint: LintConfig{
+					MegaLinter: MegaLinterConfig{Enabled: "auto"},
+				},
+			},
+			wantErr: true,
+			errMsg:  "invalid land.requireApproval value",
+		},
+		{
+			name: "valid requireCI all",
+			config: Config{
+				Land: LandConfig{DefaultMergeMethod: "squash", RequireApproval: "strict", RequireCI: "all"},
+				Lint: LintConfig{
+					MegaLinter: MegaLinterConfig{Enabled: "auto"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid requireCI none",
+			config: Config{
+				Land: LandConfig{DefaultMergeMethod: "squash", RequireApproval: "strict", RequireCI: "none"},
+				Lint: LintConfig{
+					MegaLinter: MegaLinterConfig{Enabled: "auto"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid requireCI value",
+			config: Config{
+				Land: LandConfig{DefaultMergeMethod: "squash", RequireApproval: "strict", RequireCI: "always"},
+				Lint: LintConfig{
+					MegaLinter: MegaLinterConfig{Enabled: "auto"},
+				},
+			},
+			wantErr: true,
+			errMsg:  "invalid land.requireCI value",
+		},
+		{
 			name: "invalid mega-linter enabled value",
 			config: Config{
-				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Land: LandConfig{DefaultMergeMethod: "squash", RequireApproval: "strict", RequireCI: "required"},
 				Lint: LintConfig{
 					MegaLinter: MegaLinterConfig{Enabled: "invalid"},
 				},
@@ -250,7 +319,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "test runner without name",
 			config: Config{
-				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Land: LandConfig{DefaultMergeMethod: "squash", RequireApproval: "strict", RequireCI: "required"},
 				Lint: LintConfig{
 					MegaLinter: MegaLinterConfig{Enabled: "auto"},
 				},
@@ -266,7 +335,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "test runner without command",
 			config: Config{
-				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Land: LandConfig{DefaultMergeMethod: "squash", RequireApproval: "strict", RequireCI: "required"},
 				Lint: LintConfig{
 					MegaLinter: MegaLinterConfig{Enabled: "auto"},
 				},
@@ -282,7 +351,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "lint runner without name",
 			config: Config{
-				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Land: LandConfig{DefaultMergeMethod: "squash", RequireApproval: "strict", RequireCI: "required"},
 				Lint: LintConfig{
 					Runners: []LintRunner{
 						{Name: "", Command: "golangci-lint"},
@@ -296,7 +365,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "lint runner without command",
 			config: Config{
-				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Land: LandConfig{DefaultMergeMethod: "squash", RequireApproval: "strict", RequireCI: "required"},
 				Lint: LintConfig{
 					Runners: []LintRunner{
 						{Name: "golangci", Command: ""},
@@ -310,7 +379,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "valid diff config with empty template path",
 			config: Config{
-				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Land: LandConfig{DefaultMergeMethod: "squash", RequireApproval: "strict", RequireCI: "required"},
 				Lint: LintConfig{
 					MegaLinter: MegaLinterConfig{Enabled: "auto"},
 				},
@@ -323,7 +392,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "invalid diff config with nonexistent template path",
 			config: Config{
-				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Land: LandConfig{DefaultMergeMethod: "squash", RequireApproval: "strict", RequireCI: "required"},
 				Lint: LintConfig{
 					MegaLinter: MegaLinterConfig{Enabled: "auto"},
 				},
@@ -337,7 +406,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "valid diff config with valid base branch",
 			config: Config{
-				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Land: LandConfig{DefaultMergeMethod: "squash", RequireApproval: "strict", RequireCI: "required"},
 				Lint: LintConfig{
 					MegaLinter: MegaLinterConfig{Enabled: "auto"},
 				},
@@ -350,7 +419,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "invalid diff config with base branch containing spaces",
 			config: Config{
-				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Land: LandConfig{DefaultMergeMethod: "squash", RequireApproval: "strict", RequireCI: "required"},
 				Lint: LintConfig{
 					MegaLinter: MegaLinterConfig{Enabled: "auto"},
 				},
@@ -365,7 +434,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "valid auto-branch pattern with placeholder",
 			config: Config{
-				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Land: LandConfig{DefaultMergeMethod: "squash", RequireApproval: "strict", RequireCI: "required"},
 				Lint: LintConfig{
 					MegaLinter: MegaLinterConfig{Enabled: "auto"},
 				},
@@ -378,7 +447,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "valid auto-branch pattern empty string",
 			config: Config{
-				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Land: LandConfig{DefaultMergeMethod: "squash", RequireApproval: "strict", RequireCI: "required"},
 				Lint: LintConfig{
 					MegaLinter: MegaLinterConfig{Enabled: "auto"},
 				},
@@ -391,7 +460,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "valid auto-branch pattern null",
 			config: Config{
-				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Land: LandConfig{DefaultMergeMethod: "squash", RequireApproval: "strict", RequireCI: "required"},
 				Lint: LintConfig{
 					MegaLinter: MegaLinterConfig{Enabled: "auto"},
 				},
@@ -404,7 +473,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "invalid auto-branch pattern with consecutive dots",
 			config: Config{
-				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Land: LandConfig{DefaultMergeMethod: "squash", RequireApproval: "strict", RequireCI: "required"},
 				Lint: LintConfig{
 					MegaLinter: MegaLinterConfig{Enabled: "auto"},
 				},
@@ -418,7 +487,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "invalid auto-branch pattern with space",
 			config: Config{
-				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Land: LandConfig{DefaultMergeMethod: "squash", RequireApproval: "strict", RequireCI: "required"},
 				Lint: LintConfig{
 					MegaLinter: MegaLinterConfig{Enabled: "auto"},
 				},
@@ -432,7 +501,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "invalid auto-branch pattern starting with slash",
 			config: Config{
-				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Land: LandConfig{DefaultMergeMethod: "squash", RequireApproval: "strict", RequireCI: "required"},
 				Lint: LintConfig{
 					MegaLinter: MegaLinterConfig{Enabled: "auto"},
 				},
@@ -446,7 +515,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "invalid auto-branch pattern with tilde",
 			config: Config{
-				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Land: LandConfig{DefaultMergeMethod: "squash", RequireApproval: "strict", RequireCI: "required"},
 				Lint: LintConfig{
 					MegaLinter: MegaLinterConfig{Enabled: "auto"},
 				},
@@ -460,7 +529,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "invalid auto-branch pattern with caret",
 			config: Config{
-				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Land: LandConfig{DefaultMergeMethod: "squash", RequireApproval: "strict", RequireCI: "required"},
 				Lint: LintConfig{
 					MegaLinter: MegaLinterConfig{Enabled: "auto"},
 				},
@@ -474,7 +543,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "invalid auto-branch pattern with colon",
 			config: Config{
-				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Land: LandConfig{DefaultMergeMethod: "squash", RequireApproval: "strict", RequireCI: "required"},
 				Lint: LintConfig{
 					MegaLinter: MegaLinterConfig{Enabled: "auto"},
 				},
@@ -488,7 +557,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "negative stale remote threshold",
 			config: Config{
-				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Land: LandConfig{DefaultMergeMethod: "squash", RequireApproval: "strict", RequireCI: "required"},
 				Lint: LintConfig{
 					MegaLinter: MegaLinterConfig{Enabled: "auto"},
 				},
@@ -502,7 +571,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "valid zero stale remote threshold",
 			config: Config{
-				Land: LandConfig{DefaultMergeMethod: "squash"},
+				Land: LandConfig{DefaultMergeMethod: "squash", RequireApproval: "strict", RequireCI: "required"},
 				Lint: LintConfig{
 					MegaLinter: MegaLinterConfig{Enabled: "auto"},
 				},
