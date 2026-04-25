@@ -1,0 +1,683 @@
+ ▐▛███▜▌   Claude Code v2.1.119
+▝▜█████▛▘  Opus 4.6 · Claude Team
+  ▘▘ ▝▝    ~/Projects/personal/gh-arc
+
+  Using Opus 4.6 (from .claude/settings.json) · /model to change
+
+❯ Use kk:design to refine land command. See @docs/archive/tm_tasks.md for some  
+  earlier details on this task (don't treat it as authoritative though, we need 
+   to refine the idea and document it properly)                                 
+  ⎿  Read docs/archive/tm_tasks.md (179 lines)
+
+● Skill(kk:design)
+  ⎿  Successfully loaded skill
+
+● Starting with the mandatory workflow: loading instructions before engaging
+  with the idea.
+
+  Read 3 files (ctrl+o to expand)
+
+● Now running profile detection. Keywords from the idea: land, merge, PR, Go,
+  GitHub API, CLI, Cobra. Let me check profiles for design signals.
+
+  Read 7 files (ctrl+o to expand)
+
+● Profile detection found a match: the Go token matches against this project
+  (written in Go, go.mod, .go files throughout). No other profiles match.
+
+  This appears to be a Go feature. Should I activate the Go profile for design
+  guidance?
+
+✻ Baked for 36s
+
+❯ yes                                                                           
+
+  Read 3 files (ctrl+o to expand)
+
+● Go profile active (no conditional checklists apply — no
+  database/gRPC/observability). Now moving to Step 1: understanding the current
+  state. Let me explore the existing code that land will build on.
+
+  Read 3 files (ctrl+o to expand)
+
+● Now let me look at the PR-related GitHub API methods and the git module to
+  understand what's available.
+
+  Read 2 files (ctrl+o to expand)
+
+● Good, I now have a solid understanding of the codebase. Let me check for any
+  existing docs and the diff workflow orchestrator for structural patterns.
+
+  Read 1 file, listed 1 directory (ctrl+o to expand)
+
+● Let me check the README for land-related configuration documentation.
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Good. I now have a complete picture of the codebase. Here's my progress:
+
+  Task Progress:
+  - [x] Step 1: Understand the current state of the project
+  - [x] Step 2: Check the documentation
+  - [ ] Step 3: Help refine the idea/feature
+  - [ ] Step 4: Describe the design
+  - [ ] Step 5: Document the design
+  - [ ] Step 6: Create the task list
+
+  Now moving to Step 3: Refine the idea. I'll ask one question at a time.
+
+  ---
+  Question 1 — PR identification
+
+  How should land identify which PR to merge?
+
+  - (A) Current branch only — always detect from the current branch (like diff
+  does). If you want to land a different PR, you git checkout to that branch
+  first.
+  - (B) Current branch + explicit PR number — detect from current branch by
+  default, but also accept gh arc land 123 or gh arc land --pr 123 to land a
+  specific PR without being on its branch.
+  - (C) Current branch + PR number + PR URL — like (B) but also accept gh arc 
+  land https://github.com/org/repo/pull/123.
+
+  The original arc land only worked from the current branch. Option (A) is
+  simplest and keeps the "you land what you're working on" philosophy. Option
+  (B) adds convenience for landing others' PRs after reviewing them. What's your
+   preference?
+
+✻ Cogitated for 46s
+
+※ recap: We're designing the `gh arc land` command. I explored the codebase and asked the first refinement question: how should land identify which PR to merge — current branch only, branch plus PR number, or also accept PR URLs. Waiting for your answer. (disable recaps in /config)
+
+❯ A                                                                             
+
+● Question 2 — Pre-merge checks behavior
+
+  The config already defines requireApproval and requireCI. When these checks
+  fail, how strict should land be?
+
+  - (A) Hard block — if approval or CI is required and not satisfied, refuse to
+  merge. No override. The user must fix the issue and re-run.
+  - (B) Hard block with escape hatch — block by default, but provide --force
+  flag to bypass all checks. Useful for hotfixes or repos where branch
+  protection already enforces rules.
+  - (C) Soft block with confirmation — warn the user and ask "PR has no
+  approvals, proceed anyway? [y/N]". Lets the user make the call interactively
+  each time.
+
+  The original arc land was a hard block — it refused to land without an
+  accepted Differential revision. GitHub branch protection rules can also
+  enforce these server-side (so land would fail at merge time anyway in
+  protected repos). What do you want?
+
+❯ I think the original was B, let's stick to that. Also we can make it          
+  configurable so users can opt-out of hard block and use soft.                 
+
+● Got it — hard block by default, --force to bypass, and a config option to
+  switch to soft/confirmation mode. Clear.
+
+  Question 3 — Stacked PR handling
+
+  When landing a PR that has dependent (child) PRs stacked on top of it, what
+  should land do?
+
+  - (A) Warn and proceed — show a warning like "2 PRs target this branch as
+  their base", then merge. The child PRs will have their base automatically
+  retargeted by GitHub to the parent's base (this is GitHub's default behavior
+  when you merge via API with the "delete branch" option).
+  - (B) Warn and retarget explicitly — after merging, explicitly update each
+  child PR's base branch to point to the trunk (e.g., main). This is more
+  reliable than relying on GitHub's automatic retargeting, which doesn't always
+  fire.
+  - (C) Block unless --force — refuse to land a PR that has dependent PRs. The
+  user must land the stack bottom-up, or use --force to override.
+
+  This interacts with how diff already detects dependent PRs (FindDependentPRs).
+   GitHub does auto-retarget in most cases, but it can be flaky with non-default
+   merge methods. What's your call?
+
+❯ A                                                                             
+
+● Question 4 — Post-merge cleanup
+
+  After a successful merge, land needs to get the user back to a clean state.
+  The config has deleteLocalBranch and deleteRemoteBranch (both default true).
+  What should the full post-merge sequence look like?
+
+  - (A) Minimal — delete local/remote branch per config, stay on whatever branch
+   results (likely detached HEAD or the branch gets deleted under you).
+  - (B) Switch to trunk — delete branches per config, then checkout the default
+  branch (e.g., main) and pull latest. This mirrors the original arc land
+  behavior and leaves the user ready to start the next task.
+  - (C) Switch to trunk + offer next step — like (B), but also suggest gh arc 
+  work to create a new feature branch. A small DX touch.
+
+  Also: should --no-delete be a single flag that overrides both
+  deleteLocalBranch and deleteRemoteBranch together (as the archived task notes
+  suggest), or should there be separate --no-delete-local / --no-delete-remote
+  flags for fine-grained control?
+❯ B                                                                             
+  --no-delete should only target local (remote can be handled by github repo    
+  settings)                                                                     
+
+● Clear — (B) switch to trunk + pull, and --no-delete only prevents local branch
+   deletion. Remote branch cleanup is left to GitHub's repo-level "automatically
+   delete head branches" setting. The deleteRemoteBranch config option still
+  exists but doesn't need a CLI flag.
+
+  Question 5 — Merge method selection
+
+  The config has defaultMergeMethod (default: "squash"). How should the user
+  override it at invocation time?
+
+  - (A) Single --method flag — gh arc land --method merge / --method rebase /
+  --method squash. One flag, explicit value.
+  - (B) Shorthand boolean flags — gh arc land --squash / --merge / --rebase.
+  Mutually exclusive, mirrors gh pr merge style. More ergonomic for frequent
+  use.
+  - (C) Both — support --method <value> and the shorthands as aliases.
+
+  gh pr merge uses approach (B). Matching that convention reduces friction for
+  users already familiar with the gh CLI. Any preference?
+
+❯ Let's use B, but we don't want to support --merge option, only rebase and     
+  squash.                                                                       
+
+● Makes sense — trunk-based workflow, no merge commits. --squash and --rebase,
+  mutually exclusive, config default (squash) when neither is specified.
+
+  Question 6 — Dirty working directory
+
+  If the user runs gh arc land while they have uncommitted changes in their
+  working directory, what should happen?
+
+  - (A) Block — refuse to land. The user must commit or stash first. Safest
+  option since land will checkout a different branch post-merge, which could
+  conflict with uncommitted changes.
+  - (B) Stash and restore — automatically git stash before the operation, then
+  git stash pop after switching to trunk. Convenient but can fail if the stash
+  conflicts with the new trunk state.
+
+  (A) is simpler and avoids a class of edge cases entirely. The original arc 
+  land required a clean working copy. What do you prefer?
+
+❯ A                                                                             
+
+● Question 7 — Output and feedback
+
+  land involves several sequential steps (verify PR, check approvals, check CI,
+  merge, switch branch, pull, delete branch). How verbose should the default
+  output be?
+
+  - (A) Progress steps — show each step as it happens with status indicators,
+  similar to how diff formats its output via OutputStyle. Example:
+  ✓ Found PR #42: "Add auth middleware"
+  ✓ Approved by @alice
+  ✓ All CI checks passed (3/3)
+  ✓ Squash-merged into main
+  ✓ Switched to main, pulled latest
+  ✓ Deleted local branch feature/auth
+  - (B) Minimal — only print the final result ("Merged PR #42 into main") and
+  errors. Rely on --verbose for step-by-step details.
+
+  I'd lean (A) — land is a destructive, multi-step operation where visibility
+  builds confidence. Silent success feels risky when branches are being deleted
+  and merges are happening. Thoughts?
+
+❯ A (also show (use git checkout feature/auth <sha> to restore) message in the  
+  Deleted section)                                                              
+
+● Good call — giving the user the restore command with the SHA makes branch
+  deletion feel safe and reversible.
+
+  Question 8 — GitHub merge API behavior
+
+  When merging via the GitHub API, should land set a custom commit message or
+  defer to GitHub's defaults?
+
+  - (A) GitHub defaults — let GitHub generate the merge/squash commit message.
+  For squash, GitHub concatenates all commit messages by default. The user can
+  customize the squash commit message on GitHub's side via repo settings.
+  - (B) Use PR title + body — set the squash commit title to the PR title and
+  the commit body to the PR description. This gives a cleaner git log on trunk
+  and is what most teams configure in GitHub's repo settings anyway.
+  - (C) Prompt the user — open $EDITOR with a pre-filled commit message (PR
+  title + body) and let the user edit before merging. Maximum control, but adds
+  friction.
+
+  The original arc land used the Differential revision title/summary as the
+  commit message. (B) matches that spirit without adding an editor step. (C)
+  adds the most control but slows things down. What's your preference?
+
+❯ B with an option to edit?                                                     
+
+● Got it — default to PR title + body as the commit message, with --edit flag to
+   open $EDITOR pre-filled for customization. Clean default, full control when
+  you need it.
+
+  Question 9 — CI check granularity
+
+  When requireCI is true, how should land evaluate check status?
+
+  - (A) All checks must pass — every check run on the PR's head commit must be
+  success (or skipped/neutral). Any failure, in_progress, or queued check blocks
+   the merge.
+  - (B) Required checks only — query the repo's branch protection settings to
+  find which checks are required, and only enforce those. Non-required checks
+  can be failing. This matches what GitHub enforces server-side on protected
+  branches.
+  - (C) All checks, but tolerate in-progress — if checks are still running, show
+   the status and ask the user to wait or --force. Only hard-block on actual
+  failures.
+
+  (A) is strictest but can be annoying when optional/flaky checks fail. (B) is
+  most accurate to what GitHub would actually enforce. (C) handles the "CI is
+  still running" timing issue. What makes sense?
+
+❯ maybe use an enum option, instead of boolean? requireCI: all, requireCI:      
+  required, etc. Default to required?                                           
+
+● That's a better model. So requireCI becomes a string enum:
+
+  - "required" (default) — only branch protection required checks must pass
+  - "all" — every check must pass
+  - "none" — skip CI verification entirely
+
+  This also means changing the config type from bool to string. Since land
+  doesn't exist yet there's no real breakage, but we should handle graceful
+  migration for users who already have requireCI: true/false in their config
+  (treat true as "required", false as "none").
+
+  I think I have enough to describe the design. Let me move to Step 4 — I'll
+  describe it in sections, checking with you after each.
+
+  ---
+  Section 1: Command Interface & Flags
+
+  gh arc land — merges the current branch's PR into its base branch after
+  verifying preconditions.
+
+  Flags:
+  - --squash / --rebase — mutually exclusive merge method override (default from
+   config: squash)
+  - --force — bypass approval and CI checks
+  - --edit — open $EDITOR to customize the merge commit message (pre-filled with
+   PR title + body)
+  - --no-delete — keep the local branch after merge (remote deletion left to
+  GitHub repo settings)
+
+  No positional args. PR is always detected from the current branch. If no open
+  PR exists for the branch, the command fails with a helpful message suggesting
+  gh arc diff first.
+
+  Does this section look right so far?
+
+❯ yes                                                                           
+
+● Section 2: Config Changes
+
+  The existing LandConfig struct needs modification:
+
+  Current:
+  type LandConfig struct {
+      DefaultMergeMethod string `mapstructure:"defaultMergeMethod"`
+      DeleteLocalBranch  bool   `mapstructure:"deleteLocalBranch"`
+      DeleteRemoteBranch bool   `mapstructure:"deleteRemoteBranch"`
+      RequireApproval    bool   `mapstructure:"requireApproval"`
+      RequireCI          bool   `mapstructure:"requireCI"`
+  }
+
+  Proposed:
+  type LandConfig struct {
+      DefaultMergeMethod string `mapstructure:"defaultMergeMethod"` // "squash" 
+  (default), "rebase"
+      DeleteLocalBranch  bool   `mapstructure:"deleteLocalBranch"`  // default: 
+  true
+      RequireApproval    string `mapstructure:"requireApproval"`    // "strict" 
+  (default), "prompt", "none"
+      RequireCI          string `mapstructure:"requireCI"`          // 
+  "required" (default), "all", "none"
+  }
+
+  Changes:
+  1. RequireApproval — bool → string enum. "strict" = hard block (old true),
+  "prompt" = warn + ask confirmation, "none" = skip (old false).
+  2. RequireCI — bool → string enum. "required" = branch protection checks only,
+   "all" = every check, "none" = skip.
+  3. DeleteRemoteBranch — removed. Remote branch deletion is deferred to
+  GitHub's repo-level "automatically delete head branches" setting. Less config
+  surface, one source of truth.
+  4. DefaultMergeMethod — validation tightened to only accept "squash" and
+  "rebase" (no "merge").
+
+  Backward compatibility: Config loading should coerce old boolean values — true
+   → "strict"/"required", false → "none". Viper unmarshals YAML/JSON booleans as
+   strings when the struct field is string, so we'd add a normalization step in
+  Load() or Validate().
+
+  Does this look right?
+
+❯ yes, but ignore backward compatibility - it adds complexity, and we're in     
+  alpha still                                                                   
+
+● Good — skip backward compat, clean break. Moving on.
+
+  Section 3: Workflow Architecture
+
+  Following the same pattern as diff, land gets its own internal/land/ package
+  with a workflow orchestrator and focused sub-components.
+
+  Package structure:
+  - internal/land/workflow.go — LandWorkflow orchestrator, main Execute() entry
+  point
+  - internal/land/checks.go — pre-merge verification (approval, CI, dirty
+  working dir)
+  - internal/land/merge.go — merge execution (commit message formatting, API
+  call)
+  - internal/land/cleanup.go — post-merge cleanup (switch to trunk, pull, delete
+   branch)
+  - internal/land/output.go — terminal output formatting (progress steps, status
+   indicators)
+  - cmd/land.go — thin Cobra command, flag parsing, wires up workflow
+
+  Core types:
+
+  LandWorkflow holds the same dependency shape as DiffWorkflow: *git.Repository,
+   *github.Client, *config.Config, owner/name strings. Sub-components are
+  created in the constructor.
+
+  LandOptions carries flag values: Squash, Rebase, Force, Edit, NoDelete bools.
+
+  LandResult captures what happened: the merged PR, merge method used, commit
+  SHA, branches deleted, messages collected for output.
+
+  Workflow sequence (inside Execute()):
+  1. Check working directory is clean → fail if dirty
+  2. Get current branch → fail if on trunk
+  3. Find PR for current branch → fail if none
+  4. Enrich PR with reviews + checks (parallel API calls, already exists in
+  github.Client)
+  5. Run pre-merge checks (approval, CI) → fail/prompt/force based on config +
+  flags
+  6. Prepare commit message (PR title + body, optionally open $EDITOR)
+  7. Call GitHub merge API
+  8. Checkout default branch + pull latest
+  9. Delete local branch (unless --no-delete)
+  10. Print summary with restore command
+
+  The cmd/land.go file follows the same thin pattern as cmd/diff.go: load
+  config, open repo, create client, create workflow, execute, format output.
+
+  Does this structure look right?
+
+❯ yes                                                                           
+
+● Section 4: Pre-merge Checks
+
+  The checks module (internal/land/checks.go) runs verification before allowing
+  the merge. Checks are evaluated in order, failing fast on the first blocking
+  issue (unless --force).
+
+  Check 1: Working directory clean
+  - Uses existing repo.GetWorkingDirectoryStatus()
+  - If dirty: always blocks, even with --force. This is a local safety invariant
+   — merging with uncommitted changes would cause problems when switching
+  branches. Not configurable.
+
+  Check 2: Not on trunk
+  - If current branch is the default branch (main/master): hard fail. "You're on
+   main — nothing to land."
+  - Not bypassable with --force (nonsensical to land trunk onto itself).
+
+  Check 3: PR exists
+  - Uses existing client.FindExistingPRForCurrentBranch()
+  - If no open PR: fail with "No open PR found for branch 'feature/xyz'. Run gh 
+  arc diff first."
+  - Not bypassable with --force.
+
+  Check 4: Approval status
+  - Enrich PR with reviews via client.EnrichPullRequest()
+  - Use existing DeterminePRStatus() to get aggregate review status
+  - Behavior depends on requireApproval config:
+    - "strict" (default): blocks if not approved. --force bypasses.
+    - "prompt": warns and asks confirmation. --force bypasses the prompt.
+    - "none": skips check entirely.
+  - Error messages are actionable: "PR needs 1 more approval", "PR has
+  outstanding change requests from @bob"
+
+  Check 5: CI status
+  - Behavior depends on requireCI config:
+    - "required": query branch protection rules to get required checks list,
+  verify those pass. --force bypasses.
+    - "all": all check runs must be success/skipped/neutral. --force bypasses.
+    - "none": skips check entirely.
+  - In-progress checks: treated as failure (blocking). The user should wait or
+  --force.
+  - Error messages list which checks failed: "CI check 'tests' is failing", "CI
+  check 'lint' is in progress"
+
+  Check 6: Dependent PRs (informational)
+  - Uses existing client.FindDependentPRs()
+  - If found: warn but proceed. "Warning: 2 PRs target this branch — they will
+  be retargeted after merge."
+  - Never blocks.
+
+  Does this look right?
+
+❯ yes                                                                           
+
+● Section 5: Merge Execution
+
+  The merge module (internal/land/merge.go) handles commit message preparation
+  and the GitHub merge API call.
+
+  Commit message preparation:
+
+  Default (no --edit):
+  - Title: PR title as-is
+  - Body: PR body as-is (includes any stacking metadata, test plan, etc.)
+
+  With --edit:
+  - Write a temp file with PR title on line 1, blank line, PR body below
+  - Open $EDITOR (reuse the same editor detection logic from internal/template/)
+  - Parse result: first line = title, rest = body
+  - If user exits without saving or empties the file: abort merge, no harm done
+
+  GitHub merge API call:
+
+  Uses PUT /repos/{owner}/{repo}/pulls/{number}/merge with:
+  - merge_method: "squash" or "rebase" (from flag or config)
+  - commit_title: prepared title (for squash — rebase ignores this)
+  - commit_message: prepared body (for squash — rebase ignores this)
+
+  This is a new method on github.Client — something like MergePullRequest(ctx, 
+  owner, repo, number, *MergeOptions). Returns the merge commit SHA on success.
+
+  Error handling:
+  - 405 Method Not Allowed → merge method not allowed by repo settings.
+  Actionable: "Squash merges are not allowed on this repo. Try --rebase or
+  update repo settings."
+  - 409 Conflict → merge conflicts exist. "PR has merge conflicts. Resolve
+  conflicts and push before landing."
+  - 422 Unprocessable → PR not mergeable (e.g., required checks haven't passed
+  server-side). "GitHub blocked the merge — check branch protection rules."
+
+  Each error maps to a specific, actionable message rather than a raw API dump.
+
+  Does this look right?
+
+❯ yes                                                                           
+
+● Section 6: Post-merge Cleanup
+
+  The cleanup module (internal/land/cleanup.go) runs after a successful merge.
+  Each step is sequential since they depend on each other.
+
+  Step 1: Checkout default branch
+  - Get default branch name from config (github.defaultBranch) or detect via
+  repo.GetDefaultBranch()
+  - Run git checkout <default-branch>
+  - If checkout fails: non-fatal. Print warning with manual command, skip
+  remaining steps. The merge already succeeded — cleanup failure shouldn't look
+  like a merge failure.
+
+  Step 2: Pull latest
+  - Run git pull origin <default-branch> to incorporate the just-merged commit
+  - If pull fails: non-fatal warning. The user can pull manually.
+
+  Step 3: Delete local branch
+  - Skip if --no-delete flag or deleteLocalBranch: false in config
+  - Capture the branch tip SHA before deleting (for the restore message)
+  - Run git branch -D <branch-name> (-D because the branch is merged remotely
+  but the local tracking info may not reflect that yet, so -d could refuse)
+  - On success, print: Deleted local branch feature/auth (use git checkout -b 
+  feature/auth <sha> to restore)
+  - If delete fails: non-fatal warning. Branch already merged, user can clean up
+   manually.
+
+  Design principle: The merge is the critical operation. Everything after it is
+  best-effort cleanup. If any cleanup step fails, we report it clearly but never
+   return an error exit code — the merge succeeded and that's what matters. The
+  output makes it obvious what happened and what didn't, with manual recovery
+  commands for anything that failed.
+
+  Does this look right?
+
+※ recap: We're designing the `gh arc land` command. I've described 6 of the design sections and you've approved all of them. Next up is the final output/formatting section, then I'll write the design docs and task list. (disable recaps in /config)
+
+❯ yes                                                                           
+
+● Section 7: Output Formatting
+
+  The output module (internal/land/output.go) provides consistent terminal
+  feedback using the same OutputStyle pattern as diff.
+
+  Progress output during execution:
+
+  Each step prints as it completes, building a visible trail:
+  ✓ Found PR #42: "Add auth middleware" (feature/auth → main)
+  ✓ Approved by @alice, @bob
+  ✓ All CI checks passed (3/3)
+  ⚠ 1 dependent PR targets this branch — will be retargeted after merge
+  ✓ Squash-merged into main (abc1234)
+  ✓ Switched to main, pulled latest
+  ✓ Deleted local branch feature/auth (use git checkout -b feature/auth a1b2c3d
+  to restore)
+
+  Failure output examples:
+
+  ✓ Found PR #42: "Add auth middleware" (feature/auth → main)
+  ✗ PR needs approval — no reviews yet
+    Request a review or use --force to bypass
+
+  ✓ Found PR #42: "Add auth middleware" (feature/auth → main)
+  ✓ Approved by @alice
+  ✗ CI check 'tests' failed, 'lint' in progress (1/3 passed)
+    Wait for checks to complete or use --force to bypass
+
+  Soft mode (prompt) output:
+  ✓ Found PR #42: "Add auth middleware" (feature/auth → main)
+  ⚠ PR has no approvals
+    Proceed with merge? [y/N]
+
+  Key conventions:
+  - ✓ for success steps
+  - ✗ for blocking failures (with actionable guidance on the next line)
+  - ⚠ for warnings that don't block (dependent PRs, soft-mode prompts)
+  - Indented lines below a status icon are details/guidance
+  - The merged commit SHA is shown for traceability
+  - --verbose adds debug-level detail (API calls, timing). Default output is the
+   step-by-step above.
+
+  Does this look right?
+
+❯ yes                                                                           
+
+● That covers the full design. Let me now move to Step 5: Document the design.
+
+  Task Progress:
+  - [x] Step 1: Understand the current state of the project
+  - [x] Step 2: Check the documentation
+  - [x] Step 3: Help refine the idea/feature
+  - [x] Step 4: Describe the design
+  - [ ] Step 5: Document the design
+  - [ ] Step 6: Create the task list
+
+● Bash(mkdir -p /home/sergio/Projects/personal/gh-arc/docs/wip/land)
+  ⎿  Done
+
+● Write(docs/wip/land/design.md)
+  ⎿  Wrote 292 lines to docs/wip/land/design.md
+      2 # Design: `gh arc land` — Merge Approved PRs
+      3 > Status: design-complete
+      5 > Date: 2026-04-25
+      6 
+      7 ## Overview
+      9 `gh arc land` is the counterpart to `gh arc diff` — together they
+         form the core review loop. It merges the current branch's PR int
+        hen cleans up the local workspace. Without `land`, users must lea
+        ve the CLI to merge PRs via the GitHub web UI or use `gh pr merge
+        ` directly, losing the opinionated verification flow.
+     … +341 lines (ctrl+o to expand)
+
+● Write(docs/wip/land/implementation.md)
+  ⎿  Wrote 252 lines to docs/wip/land/implementation.md
+       2 # Implementation Plan: `gh arc land`
+       3 > Status: ready
+       4 > Design: [design.md](./design.md)
+       5 > Date: 2026-04-25
+       6 
+       7 ## Prerequisites
+       8 
+       9 The developer should be familiar with:
+      10 - The `internal/diff/` package structure — `land` mirrors the sa
+         me orchestrator pattern
+     … +312 lines (ctrl+o to expand)
+
+● Now let me read the example tasks file to follow the correct format, then
+  create the task list.
+
+  Read 1 file (ctrl+o to expand)
+● Write(docs/wip/land/tasks.md)
+  ⎿  Wrote 132 lines to docs/wip/land/tasks.md
+       1 # Tasks: `gh arc land`
+       2 
+       3 > Design: [./design.md](./design.md)
+       4 > Implementation: [./implementation.md](./implementation.md)
+       5 > Status: pending
+       6 > Created: 2026-04-25
+       7 
+       8 ## Task 1: Config changes
+       9 - **Status:** pending
+      10 - **Depends on:** —
+     … +199 lines (ctrl+o to expand)
+
+● Task Progress:
+  - [x] Step 1: Understand the current state of the project
+  - [x] Step 2: Check the documentation
+  - [x] Step 3: Help refine the idea/feature
+  - [x] Step 4: Describe the design
+  - [x] Step 5: Document the design
+  - [x] Step 6: Create the task list
+
+  Design complete. Created three files in docs/wip/land/:
+
+  - design.md — full design spec covering command interface, config changes,
+  workflow, pre-merge checks, merge execution, post-merge cleanup, and output
+  formatting
+  - implementation.md — phased implementation plan with file paths, types,
+  methods, and verification steps for each phase
+  - tasks.md — 9 tasks broken into concrete subtasks, with dependencies and
+  verification criteria
+
+  Key decisions captured:
+  - Current branch only (no PR number args)
+  - Hard block default + --force bypass + configurable soft/prompt mode
+  - requireApproval/requireCI as string enums (not booleans)
+  - --squash/--rebase only (no merge commits)
+  - --no-delete for local branch only
+  - --edit for commit message customization
+  - Best-effort cleanup (merge success is what matters)
+  - Restore command shown after branch deletion
+
+✻ Cogitated for 2m 53s
