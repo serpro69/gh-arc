@@ -125,10 +125,10 @@ Checks are evaluated in order, failing fast on the first blocking issue (unless 
 
 ### Check 4: Approval status
 
-- Uses `DeterminePRStatus()` on enriched PR reviews.
+- Evaluates PR reviews directly (not via `DeterminePRStatus()`, which combines approval and CI into a single status — `land` needs them evaluated independently since each has its own config enum).
 - Behavior by `requireApproval`:
   - `"strict"`: blocks if not approved. `--force` bypasses.
-  - `"prompt"`: warns and asks `Proceed with merge? [y/N]`. `--force` bypasses the prompt.
+  - `"prompt"`: warns and asks `Proceed with merge? [y/N]`. `--force` bypasses the prompt. In non-TTY environments (piped input, CI), auto-declines with a message: "Non-interactive environment — use --force to bypass approval check."
   - `"none"`: skips entirely.
 - Actionable error messages: "PR needs 1 more approval", "PR has outstanding change requests from @bob".
 
@@ -141,11 +141,11 @@ Checks are evaluated in order, failing fast on the first blocking issue (unless 
 - In-progress checks are treated as blocking (not yet passed).
 - Error messages list specific failures: "CI check 'tests' failed", "CI check 'lint' is in progress".
 
-### Check 6: Dependent PRs (informational only)
+### Dependent PRs (informational, never blocks)
 
 - Uses `client.FindDependentPRs()`
 - If found: warn with count, never blocks.
-- GitHub auto-retargets child PRs when the parent branch is deleted after merge.
+- GitHub auto-retargets child PRs when the parent branch is deleted after merge (requires "automatically delete head branches" enabled in repo settings).
 
 ## Merge Execution
 
@@ -157,10 +157,11 @@ Checks are evaluated in order, failing fast on the first blocking issue (unless 
 
 **With `--edit`:**
 - Write temp file: PR title on line 1, blank line, PR body below
-- Open `$EDITOR` (reuse editor detection from `internal/template/`)
+- Open `$EDITOR` (reuse `GetEditorCommand()` from `internal/template/`)
 - Parse: first line = title, rest = body
 - Empty/unchanged = abort merge (no harm done)
 - Only meaningful for squash (rebase preserves individual commits)
+- If `--edit` is combined with `--rebase`: skip the editor with a warning ("--edit is ignored with --rebase, which preserves individual commits")
 
 ### GitHub API
 
@@ -269,7 +270,7 @@ Types:
 GET /repos/{owner}/{repo}/branches/{branch}/protection
 ```
 
-Needed to discover which status checks are required. Falls back to treating all checks as required if the API call fails (e.g., insufficient permissions — branch protection API requires admin access on some repo configurations).
+Needed to discover which status checks are required. Falls back to an empty required-checks list if the API call fails (404 = no branch protection, 403 = insufficient permissions). This means on failure, `requireCI: "required"` effectively behaves like `"none"` — practical because users who lack admin permissions shouldn't be blocked. Users who want strict CI enforcement regardless can use `requireCI: "all"` instead.
 
 ## Package Structure
 
