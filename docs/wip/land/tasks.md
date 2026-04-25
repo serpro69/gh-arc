@@ -20,16 +20,16 @@
 → verify: `go test ./internal/config/...` passes, invalid enum values rejected by `Validate()`
 
 ## Task 2: GitHub API — merge and branch protection methods
-- **Status:** pending
+- **Status:** done
 - **Depends on:** —
 - **Docs:** [implementation.md#phase-2-github-api--merge-method](./implementation.md#phase-2-github-api--merge-method)
 
 ### Subtasks
-- [ ] 2.1 Add `MergeOptions` and `MergeResult` types to `internal/github/pullrequest.go`
-- [ ] 2.2 Add `MergePullRequest(ctx, owner, repo, number, *MergeOptions) (*MergeResult, error)` method — `PUT /repos/{owner}/{repo}/pulls/{number}/merge` with semantic error mapping (405 → method not allowed, 409 → conflicts, 422 → not mergeable)
-- [ ] 2.3 Add `MergePullRequestForCurrentRepo()` convenience wrapper
-- [ ] 2.4 Add `GetRequiredStatusChecks(ctx, owner, repo, branch) ([]string, error)` — `GET /repos/{owner}/{repo}/branches/{branch}/protection/required_status_checks`, graceful fallback on 404/403
-- [ ] 2.5 Write unit tests with `httptest` server: merge success, 405, 409, 422 responses; required status checks 200, 404, 403 responses
+- [x] 2.1 Add `MergeOptions` and `MergeResult` types to `internal/github/pullrequest.go`
+- [x] 2.2 Add `MergePullRequest(ctx, owner, repo, number, *MergeOptions) (*MergeResult, error)` method — `PUT /repos/{owner}/{repo}/pulls/{number}/merge` with semantic error mapping (405 → method not allowed, 409 → conflicts, 422 → not mergeable)
+- [x] 2.3 Add `MergePullRequestForCurrentRepo()` convenience wrapper
+- [x] 2.4 Add `GetRequiredStatusChecks(ctx, owner, repo, branch) ([]string, error)` — `GET /repos/{owner}/{repo}/branches/{branch}/protection/required_status_checks`, graceful fallback on 404/403
+- [x] 2.5 Write unit tests with `httptest` server: merge success, 405, 409, 422 responses; required status checks 200, 404, 403 responses
 
 → verify: `go test ./internal/github/...` passes
 
