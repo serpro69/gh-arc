@@ -4,21 +4,35 @@ import (
 	"encoding/json"
 	"fmt"
 	"runtime"
+	"runtime/debug"
 )
 
-// Version information. These variables are set at build time using ldflags.
 var (
-	// Version is the semantic version (e.g., "1.0.0")
-	Version = "dev"
-	// GitCommit is the git commit hash
-	GitCommit = "unknown"
-	// BuildDate is the build date in RFC3339 format
-	BuildDate = "unknown"
-	// GoVersion is the Go version used to build
+	Version   = "dev"
+	GitCommit = ""
+	BuildDate = ""
 	GoVersion = runtime.Version()
-	// Platform is the OS/Arch combination
-	Platform = fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
+	Platform  = fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
 )
+
+func init() {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return
+	}
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			if GitCommit == "" && len(s.Value) >= 7 {
+				GitCommit = s.Value[:7]
+			}
+		case "vcs.time":
+			if BuildDate == "" {
+				BuildDate = s.Value
+			}
+		}
+	}
+}
 
 // Info represents version information
 type Info struct {
