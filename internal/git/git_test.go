@@ -2742,4 +2742,102 @@ func TestWorktreeSupport(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotEmpty(t, defaultBranch)
 	})
+
+	t.Run("GetCommitsBetween resolves refs in worktree", func(t *testing.T) {
+		_, wtDir := createWorktreeWithRemote(t)
+
+		repo, err := OpenRepository(wtDir)
+		require.NoError(t, err)
+
+		commits, err := repo.GetCommitsBetween("origin/master", "HEAD")
+		require.NoError(t, err)
+		assert.Len(t, commits, 1)
+		assert.Contains(t, commits[0].Message, "worktree commit")
+	})
+
+	t.Run("GetCommitRange resolves branches in worktree", func(t *testing.T) {
+		mainDir, wtDir := createWorktreeWithRemote(t)
+
+		// Also verify from the main repo that master branch resolves
+		repo, err := OpenRepository(mainDir)
+		require.NoError(t, err)
+		commits, err := repo.GetCommitRange("master", "wt-branch")
+		require.NoError(t, err)
+		assert.Len(t, commits, 1)
+
+		// Now test from worktree (the actual bug scenario)
+		wtRepo, err := OpenRepository(wtDir)
+		require.NoError(t, err)
+		commits, err = wtRepo.GetCommitsBetween("origin/master", "HEAD")
+		require.NoError(t, err)
+		assert.Len(t, commits, 1)
+	})
+
+	t.Run("GetDiffBetween resolves refs in worktree", func(t *testing.T) {
+		_, wtDir := createWorktreeWithRemote(t)
+
+		repo, err := OpenRepository(wtDir)
+		require.NoError(t, err)
+
+		diff, err := repo.GetDiffBetween("origin/master", "HEAD")
+		require.NoError(t, err)
+		assert.Contains(t, diff, "wt.txt")
+	})
+
+	t.Run("GetFilesChanged resolves refs in worktree", func(t *testing.T) {
+		_, wtDir := createWorktreeWithRemote(t)
+
+		repo, err := OpenRepository(wtDir)
+		require.NoError(t, err)
+
+		files, err := repo.GetFilesChanged("origin/master", "HEAD")
+		require.NoError(t, err)
+		assert.Len(t, files, 1)
+		assert.Equal(t, "wt.txt", files[0].Path)
+	})
+}
+
+// createWorktreeWithRemote creates a repo with an origin remote and a worktree
+// that has commits ahead of origin/master. This reproduces the exact scenario
+// where go-git fails to resolve "origin/master" in a worktree.
+func createWorktreeWithRemote(t *testing.T) (mainDir, worktreeDir string) {
+	t.Helper()
+
+	gitEnv := append(os.Environ(),
+		"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=test@test.com",
+		"GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=test@test.com")
+
+	run := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = gitEnv
+		output, err := cmd.CombinedOutput()
+		require.NoError(t, err, "git %v failed: %s", args, output)
+	}
+
+	// Create bare "origin" repo
+	originDir := t.TempDir()
+	run(originDir, "init", "--bare", originDir)
+
+	// Clone it
+	mainDir = filepath.Join(t.TempDir(), "clone")
+	run(".", "clone", originDir, mainDir)
+
+	// Create initial commit and push
+	require.NoError(t, os.WriteFile(filepath.Join(mainDir, "test.txt"), []byte("initial"), 0644))
+	run(mainDir, "add", "test.txt")
+	run(mainDir, "-c", "commit.gpgsign=false", "commit", "-m", "initial commit")
+	run(mainDir, "push", "origin", "master")
+
+	// Create worktree on a new branch
+	worktreeDir = filepath.Join(t.TempDir(), "wt")
+	run(mainDir, "worktree", "add", worktreeDir, "-b", "wt-branch")
+
+	// Add a commit in the worktree
+	require.NoError(t, os.WriteFile(filepath.Join(worktreeDir, "wt.txt"), []byte("worktree content"), 0644))
+	run(worktreeDir, "add", "wt.txt")
+	run(worktreeDir, "-c", "commit.gpgsign=false", "commit", "-m", "worktree commit")
+
+	return mainDir, worktreeDir
 }

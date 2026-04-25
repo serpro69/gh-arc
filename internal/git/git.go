@@ -77,7 +77,8 @@ func OpenRepository(path string) (*Repository, error) {
 
 	// Try to open the repository
 	repo, err := git.PlainOpenWithOptions(path, &git.PlainOpenOptions{
-		DetectDotGit: true,
+		DetectDotGit:          true,
+		EnableDotGitCommonDir: true,
 	})
 	if err != nil {
 		if errors.Is(err, git.ErrRepositoryNotExists) {
@@ -348,12 +349,11 @@ func (r *Repository) CreateBranch(name string, baseBranch string) error {
 			baseHash = head.Hash()
 		}
 	} else {
-		// Resolve the base branch reference
-		ref, err := r.repo.Reference(plumbing.NewBranchReferenceName(baseBranch), true)
+		hash, err := r.resolveBranchRef(baseBranch)
 		if err != nil {
 			return fmt.Errorf("failed to resolve base branch %s: %w", baseBranch, err)
 		}
-		baseHash = ref.Hash()
+		baseHash = hash
 	}
 
 	// Create the new branch reference
@@ -548,38 +548,33 @@ type CommitMessage struct {
 // GetCommitRange returns commits between two branches.
 // It returns commits that are in headBranch but not in baseBranch.
 func (r *Repository) GetCommitRange(baseBranch, headBranch string) ([]CommitInfo, error) {
-	// Resolve base branch reference
-	baseRef, err := r.repo.Reference(plumbing.NewBranchReferenceName(baseBranch), true)
+	baseHash, err := r.resolveBranchRef(baseBranch)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve base branch %s: %w", baseBranch, err)
 	}
 
-	// Resolve head branch reference
-	headRef, err := r.repo.Reference(plumbing.NewBranchReferenceName(headBranch), true)
+	headHash, err := r.resolveBranchRef(headBranch)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve head branch %s: %w", headBranch, err)
 	}
 
-	// Get commits exclusive to head branch
-	return r.getCommitsExclusiveTo(baseRef.Hash(), headRef.Hash())
+	return r.getCommitsExclusiveTo(baseHash, headHash)
 }
 
 // GetCommitsBetween returns commits between two branch/commit references.
 // This is similar to GetCommitRange but accepts any ref (branch, tag, commit SHA).
 func (r *Repository) GetCommitsBetween(base, head string) ([]CommitInfo, error) {
-	// Resolve base reference
-	baseHash, err := r.repo.ResolveRevision(plumbing.Revision(base))
+	baseHash, err := r.resolveRevision(base)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve base ref %s: %w", base, err)
 	}
 
-	// Resolve head reference
-	headHash, err := r.repo.ResolveRevision(plumbing.Revision(head))
+	headHash, err := r.resolveRevision(head)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve head ref %s: %w", head, err)
 	}
 
-	return r.getCommitsExclusiveTo(*baseHash, *headHash)
+	return r.getCommitsExclusiveTo(baseHash, headHash)
 }
 
 // getCommitsExclusiveTo is a helper that returns commits reachable from head but not from base.
@@ -727,25 +722,22 @@ type FileChange struct {
 // GetDiffBetween generates a unified diff between two refs (branches, tags, or commits).
 // Returns the diff as a string in unified diff format.
 func (r *Repository) GetDiffBetween(base, head string) (string, error) {
-	// Resolve base reference
-	baseHash, err := r.repo.ResolveRevision(plumbing.Revision(base))
+	baseHash, err := r.resolveRevision(base)
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve base ref %s: %w", base, err)
 	}
 
-	// Resolve head reference
-	headHash, err := r.repo.ResolveRevision(plumbing.Revision(head))
+	headHash, err := r.resolveRevision(head)
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve head ref %s: %w", head, err)
 	}
 
-	// Get commit objects
-	baseCommit, err := r.repo.CommitObject(*baseHash)
+	baseCommit, err := r.repo.CommitObject(baseHash)
 	if err != nil {
 		return "", fmt.Errorf("failed to get base commit: %w", err)
 	}
 
-	headCommit, err := r.repo.CommitObject(*headHash)
+	headCommit, err := r.repo.CommitObject(headHash)
 	if err != nil {
 		return "", fmt.Errorf("failed to get head commit: %w", err)
 	}
@@ -800,25 +792,22 @@ func (r *Repository) GetChangedFiles(base, head string) ([]string, error) {
 
 // GetFilesChanged returns a list of files changed between two refs.
 func (r *Repository) GetFilesChanged(base, head string) ([]FileChange, error) {
-	// Resolve base reference
-	baseHash, err := r.repo.ResolveRevision(plumbing.Revision(base))
+	baseHash, err := r.resolveRevision(base)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve base ref %s: %w", base, err)
 	}
 
-	// Resolve head reference
-	headHash, err := r.repo.ResolveRevision(plumbing.Revision(head))
+	headHash, err := r.resolveRevision(head)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve head ref %s: %w", head, err)
 	}
 
-	// Get commit objects
-	baseCommit, err := r.repo.CommitObject(*baseHash)
+	baseCommit, err := r.repo.CommitObject(baseHash)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get base commit: %w", err)
 	}
 
-	headCommit, err := r.repo.CommitObject(*headHash)
+	headCommit, err := r.repo.CommitObject(headHash)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get head commit: %w", err)
 	}
@@ -1015,6 +1004,40 @@ func (r *Repository) getDefaultBranchViaCLI() (string, error) {
 	}
 
 	return "", fmt.Errorf("no branches found in repository")
+}
+
+// resolveRevision resolves any git revision (branch, tag, remote ref, SHA) to a hash.
+// Tries go-git first, falls back to git CLI for worktrees where go-git can't find refs.
+func (r *Repository) resolveRevision(rev string) (plumbing.Hash, error) {
+	hash, err := r.repo.ResolveRevision(plumbing.Revision(rev))
+	if err == nil {
+		return *hash, nil
+	}
+
+	cmd := exec.Command("git", "rev-parse", rev)
+	cmd.Dir = r.path
+	output, cliErr := cmd.Output()
+	if cliErr != nil {
+		return plumbing.ZeroHash, err
+	}
+	return plumbing.NewHash(strings.TrimSpace(string(output))), nil
+}
+
+// resolveBranchRef resolves a branch name to a hash.
+// Tries go-git Reference first, falls back to git CLI for worktrees.
+func (r *Repository) resolveBranchRef(branchName string) (plumbing.Hash, error) {
+	ref, err := r.repo.Reference(plumbing.NewBranchReferenceName(branchName), true)
+	if err == nil {
+		return ref.Hash(), nil
+	}
+
+	cmd := exec.Command("git", "rev-parse", branchName)
+	cmd.Dir = r.path
+	output, cliErr := cmd.Output()
+	if cliErr != nil {
+		return plumbing.ZeroHash, err
+	}
+	return plumbing.NewHash(strings.TrimSpace(string(output))), nil
 }
 
 // isBinaryFile checks if a file is binary based on its content.
