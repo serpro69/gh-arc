@@ -513,6 +513,28 @@ func TestCheckCI(t *testing.T) {
 			t.Error("no checks with no required checks should pass")
 		}
 	})
+
+	t.Run("all mode/retried check uses latest result", func(t *testing.T) {
+		retriedPR := &github.PullRequest{
+			Base: github.PRBranch{Ref: "main"},
+			Checks: []github.PRCheck{
+				{Name: "tests", Status: "completed", Conclusion: "failure", StartedAt: time.Now().Add(-time.Hour)},
+				{Name: "tests", Status: "completed", Conclusion: "success", StartedAt: time.Now()},
+				{Name: "lint", Status: "completed", Conclusion: "success", StartedAt: time.Now()},
+			},
+		}
+		cfg := defaultLandConfig()
+		cfg.RequireCI = config.CIModeAll
+		checker := newChecker(nil, &mockCheckerClient{}, cfg)
+		result, err := checker.CheckCI(ctx, retriedPR, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Passed {
+			t.Error("retried check should use latest (successful) result")
+		}
+		assertMessageContains(t, result, "All CI checks passed (2/2)")
+	})
 }
 
 // --- CheckDependentPRs ---
@@ -592,6 +614,52 @@ func TestEvaluateReviews(t *testing.T) {
 		approvers, changesRequested := evaluateReviews(reviews)
 		if len(approvers) != 0 || len(changesRequested) != 0 {
 			t.Error("COMMENTED should be ignored")
+		}
+	})
+
+	t.Run("COMMENTED after CHANGES_REQUESTED preserves block", func(t *testing.T) {
+		reviews := []github.PRReview{
+			{User: github.PRUser{Login: "alice"}, State: "CHANGES_REQUESTED", SubmittedAt: now.Add(-time.Hour)},
+			{User: github.PRUser{Login: "alice"}, State: "COMMENTED", SubmittedAt: now},
+		}
+		approvers, changesRequested := evaluateReviews(reviews)
+		if len(approvers) != 0 {
+			t.Errorf("expected no approvers, got %v", approvers)
+		}
+		if len(changesRequested) != 1 || changesRequested[0] != "@alice" {
+			t.Errorf("expected [@alice] in changes requested, got %v", changesRequested)
+		}
+	})
+
+	t.Run("DISMISSED reviews ignored", func(t *testing.T) {
+		reviews := []github.PRReview{
+			{User: github.PRUser{Login: "alice"}, State: "CHANGES_REQUESTED", SubmittedAt: now.Add(-time.Hour)},
+			{User: github.PRUser{Login: "alice"}, State: "DISMISSED", SubmittedAt: now},
+		}
+		approvers, changesRequested := evaluateReviews(reviews)
+		if len(approvers) != 0 {
+			t.Errorf("expected no approvers, got %v", approvers)
+		}
+		if len(changesRequested) != 1 || changesRequested[0] != "@alice" {
+			t.Errorf("DISMISSED should not clear CHANGES_REQUESTED, got %v", changesRequested)
+		}
+	})
+
+	t.Run("deterministic ordering", func(t *testing.T) {
+		reviews := []github.PRReview{
+			{User: github.PRUser{Login: "charlie"}, State: "APPROVED", SubmittedAt: now},
+			{User: github.PRUser{Login: "alice"}, State: "APPROVED", SubmittedAt: now},
+			{User: github.PRUser{Login: "bob"}, State: "APPROVED", SubmittedAt: now},
+		}
+		approvers, _ := evaluateReviews(reviews)
+		expected := []string{"@alice", "@bob", "@charlie"}
+		if len(approvers) != 3 {
+			t.Fatalf("expected 3 approvers, got %d", len(approvers))
+		}
+		for i, want := range expected {
+			if approvers[i] != want {
+				t.Errorf("approvers[%d] = %q, want %q", i, approvers[i], want)
+			}
 		}
 	})
 }
