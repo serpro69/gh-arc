@@ -34,16 +34,16 @@
 → verify: `go test ./internal/github/...` passes
 
 ## Task 3: Land output module
-- **Status:** pending
+- **Status:** done
 - **Depends on:** —
 - **Docs:** [implementation.md#31-output-module](./implementation.md#31-output-module)
 
 ### Subtasks
-- [ ] 3.1 Create `internal/land/output.go` with `OutputStyle` struct following `internal/diff/output.go` pattern
-- [ ] 3.2 Implement `PrintStep(icon, message)` and `PrintDetail(message)` base methods for `✓`/`✗`/`⚠` prefixed output
-- [ ] 3.3 Add helper methods: `PrintPRFound()`, `PrintApprovalStatus()`, `PrintCIStatus()`, `PrintDependentPRs()`, `PrintMerged()`, `PrintCheckout()`, `PrintBranchDeleted()`, `PrintCleanupWarning()`
-- [ ] 3.4 Add `FormatLandResult(*LandResult) string` for final summary formatting
-- [ ] 3.5 Write tests for output formatting
+- [x] 3.1 Create `internal/land/output.go` with `OutputStyle` struct following `internal/diff/output.go` pattern
+- [x] 3.2 Implement `PrintStep(icon, message)` and `PrintDetail(message)` base methods for `✓`/`✗`/`⚠` prefixed output
+- [x] 3.3 Add helper methods: `PrintPRFound()`, `PrintApprovalStatus()`, `PrintCIStatus()`, `PrintDependentPRs()`, `PrintMerged()`, `PrintCheckout()`, `PrintBranchDeleted()`, `PrintCleanupWarning()`
+- [x] 3.4 Add `FormatLandResult(*LandResult) string` for final summary formatting
+- [x] 3.5 Write tests for output formatting
 
 → verify: `go test ./internal/land/...` passes
 
