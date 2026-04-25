@@ -1642,6 +1642,12 @@ func (c *Client) MergePullRequest(ctx context.Context, owner, repo string, numbe
 		return nil, fmt.Errorf("merge options are required")
 	}
 
+	switch opts.Method {
+	case "squash", "rebase":
+	default:
+		return nil, fmt.Errorf("invalid merge method %q: must be squash or rebase", opts.Method)
+	}
+
 	logger.Info().
 		Str("owner", owner).
 		Str("repo", repo).
@@ -1690,22 +1696,30 @@ func (c *Client) MergePullRequestForCurrentRepo(ctx context.Context, number int,
 // MergeMethodNotAllowedError indicates the merge method is not permitted by repo settings
 type MergeMethodNotAllowedError struct {
 	Method string
+	Err    error
 }
 
 func (e *MergeMethodNotAllowedError) Error() string {
 	return fmt.Sprintf("%s merges are not allowed on this repo", e.Method)
 }
 
+func (e *MergeMethodNotAllowedError) Unwrap() error { return e.Err }
+
 // MergeConflictError indicates the PR has merge conflicts
-type MergeConflictError struct{}
+type MergeConflictError struct {
+	Err error
+}
 
 func (e *MergeConflictError) Error() string {
 	return "PR has merge conflicts"
 }
 
+func (e *MergeConflictError) Unwrap() error { return e.Err }
+
 // NotMergeableError indicates the PR cannot be merged (e.g., branch protection)
 type NotMergeableError struct {
 	Reason string
+	Err    error
 }
 
 func (e *NotMergeableError) Error() string {
@@ -1715,6 +1729,8 @@ func (e *NotMergeableError) Error() string {
 	return "PR is not mergeable"
 }
 
+func (e *NotMergeableError) Unwrap() error { return e.Err }
+
 func mapMergeError(err error, method string) error {
 	var httpErr *api.HTTPError
 	if !errors.As(err, &httpErr) {
@@ -1723,11 +1739,12 @@ func mapMergeError(err error, method string) error {
 
 	switch httpErr.StatusCode {
 	case http.StatusMethodNotAllowed:
-		return &MergeMethodNotAllowedError{Method: strings.ToUpper(method[:1]) + method[1:]}
+		display := strings.ToUpper(method[:1]) + method[1:]
+		return &MergeMethodNotAllowedError{Method: display, Err: httpErr}
 	case http.StatusConflict:
-		return &MergeConflictError{}
+		return &MergeConflictError{Err: httpErr}
 	case http.StatusUnprocessableEntity:
-		return &NotMergeableError{Reason: httpErr.Message}
+		return &NotMergeableError{Reason: httpErr.Message, Err: httpErr}
 	default:
 		return fmt.Errorf("failed to merge pull request: %w", err)
 	}
