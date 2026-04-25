@@ -2,11 +2,13 @@ package github
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/cli/go-gh/v2/pkg/api"
 	"github.com/serpro69/gh-arc/internal/logger"
 )
 
@@ -1617,4 +1619,185 @@ func DetectReviewerConflicts(currentReviewers []string, parentPR *PullRequest) [
 	}
 
 	return conflicts
+}
+
+// MergeOptions contains options for merging a pull request
+type MergeOptions struct {
+	Method        string // "squash" or "rebase"
+	CommitTitle   string // squash only: merge commit title
+	CommitMessage string // squash only: merge commit body
+}
+
+// MergeResult represents the result of a merge operation
+type MergeResult struct {
+	Merged  bool   `json:"merged"`
+	SHA     string `json:"sha"`
+	Message string `json:"message"`
+}
+
+// MergePullRequest merges a pull request via the GitHub API.
+// PUT /repos/{owner}/{repo}/pulls/{number}/merge
+func (c *Client) MergePullRequest(ctx context.Context, owner, repo string, number int, opts *MergeOptions) (*MergeResult, error) {
+	if opts == nil {
+		return nil, fmt.Errorf("merge options are required")
+	}
+
+	logger.Info().
+		Str("owner", owner).
+		Str("repo", repo).
+		Int("pr", number).
+		Str("method", opts.Method).
+		Msg("Merging pull request")
+
+	path := fmt.Sprintf("repos/%s/%s/pulls/%d/merge", owner, repo, number)
+
+	payload := map[string]interface{}{
+		"merge_method": opts.Method,
+	}
+	if opts.Method == "squash" {
+		if opts.CommitTitle != "" {
+			payload["commit_title"] = opts.CommitTitle
+		}
+		if opts.CommitMessage != "" {
+			payload["commit_message"] = opts.CommitMessage
+		}
+	}
+
+	var result MergeResult
+	err := c.Do(ctx, "PUT", path, payload, &result)
+	if err != nil {
+		return nil, mapMergeError(err, opts.Method)
+	}
+
+	logger.Info().
+		Int("pr", number).
+		Str("sha", result.SHA).
+		Bool("merged", result.Merged).
+		Msg("Successfully merged pull request")
+
+	return &result, nil
+}
+
+// MergePullRequestForCurrentRepo merges a PR in the current repository context
+func (c *Client) MergePullRequestForCurrentRepo(ctx context.Context, number int, opts *MergeOptions) (*MergeResult, error) {
+	if c.repo == nil {
+		return nil, fmt.Errorf("no repository context set")
+	}
+
+	return c.MergePullRequest(ctx, c.repo.Owner, c.repo.Name, number, opts)
+}
+
+// MergeMethodNotAllowedError indicates the merge method is not permitted by repo settings
+type MergeMethodNotAllowedError struct {
+	Method string
+}
+
+func (e *MergeMethodNotAllowedError) Error() string {
+	return fmt.Sprintf("%s merges are not allowed on this repo", e.Method)
+}
+
+// MergeConflictError indicates the PR has merge conflicts
+type MergeConflictError struct{}
+
+func (e *MergeConflictError) Error() string {
+	return "PR has merge conflicts"
+}
+
+// NotMergeableError indicates the PR cannot be merged (e.g., branch protection)
+type NotMergeableError struct {
+	Reason string
+}
+
+func (e *NotMergeableError) Error() string {
+	if e.Reason != "" {
+		return fmt.Sprintf("PR is not mergeable: %s", e.Reason)
+	}
+	return "PR is not mergeable"
+}
+
+func mapMergeError(err error, method string) error {
+	var httpErr *api.HTTPError
+	if !errors.As(err, &httpErr) {
+		return fmt.Errorf("failed to merge pull request: %w", err)
+	}
+
+	switch httpErr.StatusCode {
+	case http.StatusMethodNotAllowed:
+		return &MergeMethodNotAllowedError{Method: strings.ToUpper(method[:1]) + method[1:]}
+	case http.StatusConflict:
+		return &MergeConflictError{}
+	case http.StatusUnprocessableEntity:
+		return &NotMergeableError{Reason: httpErr.Message}
+	default:
+		return fmt.Errorf("failed to merge pull request: %w", err)
+	}
+}
+
+// GetRequiredStatusChecks returns the list of required status check contexts
+// for the given branch. Returns an empty list if the branch has no protection
+// rules or the caller lacks admin permissions.
+func (c *Client) GetRequiredStatusChecks(ctx context.Context, owner, repo, branch string) ([]string, error) {
+	logger.Debug().
+		Str("owner", owner).
+		Str("repo", repo).
+		Str("branch", branch).
+		Msg("Fetching required status checks")
+
+	path := fmt.Sprintf("repos/%s/%s/branches/%s/protection/required_status_checks", owner, repo, branch)
+
+	var response struct {
+		Contexts []string `json:"contexts"`
+		Checks   []struct {
+			Context string `json:"context"`
+			AppID   *int   `json:"app_id"`
+		} `json:"checks"`
+	}
+
+	err := c.restClient.Get(path, &response)
+	if err != nil {
+		var httpErr *api.HTTPError
+		if errors.As(err, &httpErr) {
+			switch httpErr.StatusCode {
+			case http.StatusNotFound:
+				logger.Debug().
+					Str("branch", branch).
+					Msg("No branch protection rules found, treating as no required checks")
+				return []string{}, nil
+			case http.StatusForbidden:
+				logger.Warn().
+					Str("branch", branch).
+					Msg("Insufficient permissions to read branch protection; treating as no required checks")
+				return []string{}, nil
+			}
+		}
+		return nil, fmt.Errorf("failed to fetch required status checks: %w", err)
+	}
+
+	// Prefer the newer checks array if available, fall back to contexts
+	if len(response.Checks) > 0 {
+		checks := make([]string, len(response.Checks))
+		for i, check := range response.Checks {
+			checks[i] = check.Context
+		}
+		logger.Debug().
+			Str("branch", branch).
+			Int("count", len(checks)).
+			Msg("Found required status checks")
+		return checks, nil
+	}
+
+	logger.Debug().
+		Str("branch", branch).
+		Int("count", len(response.Contexts)).
+		Msg("Found required status check contexts")
+	return response.Contexts, nil
+}
+
+// GetRequiredStatusChecksForCurrentRepo returns required status checks for a branch in the current repo
+func (c *Client) GetRequiredStatusChecksForCurrentRepo(ctx context.Context, branch string) ([]string, error) {
+	if c.repo == nil {
+		return nil, fmt.Errorf("no repository context set")
+	}
+
+	return c.GetRequiredStatusChecks(ctx, c.repo.Owner, c.repo.Name, branch)
 }
