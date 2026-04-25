@@ -6,16 +6,16 @@
 > Created: 2026-04-25
 
 ## Task 1: Config changes
-- **Status:** pending
+- **Status:** done
 - **Depends on:** —
 - **Docs:** [implementation.md#phase-1-config-changes](./implementation.md#phase-1-config-changes)
 
 ### Subtasks
-- [ ] 1.1 Update `LandConfig` in `internal/config/config.go`: change `RequireApproval` from `bool` to `string`, change `RequireCI` from `bool` to `string`, remove `DeleteRemoteBranch` field
-- [ ] 1.2 Update `setDefaults()`: set `land.requireApproval` to `"strict"`, `land.requireCI` to `"required"`, remove `land.deleteRemoteBranch` default
-- [ ] 1.3 Update `Validate()`: restrict `defaultMergeMethod` to `{"squash", "rebase"}`, add validation for `requireApproval` enum (`"strict"`, `"prompt"`, `"none"`), add validation for `requireCI` enum (`"required"`, `"all"`, `"none"`)
-- [ ] 1.4 Update existing config tests in `internal/config/config_test.go` for the type changes, add test cases for new enum validation
-- [ ] 1.5 Update README.md config examples (JSON and YAML) to reflect new `LandConfig` fields and removal of `deleteRemoteBranch`
+- [x] 1.1 Update `LandConfig` in `internal/config/config.go`: change `RequireApproval` from `bool` to `string`, change `RequireCI` from `bool` to `string`, remove `DeleteRemoteBranch` field
+- [x] 1.2 Update `setDefaults()`: set `land.requireApproval` to `"strict"`, `land.requireCI` to `"required"`, remove `land.deleteRemoteBranch` default
+- [x] 1.3 Update `Validate()`: restrict `defaultMergeMethod` to `{"squash", "rebase"}`, add validation for `requireApproval` enum (`"strict"`, `"prompt"`, `"none"`), add validation for `requireCI` enum (`"required"`, `"all"`, `"none"`)
+- [x] 1.4 Update existing config tests in `internal/config/config_test.go` for the type changes, add test cases for new enum validation
+- [x] 1.5 Update README.md config examples (JSON and YAML) to reflect new `LandConfig` fields and removal of `deleteRemoteBranch`
 
 → verify: `go test ./internal/config/...` passes, invalid enum values rejected by `Validate()`
 

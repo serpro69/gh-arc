@@ -180,9 +180,8 @@ Create a `.arc.json` or `.arc.yaml` file in your project root or user config dir
   "land": {
     "defaultMergeMethod": "squash",
     "deleteLocalBranch": true,
-    "deleteRemoteBranch": true,
-    "requireApproval": true,
-    "requireCI": true
+    "requireApproval": "strict",
+    "requireCI": "required"
   },
   "output": {
     "verbose": false,
@@ -216,9 +215,8 @@ diff:
 land:
   defaultMergeMethod: squash
   deleteLocalBranch: true
-  deleteRemoteBranch: true
-  requireApproval: true
-  requireCI: true
+  requireApproval: strict
+  requireCI: required
 
 output:
   verbose: false
@@ -250,11 +248,10 @@ output:
 
 #### Land (Merge) Settings
 
-- **`land.defaultMergeMethod`** (string, default: `"squash"`): Default merge method (`squash`, `merge`, or `rebase`)
+- **`land.defaultMergeMethod`** (string, default: `"squash"`): Default merge method (`squash` or `rebase`)
 - **`land.deleteLocalBranch`** (bool, default: `true`): Delete local branch after landing
-- **`land.deleteRemoteBranch`** (bool, default: `true`): Delete remote branch after landing
-- **`land.requireApproval`** (bool, default: `true`): Require PR approval before landing
-- **`land.requireCI`** (bool, default: `true`): Require CI checks to pass before landing
+- **`land.requireApproval`** (string, default: `"strict"`): Approval check mode — `"strict"` (block, `--force` to bypass), `"prompt"` (interactive confirmation), `"none"` (skip)
+- **`land.requireCI`** (string, default: `"required"`): CI check mode — `"required"` (only branch-protection required checks), `"all"` (every check must pass), `"none"` (skip)
 
 #### Output Settings
 
@@ -275,7 +272,7 @@ export GHARC_DIFF_CREATEASDRAFT=false
 export GHARC_GITHUB_DEFAULTBRANCH=master
 
 # Override land.defaultMergeMethod
-export GHARC_LAND_DEFAULTMERGEMETHOD=merge
+export GHARC_LAND_DEFAULTMERGEMETHOD=rebase
 ```
 
 ### Advanced Configuration
