@@ -16,8 +16,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Inject version tag
+        run: sed -i "s/Version   = \"dev\"/Version   = \"${GITHUB_REF#refs/tags/}\"/" internal/version/version.go
       - uses: cli/gh-extension-precompile@v2
         with:
           generate_attestations: true
           go_version_file: go.mod
-          build_script_override: .github/scripts/build.sh
