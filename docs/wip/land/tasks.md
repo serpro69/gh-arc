@@ -48,19 +48,19 @@
 → verify: `go test ./internal/land/...` passes
 
 ## Task 4: Land checks module
-- **Status:** pending
+- **Status:** in-progress
 - **Depends on:** Task 1, Task 2
 - **Docs:** [implementation.md#32-checks-module](./implementation.md#32-checks-module)
 
 ### Subtasks
-- [ ] 4.1 Create `internal/land/checks.go` with `PreMergeChecker` struct and `CheckResult` type
-- [ ] 4.2 Implement `CheckCleanWorkingDir()` — uses `repo.GetWorkingDirectoryStatus()`, always blocks if dirty
-- [ ] 4.3 Implement `CheckNotOnTrunk(currentBranch, defaultBranch)` — compares branch names
-- [ ] 4.4 Implement `CheckPRExists(ctx, branchName)` — wraps `FindExistingPRForCurrentBranch()`
-- [ ] 4.5 Implement `CheckApproval(ctx, *PullRequest, force)` — evaluates reviews per `requireApproval` config (`"strict"`, `"prompt"`, `"none"`), returns `CheckResult` with `NeedsConfirmation` for prompt mode
-- [ ] 4.6 Implement `CheckCI(ctx, *PullRequest, force)` — evaluates checks per `requireCI` config; when `"required"`, calls `GetRequiredStatusChecks()` and filters to only those checks
-- [ ] 4.7 Implement `CheckDependentPRs(ctx, branchName)` — wraps `FindDependentPRs()`, informational only
-- [ ] 4.8 Write unit tests for each check method: pass, fail, force bypass, prompt mode, each config enum value
+- [x] 4.1 Create `internal/land/checks.go` with `PreMergeChecker` struct and `CheckResult` type
+- [x] 4.2 Implement `CheckCleanWorkingDir()` — uses `repo.GetWorkingDirectoryStatus()`, always blocks if dirty
+- [x] 4.3 Implement `CheckNotOnTrunk(currentBranch, defaultBranch)` — compares branch names
+- [x] 4.4 Implement `CheckPRExists(ctx, branchName)` — wraps `FindExistingPRForCurrentBranch()`
+- [x] 4.5 Implement `CheckApproval(ctx, *PullRequest, force)` — evaluates reviews per `requireApproval` config (`"strict"`, `"prompt"`, `"none"`), returns `CheckResult` with `NeedsConfirmation` for prompt mode
+- [x] 4.6 Implement `CheckCI(ctx, *PullRequest, force)` — evaluates checks per `requireCI` config; when `"required"`, calls `GetRequiredStatusChecks()` and filters to only those checks
+- [x] 4.7 Implement `CheckDependentPRs(ctx, branchName)` — wraps `FindDependentPRs()`, informational only
+- [x] 4.8 Write unit tests for each check method: pass, fail, force bypass, prompt mode, each config enum value
 
 → verify: `go test ./internal/land/...` passes
 
