@@ -26,9 +26,6 @@ jobs:
     name: Sync Template
     runs-on: ubuntu-latest
     if: github.event.repository.name != 'claude-toolbox'
-    permissions:
-      contents: write
-      pull-requests: write
     outputs:
       has_changes: ${{ steps.sync.outputs.has_changes }}
       old_version: ${{ steps.manifest.outputs.old_version }}
@@ -78,6 +75,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y jq
+          # Install yq (mikefarah) for YAML processing
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
 
       - name: Fetch target sync script from upstream
         run: |
@@ -151,12 +151,19 @@ jobs:
     needs: sync
     if: needs.sync.outputs.has_changes == 'true' && inputs.dry_run == false
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
     steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        if: ${{ vars.CLAUDE_TOOLBOX_APP_ID != '' || vars.JEAN_CLAWDER_APP_ID != '' }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.CLAUDE_TOOLBOX_APP_ID || vars.JEAN_CLAWDER_APP_ID }}
+          private-key: ${{ secrets.CLAUDE_TOOLBOX_APP_ID || secrets.JEAN_CLAWDER_APP_KEY }}
+
       - name: Checkout Repository
         uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token || github.token }}
 
       - name: Download Staged Changes
         uses: actions/download-artifact@v7
@@ -195,6 +202,14 @@ jobs:
           if [[ -d "$STAGING_DIR/serena" ]]; then
             cp -r "$STAGING_DIR/serena/"* .serena/ 2>/dev/null || true
             echo "Applied changes to .serena/"
+          fi
+
+          # Copy codex config files
+          if [[ -d "$STAGING_DIR/codex" ]]; then
+            mkdir -p .codex
+            cp -r "$STAGING_DIR/codex/"* .codex/ 2>/dev/null || true
+            chmod +x .codex/scripts/*.sh 2>/dev/null || true
+            echo "Applied changes to .codex/"
           fi
 
           # Copy workflow files (sync infrastructure)
@@ -240,6 +255,18 @@ jobs:
             mv .github/template-state.json.tmp .github/template-state.json
           fi
 
+          # Backfill missing optional variables with defaults
+          DEFAULTS='{"CC_STATUSLINE":"enhanced","CC_EFFORT_LEVEL":"high","CC_PERMISSION_MODE":"default","CODEX_MODEL":"gpt-5.5","CODEX_APPROVAL_POLICY":"on-request"}'
+          for key in $(echo "$DEFAULTS" | jq -r 'keys[]'); do
+            if [[ "$(jq -r ".variables.$key // \"__MISSING__\"" .github/template-state.json)" == "__MISSING__" ]]; then
+              default_val=$(echo "$DEFAULTS" | jq -r ".$key")
+              jq --arg k "$key" --arg v "$default_val" '.variables[$k] = $v' \
+                .github/template-state.json > .github/template-state.json.tmp
+              mv .github/template-state.json.tmp .github/template-state.json
+              echo "Backfilled $key=$default_val"
+            fi
+          done
+
           jq --arg version "$NEW_VERSION" --arg synced_at "$SYNCED_AT" \
             '.template_version = $version | .synced_at = $synced_at' \
             .github/template-state.json > .github/template-state.json.tmp
@@ -258,12 +285,13 @@ jobs:
             echo "existing_pr=$EXISTING_PR" >> "$GITHUB_OUTPUT"
           fi
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
 
       - name: Create Pull Request
         id: create-pr
         uses: peter-evans/create-pull-request@v8
         with:
+          token: ${{ steps.app-token.outputs.token || github.token }}
           branch: template-sync/${{ needs.sync.outputs.new_version }}
           delete-branch: true
           title: "chore: sync template ${{ needs.sync.outputs.old_version }} → ${{ needs.sync.outputs.new_version }}"
