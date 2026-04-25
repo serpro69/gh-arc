@@ -2649,6 +2649,24 @@ func TestMergePullRequest(t *testing.T) {
 			t.Errorf("error = %q, want 'merge options are required'", err.Error())
 		}
 	})
+
+	t.Run("invalid merge method", func(t *testing.T) {
+		client := &Client{
+			config:         DefaultConfig(),
+			cache:          &NoOpCache{},
+			circuitBreaker: NewCircuitBreaker(5, 1*time.Minute),
+		}
+
+		for _, method := range []string{"", "merge", "invalid"} {
+			_, err := client.MergePullRequest(context.Background(), "owner", "repo", 42, &MergeOptions{Method: method})
+			if err == nil {
+				t.Errorf("expected error for method %q", method)
+			}
+			if !strings.Contains(err.Error(), "invalid merge method") {
+				t.Errorf("method %q: error = %q, want 'invalid merge method'", method, err.Error())
+			}
+		}
+	})
 }
 
 func TestMergePullRequestForCurrentRepo(t *testing.T) {
@@ -2724,6 +2742,25 @@ func TestMergeErrorTypes(t *testing.T) {
 		err := mapMergeError(fmt.Errorf("network timeout"), "squash")
 		if !strings.Contains(err.Error(), "failed to merge pull request") {
 			t.Errorf("error = %q, want wrapping message", err.Error())
+		}
+	})
+
+	t.Run("error types preserve original error via Unwrap", func(t *testing.T) {
+		origErr := fmt.Errorf("original")
+
+		mergeMethodErr := &MergeMethodNotAllowedError{Method: "Squash", Err: origErr}
+		if mergeMethodErr.Unwrap() != origErr {
+			t.Error("MergeMethodNotAllowedError.Unwrap() should return original error")
+		}
+
+		conflictErr := &MergeConflictError{Err: origErr}
+		if conflictErr.Unwrap() != origErr {
+			t.Error("MergeConflictError.Unwrap() should return original error")
+		}
+
+		notMergeableErr := &NotMergeableError{Reason: "test", Err: origErr}
+		if notMergeableErr.Unwrap() != origErr {
+			t.Error("NotMergeableError.Unwrap() should return original error")
 		}
 	})
 }
