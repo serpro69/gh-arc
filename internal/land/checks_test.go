@@ -1,0 +1,609 @@
+package land
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/serpro69/gh-arc/internal/config"
+	"github.com/serpro69/gh-arc/internal/git"
+	"github.com/serpro69/gh-arc/internal/github"
+)
+
+// --- mocks ---
+
+type mockCheckerRepo struct {
+	status *git.WorkingDirectoryStatus
+	err    error
+}
+
+func (m *mockCheckerRepo) GetWorkingDirectoryStatus() (*git.WorkingDirectoryStatus, error) {
+	return m.status, m.err
+}
+
+type mockCheckerClient struct {
+	pr                *github.PullRequest
+	findPRErr         error
+	dependentPRs      []*github.PullRequest
+	dependentPRsErr   error
+	requiredChecks    []string
+	requiredChecksErr error
+}
+
+func (m *mockCheckerClient) FindExistingPRForCurrentBranch(_ context.Context, _ string) (*github.PullRequest, error) {
+	return m.pr, m.findPRErr
+}
+
+func (m *mockCheckerClient) FindDependentPRsForCurrentBranch(_ context.Context, _ string) ([]*github.PullRequest, error) {
+	return m.dependentPRs, m.dependentPRsErr
+}
+
+func (m *mockCheckerClient) GetRequiredStatusChecksForCurrentRepo(_ context.Context, _ string) ([]string, error) {
+	return m.requiredChecks, m.requiredChecksErr
+}
+
+func newChecker(repo CheckerRepo, client CheckerClient, cfg *config.LandConfig) *PreMergeChecker {
+	return NewPreMergeChecker(repo, client, cfg)
+}
+
+func defaultLandConfig() *config.LandConfig {
+	return &config.LandConfig{
+		DefaultMergeMethod: "squash",
+		DeleteLocalBranch:  true,
+		RequireApproval:    config.ApprovalStrict,
+		RequireCI:          config.CIModeRequired,
+	}
+}
+
+// --- CheckCleanWorkingDir ---
+
+func TestCheckCleanWorkingDir(t *testing.T) {
+	t.Run("clean directory passes", func(t *testing.T) {
+		repo := &mockCheckerRepo{status: &git.WorkingDirectoryStatus{IsClean: true}}
+		checker := newChecker(repo, nil, defaultLandConfig())
+		if err := checker.CheckCleanWorkingDir(); err != nil {
+			t.Errorf("expected nil, got %v", err)
+		}
+	})
+
+	t.Run("dirty directory fails", func(t *testing.T) {
+		repo := &mockCheckerRepo{status: &git.WorkingDirectoryStatus{IsClean: false}}
+		checker := newChecker(repo, nil, defaultLandConfig())
+		err := checker.CheckCleanWorkingDir()
+		if !errors.Is(err, ErrDirtyWorkingDir) {
+			t.Errorf("expected ErrDirtyWorkingDir, got %v", err)
+		}
+	})
+
+	t.Run("repo error propagates", func(t *testing.T) {
+		repo := &mockCheckerRepo{err: errors.New("git broken")}
+		checker := newChecker(repo, nil, defaultLandConfig())
+		err := checker.CheckCleanWorkingDir()
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if !strings.Contains(err.Error(), "git broken") {
+			t.Errorf("expected wrapped error, got %v", err)
+		}
+	})
+}
+
+// --- CheckNotOnTrunk ---
+
+func TestCheckNotOnTrunk(t *testing.T) {
+	checker := newChecker(nil, nil, defaultLandConfig())
+
+	t.Run("feature branch passes", func(t *testing.T) {
+		if err := checker.CheckNotOnTrunk("feature/auth", "main"); err != nil {
+			t.Errorf("expected nil, got %v", err)
+		}
+	})
+
+	t.Run("on main fails", func(t *testing.T) {
+		err := checker.CheckNotOnTrunk("main", "main")
+		if !errors.Is(err, ErrOnTrunk) {
+			t.Errorf("expected ErrOnTrunk, got %v", err)
+		}
+	})
+
+	t.Run("on master fails", func(t *testing.T) {
+		err := checker.CheckNotOnTrunk("master", "master")
+		if !errors.Is(err, ErrOnTrunk) {
+			t.Errorf("expected ErrOnTrunk, got %v", err)
+		}
+	})
+}
+
+// --- CheckPRExists ---
+
+func TestCheckPRExists(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("PR found", func(t *testing.T) {
+		pr := &github.PullRequest{Number: 42, Title: "Add auth"}
+		client := &mockCheckerClient{pr: pr}
+		checker := newChecker(nil, client, defaultLandConfig())
+
+		got, err := checker.CheckPRExists(ctx, "feature/auth")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got.Number != 42 {
+			t.Errorf("expected PR #42, got #%d", got.Number)
+		}
+	})
+
+	t.Run("no PR found", func(t *testing.T) {
+		client := &mockCheckerClient{pr: nil}
+		checker := newChecker(nil, client, defaultLandConfig())
+
+		_, err := checker.CheckPRExists(ctx, "feature/auth")
+		if !errors.Is(err, ErrNoPRFound) {
+			t.Errorf("expected ErrNoPRFound, got %v", err)
+		}
+	})
+
+	t.Run("API error propagates", func(t *testing.T) {
+		client := &mockCheckerClient{findPRErr: errors.New("network error")}
+		checker := newChecker(nil, client, defaultLandConfig())
+
+		_, err := checker.CheckPRExists(ctx, "feature/auth")
+		if err == nil {
+			t.Fatal("expected error")
+		}
+	})
+}
+
+// --- CheckApproval ---
+
+func TestCheckApproval(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now()
+
+	approvedPR := &github.PullRequest{
+		Reviews: []github.PRReview{
+			{User: github.PRUser{Login: "alice"}, State: "APPROVED", SubmittedAt: now},
+			{User: github.PRUser{Login: "bob"}, State: "APPROVED", SubmittedAt: now},
+		},
+	}
+
+	noReviewsPR := &github.PullRequest{}
+
+	changesRequestedPR := &github.PullRequest{
+		Reviews: []github.PRReview{
+			{User: github.PRUser{Login: "alice"}, State: "APPROVED", SubmittedAt: now},
+			{User: github.PRUser{Login: "bob"}, State: "CHANGES_REQUESTED", SubmittedAt: now},
+		},
+	}
+
+	// Superseded changes request (user approved after requesting changes)
+	supersededPR := &github.PullRequest{
+		Reviews: []github.PRReview{
+			{User: github.PRUser{Login: "alice"}, State: "CHANGES_REQUESTED", SubmittedAt: now.Add(-time.Hour)},
+			{User: github.PRUser{Login: "alice"}, State: "APPROVED", SubmittedAt: now},
+		},
+	}
+
+	t.Run("strict/approved passes", func(t *testing.T) {
+		cfg := defaultLandConfig()
+		checker := newChecker(nil, nil, cfg)
+		result, err := checker.CheckApproval(ctx, approvedPR, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Passed {
+			t.Error("expected passed")
+		}
+		assertMessageContains(t, result, "Approved by")
+	})
+
+	t.Run("strict/no reviews fails", func(t *testing.T) {
+		cfg := defaultLandConfig()
+		checker := newChecker(nil, nil, cfg)
+		result, err := checker.CheckApproval(ctx, noReviewsPR, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.Passed {
+			t.Error("expected not passed")
+		}
+		if result.NeedsConfirmation {
+			t.Error("strict mode should not need confirmation")
+		}
+		assertMessageContains(t, result, "no reviews yet")
+	})
+
+	t.Run("strict/changes requested fails", func(t *testing.T) {
+		cfg := defaultLandConfig()
+		checker := newChecker(nil, nil, cfg)
+		result, err := checker.CheckApproval(ctx, changesRequestedPR, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.Passed {
+			t.Error("expected not passed")
+		}
+		assertMessageContains(t, result, "change requests")
+		assertMessageContains(t, result, "@bob")
+	})
+
+	t.Run("strict/force bypasses", func(t *testing.T) {
+		cfg := defaultLandConfig()
+		checker := newChecker(nil, nil, cfg)
+		result, err := checker.CheckApproval(ctx, noReviewsPR, true)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Passed {
+			t.Error("force should bypass")
+		}
+		assertMessageContains(t, result, "--force")
+	})
+
+	t.Run("prompt/no reviews needs confirmation", func(t *testing.T) {
+		cfg := defaultLandConfig()
+		cfg.RequireApproval = config.ApprovalPrompt
+		checker := newChecker(nil, nil, cfg)
+		result, err := checker.CheckApproval(ctx, noReviewsPR, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.Passed {
+			t.Error("expected not passed")
+		}
+		if !result.NeedsConfirmation {
+			t.Error("prompt mode should need confirmation")
+		}
+	})
+
+	t.Run("prompt/force bypasses without confirmation", func(t *testing.T) {
+		cfg := defaultLandConfig()
+		cfg.RequireApproval = config.ApprovalPrompt
+		checker := newChecker(nil, nil, cfg)
+		result, err := checker.CheckApproval(ctx, noReviewsPR, true)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Passed {
+			t.Error("force should bypass")
+		}
+		if result.NeedsConfirmation {
+			t.Error("force should not need confirmation")
+		}
+	})
+
+	t.Run("none skips entirely", func(t *testing.T) {
+		cfg := defaultLandConfig()
+		cfg.RequireApproval = config.ApprovalNone
+		checker := newChecker(nil, nil, cfg)
+		result, err := checker.CheckApproval(ctx, noReviewsPR, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Passed {
+			t.Error("none mode should pass")
+		}
+		assertMessageContains(t, result, "skipped")
+	})
+
+	t.Run("superseded changes request treated as approved", func(t *testing.T) {
+		cfg := defaultLandConfig()
+		checker := newChecker(nil, nil, cfg)
+		result, err := checker.CheckApproval(ctx, supersededPR, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Passed {
+			t.Error("superseded changes request should pass")
+		}
+		assertMessageContains(t, result, "Approved by")
+	})
+}
+
+// --- CheckCI ---
+
+func TestCheckCI(t *testing.T) {
+	ctx := context.Background()
+
+	allPassingPR := &github.PullRequest{
+		Base: github.PRBranch{Ref: "main"},
+		Checks: []github.PRCheck{
+			{Name: "tests", Status: "completed", Conclusion: "success"},
+			{Name: "lint", Status: "completed", Conclusion: "success"},
+			{Name: "build", Status: "completed", Conclusion: "success"},
+		},
+	}
+
+	failingPR := &github.PullRequest{
+		Base: github.PRBranch{Ref: "main"},
+		Checks: []github.PRCheck{
+			{Name: "tests", Status: "completed", Conclusion: "failure"},
+			{Name: "lint", Status: "in_progress", Conclusion: ""},
+			{Name: "build", Status: "completed", Conclusion: "success"},
+		},
+	}
+
+	noChecksPR := &github.PullRequest{
+		Base: github.PRBranch{Ref: "main"},
+	}
+
+	skippedAndNeutralPR := &github.PullRequest{
+		Base: github.PRBranch{Ref: "main"},
+		Checks: []github.PRCheck{
+			{Name: "tests", Status: "completed", Conclusion: "success"},
+			{Name: "optional", Status: "completed", Conclusion: "skipped"},
+			{Name: "info", Status: "completed", Conclusion: "neutral"},
+		},
+	}
+
+	t.Run("all mode/all passing", func(t *testing.T) {
+		cfg := defaultLandConfig()
+		cfg.RequireCI = config.CIModeAll
+		checker := newChecker(nil, &mockCheckerClient{}, cfg)
+		result, err := checker.CheckCI(ctx, allPassingPR, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Passed {
+			t.Error("expected passed")
+		}
+		assertMessageContains(t, result, "All CI checks passed (3/3)")
+	})
+
+	t.Run("all mode/failures block", func(t *testing.T) {
+		cfg := defaultLandConfig()
+		cfg.RequireCI = config.CIModeAll
+		checker := newChecker(nil, &mockCheckerClient{}, cfg)
+		result, err := checker.CheckCI(ctx, failingPR, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.Passed {
+			t.Error("expected not passed")
+		}
+		assertMessageContains(t, result, "'tests' failed")
+		assertMessageContains(t, result, "'lint' in progress")
+		assertMessageContains(t, result, "(1/3 passed)")
+	})
+
+	t.Run("all mode/force bypasses", func(t *testing.T) {
+		cfg := defaultLandConfig()
+		cfg.RequireCI = config.CIModeAll
+		checker := newChecker(nil, &mockCheckerClient{}, cfg)
+		result, err := checker.CheckCI(ctx, failingPR, true)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Passed {
+			t.Error("force should bypass")
+		}
+		assertMessageContains(t, result, "--force")
+	})
+
+	t.Run("all mode/skipped and neutral count as pass", func(t *testing.T) {
+		cfg := defaultLandConfig()
+		cfg.RequireCI = config.CIModeAll
+		checker := newChecker(nil, &mockCheckerClient{}, cfg)
+		result, err := checker.CheckCI(ctx, skippedAndNeutralPR, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Passed {
+			t.Error("skipped/neutral should count as passed")
+		}
+	})
+
+	t.Run("required mode/all required pass", func(t *testing.T) {
+		cfg := defaultLandConfig()
+		client := &mockCheckerClient{requiredChecks: []string{"tests", "build"}}
+		checker := newChecker(nil, client, cfg)
+		result, err := checker.CheckCI(ctx, allPassingPR, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Passed {
+			t.Error("expected passed")
+		}
+		assertMessageContains(t, result, "All CI checks passed (2/2)")
+	})
+
+	t.Run("required mode/required check fails", func(t *testing.T) {
+		cfg := defaultLandConfig()
+		client := &mockCheckerClient{requiredChecks: []string{"tests"}}
+		checker := newChecker(nil, client, cfg)
+		result, err := checker.CheckCI(ctx, failingPR, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.Passed {
+			t.Error("expected not passed")
+		}
+		assertMessageContains(t, result, "'tests' failed")
+	})
+
+	t.Run("required mode/non-required failure ignored", func(t *testing.T) {
+		cfg := defaultLandConfig()
+		client := &mockCheckerClient{requiredChecks: []string{"build"}}
+		checker := newChecker(nil, client, cfg)
+		result, err := checker.CheckCI(ctx, failingPR, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Passed {
+			t.Error("non-required failure should not block")
+		}
+	})
+
+	t.Run("required mode/no required checks configured", func(t *testing.T) {
+		cfg := defaultLandConfig()
+		client := &mockCheckerClient{requiredChecks: []string{}}
+		checker := newChecker(nil, client, cfg)
+		result, err := checker.CheckCI(ctx, allPassingPR, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Passed {
+			t.Error("no required checks means pass")
+		}
+		assertMessageContains(t, result, "No required CI checks configured")
+	})
+
+	t.Run("required mode/missing required check treated as pending", func(t *testing.T) {
+		cfg := defaultLandConfig()
+		client := &mockCheckerClient{requiredChecks: []string{"tests", "deploy"}}
+		checker := newChecker(nil, client, cfg)
+		result, err := checker.CheckCI(ctx, allPassingPR, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.Passed {
+			t.Error("missing required check should block")
+		}
+		assertMessageContains(t, result, "'deploy' in progress")
+	})
+
+	t.Run("required mode/API error propagates", func(t *testing.T) {
+		cfg := defaultLandConfig()
+		client := &mockCheckerClient{requiredChecksErr: errors.New("api error")}
+		checker := newChecker(nil, client, cfg)
+		_, err := checker.CheckCI(ctx, allPassingPR, false)
+		if err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("none skips entirely", func(t *testing.T) {
+		cfg := defaultLandConfig()
+		cfg.RequireCI = config.CIModeNone
+		checker := newChecker(nil, &mockCheckerClient{}, cfg)
+		result, err := checker.CheckCI(ctx, noChecksPR, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Passed {
+			t.Error("none mode should pass")
+		}
+		assertMessageContains(t, result, "skipped")
+	})
+
+	t.Run("all mode/no checks found with force", func(t *testing.T) {
+		cfg := defaultLandConfig()
+		cfg.RequireCI = config.CIModeAll
+		checker := newChecker(nil, &mockCheckerClient{}, cfg)
+		result, err := checker.CheckCI(ctx, noChecksPR, true)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Passed {
+			t.Error("force should bypass")
+		}
+	})
+
+	t.Run("all mode/no checks found without force", func(t *testing.T) {
+		cfg := defaultLandConfig()
+		cfg.RequireCI = config.CIModeAll
+		checker := newChecker(nil, &mockCheckerClient{}, cfg)
+		result, err := checker.CheckCI(ctx, noChecksPR, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Passed {
+			t.Error("no checks with no required checks should pass")
+		}
+	})
+}
+
+// --- CheckDependentPRs ---
+
+func TestCheckDependentPRs(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("no dependent PRs", func(t *testing.T) {
+		client := &mockCheckerClient{}
+		checker := newChecker(nil, client, defaultLandConfig())
+		deps, err := checker.CheckDependentPRs(ctx, "feature/auth")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(deps) != 0 {
+			t.Errorf("expected 0 deps, got %d", len(deps))
+		}
+	})
+
+	t.Run("found dependent PRs", func(t *testing.T) {
+		client := &mockCheckerClient{
+			dependentPRs: []*github.PullRequest{
+				{Number: 43, Title: "Auth tests"},
+				{Number: 44, Title: "Auth docs"},
+			},
+		}
+		checker := newChecker(nil, client, defaultLandConfig())
+		deps, err := checker.CheckDependentPRs(ctx, "feature/auth")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(deps) != 2 {
+			t.Errorf("expected 2 deps, got %d", len(deps))
+		}
+	})
+
+	t.Run("API error propagates", func(t *testing.T) {
+		client := &mockCheckerClient{dependentPRsErr: errors.New("network error")}
+		checker := newChecker(nil, client, defaultLandConfig())
+		_, err := checker.CheckDependentPRs(ctx, "feature/auth")
+		if err == nil {
+			t.Fatal("expected error")
+		}
+	})
+}
+
+// --- evaluateReviews ---
+
+func TestEvaluateReviews(t *testing.T) {
+	now := time.Now()
+
+	t.Run("empty reviews", func(t *testing.T) {
+		approvers, changesRequested := evaluateReviews(nil)
+		if len(approvers) != 0 || len(changesRequested) != 0 {
+			t.Error("expected empty results for nil reviews")
+		}
+	})
+
+	t.Run("only latest review per user counts", func(t *testing.T) {
+		reviews := []github.PRReview{
+			{User: github.PRUser{Login: "alice"}, State: "CHANGES_REQUESTED", SubmittedAt: now.Add(-time.Hour)},
+			{User: github.PRUser{Login: "alice"}, State: "APPROVED", SubmittedAt: now},
+		}
+		approvers, changesRequested := evaluateReviews(reviews)
+		if len(approvers) != 1 || approvers[0] != "@alice" {
+			t.Errorf("expected [@alice], got %v", approvers)
+		}
+		if len(changesRequested) != 0 {
+			t.Errorf("expected no changes requested, got %v", changesRequested)
+		}
+	})
+
+	t.Run("COMMENTED reviews ignored", func(t *testing.T) {
+		reviews := []github.PRReview{
+			{User: github.PRUser{Login: "alice"}, State: "COMMENTED", SubmittedAt: now},
+		}
+		approvers, changesRequested := evaluateReviews(reviews)
+		if len(approvers) != 0 || len(changesRequested) != 0 {
+			t.Error("COMMENTED should be ignored")
+		}
+	})
+}
+
+// --- helpers ---
+
+func assertMessageContains(t *testing.T, result *CheckResult, substr string) {
+	t.Helper()
+	for _, msg := range result.Messages {
+		if strings.Contains(msg, substr) {
+			return
+		}
+	}
+	t.Errorf("expected message containing %q, got %v", substr, result.Messages)
+}
