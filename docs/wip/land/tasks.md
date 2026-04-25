@@ -48,7 +48,7 @@
 → verify: `go test ./internal/land/...` passes
 
 ## Task 4: Land checks module
-- **Status:** in-progress
+- **Status:** done
 - **Depends on:** Task 1, Task 2
 - **Docs:** [implementation.md#32-checks-module](./implementation.md#32-checks-module)
 

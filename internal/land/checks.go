@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/serpro69/gh-arc/internal/config"
@@ -134,7 +135,7 @@ func (c *PreMergeChecker) CheckCI(ctx context.Context, pr *github.PullRequest, f
 
 	if relevantChecks == nil {
 		if force {
-			return &CheckResult{Passed: true, Messages: []string{"no CI checks found (bypassed with --force)"}}, nil
+			return &CheckResult{Passed: true, Messages: []string{"No CI checks found (bypassed with --force)"}}, nil
 		}
 		return &CheckResult{Passed: true, Messages: []string{"No required CI checks configured"}}, nil
 	}
@@ -173,17 +174,18 @@ func (c *PreMergeChecker) CheckCI(ctx context.Context, pr *github.PullRequest, f
 // resolveRelevantChecks returns the checks to evaluate, or nil when there are
 // no checks to enforce (empty required list or no checks present).
 func (c *PreMergeChecker) resolveRelevantChecks(ctx context.Context, pr *github.PullRequest) ([]github.PRCheck, error) {
+	deduped := deduplicateChecks(pr.Checks)
 	if c.config.RequireCI == config.CIModeRequired {
-		return c.resolveRequiredChecks(ctx, pr)
+		return c.resolveRequiredChecks(ctx, deduped, pr.Base.Ref)
 	}
-	if len(pr.Checks) == 0 {
+	if len(deduped) == 0 {
 		return nil, nil
 	}
-	return pr.Checks, nil
+	return deduped, nil
 }
 
-func (c *PreMergeChecker) resolveRequiredChecks(ctx context.Context, pr *github.PullRequest) ([]github.PRCheck, error) {
-	required, err := c.client.GetRequiredStatusChecksForCurrentRepo(ctx, pr.Base.Ref)
+func (c *PreMergeChecker) resolveRequiredChecks(ctx context.Context, checks []github.PRCheck, baseBranch string) ([]github.PRCheck, error) {
+	required, err := c.client.GetRequiredStatusChecksForCurrentRepo(ctx, baseBranch)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get required status checks: %w", err)
 	}
@@ -198,14 +200,13 @@ func (c *PreMergeChecker) resolveRequiredChecks(ctx context.Context, pr *github.
 
 	found := make(map[string]bool)
 	var relevant []github.PRCheck
-	for _, check := range pr.Checks {
+	for _, check := range checks {
 		if requiredSet[check.Name] {
 			relevant = append(relevant, check)
 			found[check.Name] = true
 		}
 	}
 
-	// Synthesize placeholder entries for required checks that haven't reported yet
 	for _, r := range required {
 		if !found[r] {
 			relevant = append(relevant, github.PRCheck{
@@ -216,6 +217,30 @@ func (c *PreMergeChecker) resolveRequiredChecks(ctx context.Context, pr *github.
 	}
 
 	return relevant, nil
+}
+
+// deduplicateChecks keeps only the latest check run per name.
+// GitHub may return multiple runs for the same check (e.g., retries);
+// we want the most recent result.
+func deduplicateChecks(checks []github.PRCheck) []github.PRCheck {
+	if len(checks) == 0 {
+		return nil
+	}
+	latest := make(map[string]github.PRCheck, len(checks))
+	for _, check := range checks {
+		if existing, ok := latest[check.Name]; ok {
+			if check.StartedAt.After(existing.StartedAt) {
+				latest[check.Name] = check
+			}
+		} else {
+			latest[check.Name] = check
+		}
+	}
+	deduped := make([]github.PRCheck, 0, len(latest))
+	for _, check := range latest {
+		deduped = append(deduped, check)
+	}
+	return deduped
 }
 
 func formatCIFailureMessage(failed, inProgress []string, passed, total int) string {
@@ -239,11 +264,15 @@ func (c *PreMergeChecker) CheckDependentPRs(ctx context.Context, branchName stri
 	return deps, nil
 }
 
-// evaluateReviews returns the latest review state per reviewer.
-// Only the most recent review from each user counts.
+// evaluateReviews returns the latest actionable review state per reviewer.
+// Only APPROVED and CHANGES_REQUESTED are actionable — COMMENTED, DISMISSED,
+// and PENDING reviews do not override a prior determinative state.
 func evaluateReviews(reviews []github.PRReview) (approvers []string, changesRequestedBy []string) {
 	latest := make(map[string]github.PRReview)
 	for _, r := range reviews {
+		if r.State != "APPROVED" && r.State != "CHANGES_REQUESTED" {
+			continue
+		}
 		if existing, ok := latest[r.User.Login]; ok {
 			if r.SubmittedAt.After(existing.SubmittedAt) {
 				latest[r.User.Login] = r
@@ -261,6 +290,8 @@ func evaluateReviews(reviews []github.PRReview) (approvers []string, changesRequ
 			changesRequestedBy = append(changesRequestedBy, "@"+r.User.Login)
 		}
 	}
+	sort.Strings(approvers)
+	sort.Strings(changesRequestedBy)
 	return approvers, changesRequestedBy
 }
 
