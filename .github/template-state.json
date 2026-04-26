@@ -2,7 +2,7 @@
   "schema_version": "1",
   "upstream_repo": "serpro69/claude-toolbox",
   "template_version": "feat/codex_support",
-  "synced_at": "2026-04-26T17:53:21Z",
+  "synced_at": "2026-04-26T18:43:42Z",
   "variables": {
     "PROJECT_NAME": "gh-arc",
     "LANGUAGES": "go",
