@@ -27,7 +27,7 @@ type CheckerRepo interface {
 type CheckerClient interface {
 	FindExistingPRForCurrentBranch(ctx context.Context, branchName string) (*github.PullRequest, error)
 	FindDependentPRsForCurrentBranch(ctx context.Context, branchName string) ([]*github.PullRequest, error)
-	GetRequiredStatusChecksForCurrentRepo(ctx context.Context, branch string) ([]string, error)
+	GetRequiredStatusChecksForCurrentRepo(ctx context.Context, branch string) ([]github.RequiredCheck, error)
 }
 
 // CheckResult holds the outcome of a single pre-merge check.
@@ -193,24 +193,29 @@ func (c *PreMergeChecker) resolveRequiredChecks(ctx context.Context, checks []gi
 		return nil, nil
 	}
 
-	requiredSet := make(map[string]bool, len(required))
-	for _, r := range required {
-		requiredSet[r] = true
-	}
-
-	found := make(map[string]bool)
+	found := make(map[int]bool, len(required))
 	var relevant []github.PRCheck
 	for _, check := range checks {
-		if requiredSet[check.Name] {
+		for i, req := range required {
+			if found[i] {
+				continue
+			}
+			if check.Name != req.Context {
+				continue
+			}
+			if req.AppID != nil && (check.App == nil || check.App.ID != *req.AppID) {
+				continue
+			}
 			relevant = append(relevant, check)
-			found[check.Name] = true
+			found[i] = true
+			break
 		}
 	}
 
-	for _, r := range required {
-		if !found[r] {
+	for i, r := range required {
+		if !found[i] {
 			relevant = append(relevant, github.PRCheck{
-				Name:   r,
+				Name:   r.Context,
 				Status: "pending",
 			})
 		}
