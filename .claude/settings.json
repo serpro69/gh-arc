@@ -16,12 +16,12 @@
   "extraKnownMarketplaces": {
     "claude-toolbox": {
       "source": {
-        "repo": "serpro69/claude-toolbox",
-        "source": "github"
+        "source": "github",
+        "repo": "serpro69/claude-toolbox"
       }
     }
   },
-  "model": "claude-opus-4-6[1m]",
+  "model": "opus",
   "permissions": {
     "allow": [
       "Bash(cat:*)",
@@ -75,10 +75,12 @@
       "Read(./**/node_modules/)",
       "Read(./**/venv/)",
       "Read(./**/__pycache__/)"
-    ]
+    ],
+    "defaultMode": "default"
   },
   "statusLine": {
     "command": "bash $CLAUDE_PROJECT_DIR/.claude/scripts/statusline_enhanced.sh",
     "type": "command"
-  }
+  },
+  "effortLevel": "high"
 }
