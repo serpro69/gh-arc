@@ -2785,11 +2785,14 @@ func TestGetRequiredStatusChecks(t *testing.T) {
 		if len(checks) != 2 {
 			t.Fatalf("got %d checks, want 2", len(checks))
 		}
-		if checks[0] != "ci/tests" {
-			t.Errorf("checks[0] = %q, want %q", checks[0], "ci/tests")
+		if checks[0].Context != "ci/tests" {
+			t.Errorf("checks[0].Context = %q, want %q", checks[0].Context, "ci/tests")
 		}
-		if checks[1] != "ci/lint" {
-			t.Errorf("checks[1] = %q, want %q", checks[1], "ci/lint")
+		if checks[0].AppID == nil || *checks[0].AppID != 1 {
+			t.Errorf("checks[0].AppID = %v, want 1", checks[0].AppID)
+		}
+		if checks[1].Context != "ci/lint" {
+			t.Errorf("checks[1].Context = %q, want %q", checks[1].Context, "ci/lint")
 		}
 	})
 
@@ -2875,6 +2878,56 @@ func TestGetRequiredStatusChecks(t *testing.T) {
 		expected := "/repos/owner/repo/branches/main/protection/required_status_checks"
 		if !strings.HasSuffix(gotPath, expected) {
 			t.Errorf("path = %q, want suffix %q", gotPath, expected)
+		}
+	})
+
+	t.Run("slash-containing branch name is URL-escaped", func(t *testing.T) {
+		var gotEscapedPath string
+
+		client, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gotEscapedPath = r.URL.EscapedPath()
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"contexts": []string{},
+				"checks": []map[string]interface{}{
+					{"context": "ci/tests", "app_id": nil},
+				},
+			})
+		}))
+
+		_, err := client.GetRequiredStatusChecks(context.Background(), "owner", "repo", "release/1.2")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(gotEscapedPath, "release%2F1.2") {
+			t.Errorf("expected escaped branch in path, got: %q", gotEscapedPath)
+		}
+	})
+
+	t.Run("checks with nil app_id", func(t *testing.T) {
+		client, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"contexts": []string{},
+				"checks": []map[string]interface{}{
+					{"context": "ci/tests", "app_id": nil},
+					{"context": "ci/lint", "app_id": 42},
+				},
+			})
+		}))
+
+		checks, err := client.GetRequiredStatusChecks(context.Background(), "owner", "repo", "main")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(checks) != 2 {
+			t.Fatalf("got %d checks, want 2", len(checks))
+		}
+		if checks[0].AppID != nil {
+			t.Errorf("checks[0].AppID = %v, want nil", checks[0].AppID)
+		}
+		if checks[1].AppID == nil || *checks[1].AppID != 42 {
+			t.Errorf("checks[1].AppID = %v, want 42", checks[1].AppID)
 		}
 	})
 }
