@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -69,6 +70,15 @@ type PRCheck struct {
 	Conclusion  string    `json:"conclusion"`  // success, failure, neutral, cancelled, skipped, timed_out, action_required
 	StartedAt   time.Time `json:"started_at"`
 	CompletedAt time.Time `json:"completed_at,omitempty"`
+	App         *struct {
+		ID int `json:"id"`
+	} `json:"app,omitempty"`
+}
+
+// RequiredCheck represents a required status check from branch protection rules.
+type RequiredCheck struct {
+	Context string
+	AppID   *int
 }
 
 // PRReviewer represents a requested reviewer
@@ -1750,17 +1760,18 @@ func mapMergeError(err error, method string) error {
 	}
 }
 
-// GetRequiredStatusChecks returns the list of required status check contexts
-// for the given branch. Returns an empty list if the branch has no protection
-// rules or the caller lacks admin permissions.
-func (c *Client) GetRequiredStatusChecks(ctx context.Context, owner, repo, branch string) ([]string, error) {
+// GetRequiredStatusChecks returns the required status checks for the given
+// branch. Returns an empty list if the branch has no protection rules or the
+// caller lacks admin permissions.
+func (c *Client) GetRequiredStatusChecks(ctx context.Context, owner, repo, branch string) ([]RequiredCheck, error) {
 	logger.Debug().
 		Str("owner", owner).
 		Str("repo", repo).
 		Str("branch", branch).
 		Msg("Fetching required status checks")
 
-	path := fmt.Sprintf("repos/%s/%s/branches/%s/protection/required_status_checks", owner, repo, branch)
+	path := fmt.Sprintf("repos/%s/%s/branches/%s/protection/required_status_checks",
+		owner, repo, url.PathEscape(branch))
 
 	var response struct {
 		Contexts []string `json:"contexts"`
@@ -1779,22 +1790,21 @@ func (c *Client) GetRequiredStatusChecks(ctx context.Context, owner, repo, branc
 				logger.Debug().
 					Str("branch", branch).
 					Msg("No branch protection rules found, treating as no required checks")
-				return []string{}, nil
+				return []RequiredCheck{}, nil
 			case http.StatusForbidden:
 				logger.Warn().
 					Str("branch", branch).
 					Msg("Insufficient permissions to read branch protection; treating as no required checks")
-				return []string{}, nil
+				return []RequiredCheck{}, nil
 			}
 		}
 		return nil, fmt.Errorf("failed to fetch required status checks: %w", err)
 	}
 
-	// Prefer the newer checks array if available, fall back to contexts
 	if len(response.Checks) > 0 {
-		checks := make([]string, len(response.Checks))
+		checks := make([]RequiredCheck, len(response.Checks))
 		for i, check := range response.Checks {
-			checks[i] = check.Context
+			checks[i] = RequiredCheck{Context: check.Context, AppID: check.AppID}
 		}
 		logger.Debug().
 			Str("branch", branch).
@@ -1803,15 +1813,19 @@ func (c *Client) GetRequiredStatusChecks(ctx context.Context, owner, repo, branc
 		return checks, nil
 	}
 
+	checks := make([]RequiredCheck, len(response.Contexts))
+	for i, ctx := range response.Contexts {
+		checks[i] = RequiredCheck{Context: ctx}
+	}
 	logger.Debug().
 		Str("branch", branch).
-		Int("count", len(response.Contexts)).
+		Int("count", len(checks)).
 		Msg("Found required status check contexts")
-	return response.Contexts, nil
+	return checks, nil
 }
 
-// GetRequiredStatusChecksForCurrentRepo returns required status checks for a branch in the current repo
-func (c *Client) GetRequiredStatusChecksForCurrentRepo(ctx context.Context, branch string) ([]string, error) {
+// GetRequiredStatusChecksForCurrentRepo returns required status checks for a branch in the current repo.
+func (c *Client) GetRequiredStatusChecksForCurrentRepo(ctx context.Context, branch string) ([]RequiredCheck, error) {
 	if c.repo == nil {
 		return nil, fmt.Errorf("no repository context set")
 	}

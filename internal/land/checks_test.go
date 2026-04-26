@@ -28,7 +28,7 @@ type mockCheckerClient struct {
 	findPRErr         error
 	dependentPRs      []*github.PullRequest
 	dependentPRsErr   error
-	requiredChecks    []string
+	requiredChecks    []github.RequiredCheck
 	requiredChecksErr error
 }
 
@@ -40,7 +40,7 @@ func (m *mockCheckerClient) FindDependentPRsForCurrentBranch(_ context.Context, 
 	return m.dependentPRs, m.dependentPRsErr
 }
 
-func (m *mockCheckerClient) GetRequiredStatusChecksForCurrentRepo(_ context.Context, _ string) ([]string, error) {
+func (m *mockCheckerClient) GetRequiredStatusChecksForCurrentRepo(_ context.Context, _ string) ([]github.RequiredCheck, error) {
 	return m.requiredChecks, m.requiredChecksErr
 }
 
@@ -397,7 +397,7 @@ func TestCheckCI(t *testing.T) {
 
 	t.Run("required mode/all required pass", func(t *testing.T) {
 		cfg := defaultLandConfig()
-		client := &mockCheckerClient{requiredChecks: []string{"tests", "build"}}
+		client := &mockCheckerClient{requiredChecks: requiredChecks("tests", "build")}
 		checker := newChecker(nil, client, cfg)
 		result, err := checker.CheckCI(ctx, allPassingPR, false)
 		if err != nil {
@@ -411,7 +411,7 @@ func TestCheckCI(t *testing.T) {
 
 	t.Run("required mode/required check fails", func(t *testing.T) {
 		cfg := defaultLandConfig()
-		client := &mockCheckerClient{requiredChecks: []string{"tests"}}
+		client := &mockCheckerClient{requiredChecks: requiredChecks("tests")}
 		checker := newChecker(nil, client, cfg)
 		result, err := checker.CheckCI(ctx, failingPR, false)
 		if err != nil {
@@ -425,7 +425,7 @@ func TestCheckCI(t *testing.T) {
 
 	t.Run("required mode/non-required failure ignored", func(t *testing.T) {
 		cfg := defaultLandConfig()
-		client := &mockCheckerClient{requiredChecks: []string{"build"}}
+		client := &mockCheckerClient{requiredChecks: requiredChecks("build")}
 		checker := newChecker(nil, client, cfg)
 		result, err := checker.CheckCI(ctx, failingPR, false)
 		if err != nil {
@@ -438,7 +438,7 @@ func TestCheckCI(t *testing.T) {
 
 	t.Run("required mode/no required checks configured", func(t *testing.T) {
 		cfg := defaultLandConfig()
-		client := &mockCheckerClient{requiredChecks: []string{}}
+		client := &mockCheckerClient{requiredChecks: []github.RequiredCheck{}}
 		checker := newChecker(nil, client, cfg)
 		result, err := checker.CheckCI(ctx, allPassingPR, false)
 		if err != nil {
@@ -452,7 +452,7 @@ func TestCheckCI(t *testing.T) {
 
 	t.Run("required mode/missing required check treated as pending", func(t *testing.T) {
 		cfg := defaultLandConfig()
-		client := &mockCheckerClient{requiredChecks: []string{"tests", "deploy"}}
+		client := &mockCheckerClient{requiredChecks: requiredChecks("tests", "deploy")}
 		checker := newChecker(nil, client, cfg)
 		result, err := checker.CheckCI(ctx, allPassingPR, false)
 		if err != nil {
@@ -664,7 +664,119 @@ func TestEvaluateReviews(t *testing.T) {
 	})
 }
 
+// --- CheckCI app-aware matching ---
+
+func TestCheckCI_AppAwareMatching(t *testing.T) {
+	ctx := context.Background()
+	appID42 := 42
+	appID99 := 99
+
+	t.Run("required check with app_id matches correct app", func(t *testing.T) {
+		pr := &github.PullRequest{
+			Base: github.PRBranch{Ref: "main"},
+			Checks: []github.PRCheck{
+				{Name: "ci/tests", Status: "completed", Conclusion: "success", App: &struct {
+				ID int `json:"id"`
+			}{ID: 42}},
+			},
+		}
+		cfg := defaultLandConfig()
+		client := &mockCheckerClient{requiredChecks: []github.RequiredCheck{
+			{Context: "ci/tests", AppID: &appID42},
+		}}
+		checker := newChecker(nil, client, cfg)
+		result, err := checker.CheckCI(ctx, pr, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Passed {
+			t.Error("expected passed: correct app satisfies the check")
+		}
+	})
+
+	t.Run("required check with app_id rejects wrong app", func(t *testing.T) {
+		pr := &github.PullRequest{
+			Base: github.PRBranch{Ref: "main"},
+			Checks: []github.PRCheck{
+				{Name: "ci/tests", Status: "completed", Conclusion: "success", App: &struct {
+				ID int `json:"id"`
+			}{ID: 99}},
+			},
+		}
+		cfg := defaultLandConfig()
+		client := &mockCheckerClient{requiredChecks: []github.RequiredCheck{
+			{Context: "ci/tests", AppID: &appID42},
+		}}
+		checker := newChecker(nil, client, cfg)
+		result, err := checker.CheckCI(ctx, pr, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.Passed {
+			t.Error("expected not passed: wrong app should not satisfy the check")
+		}
+	})
+
+	t.Run("required check without app_id matches any app", func(t *testing.T) {
+		pr := &github.PullRequest{
+			Base: github.PRBranch{Ref: "main"},
+			Checks: []github.PRCheck{
+				{Name: "ci/tests", Status: "completed", Conclusion: "success", App: &struct {
+				ID int `json:"id"`
+			}{ID: 99}},
+			},
+		}
+		cfg := defaultLandConfig()
+		client := &mockCheckerClient{requiredChecks: []github.RequiredCheck{
+			{Context: "ci/tests"},
+		}}
+		checker := newChecker(nil, client, cfg)
+		result, err := checker.CheckCI(ctx, pr, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Passed {
+			t.Error("expected passed: nil app_id should match any app")
+		}
+	})
+
+	t.Run("same-named checks from different apps matched independently", func(t *testing.T) {
+		pr := &github.PullRequest{
+			Base: github.PRBranch{Ref: "main"},
+			Checks: []github.PRCheck{
+				{Name: "ci/tests", Status: "completed", Conclusion: "success", App: &struct {
+				ID int `json:"id"`
+			}{ID: 42}},
+				{Name: "ci/tests", Status: "completed", Conclusion: "failure", App: &struct {
+				ID int `json:"id"`
+			}{ID: 99}},
+			},
+		}
+		cfg := defaultLandConfig()
+		client := &mockCheckerClient{requiredChecks: []github.RequiredCheck{
+			{Context: "ci/tests", AppID: &appID42},
+			{Context: "ci/tests", AppID: &appID99},
+		}}
+		checker := newChecker(nil, client, cfg)
+		result, err := checker.CheckCI(ctx, pr, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.Passed {
+			t.Error("expected not passed: second app's check failed")
+		}
+	})
+}
+
 // --- helpers ---
+
+func requiredChecks(names ...string) []github.RequiredCheck {
+	checks := make([]github.RequiredCheck, len(names))
+	for i, n := range names {
+		checks[i] = github.RequiredCheck{Context: n}
+	}
+	return checks
+}
 
 func assertMessageContains(t *testing.T, result *CheckResult, substr string) {
 	t.Helper()
