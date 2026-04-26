@@ -34,6 +34,7 @@ logs
 # AI tools
 !.serena
 !.claude
+!.codex
 !.taskmaster
 
 # Taskmaster task files
