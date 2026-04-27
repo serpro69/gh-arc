@@ -144,6 +144,15 @@ func (r *Repository) Repo() *git.Repository {
 	return r.repo
 }
 
+// GetHeadSHA returns the SHA of the current HEAD commit.
+func (r *Repository) GetHeadSHA() (string, error) {
+	head, err := r.repo.Head()
+	if err != nil {
+		return r.getHeadHashViaCLI()
+	}
+	return head.Hash().String(), nil
+}
+
 // IsDetachedHead checks if the repository is in a detached HEAD state.
 func (r *Repository) IsDetachedHead() (bool, error) {
 	head, err := r.repo.Head()

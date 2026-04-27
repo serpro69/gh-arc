@@ -78,11 +78,12 @@ Add method `MergePullRequest(ctx, owner, repo string, number int, opts *MergeOpt
 
 **File:** `internal/github/pullrequest.go`
 
-Add method `GetRequiredStatusChecks(ctx, owner, repo, branch string) ([]string, error)`:
+Add method `GetRequiredStatusChecks(ctx, owner, repo, branch string) ([]RequiredCheck, error)`:
 - `GET /repos/{owner}/{repo}/branches/{branch}/protection/required_status_checks`
-- Returns list of required check context names
+- Branch name must be URL-escaped via `url.PathEscape()` (e.g. `release/1.2` → `release%2F1.2`)
+- Returns `[]RequiredCheck` where `RequiredCheck{Context string, AppID *int}` — uses the newer `checks` field with `app_id` when available, falls back to legacy `contexts` field
 - If 404 (no branch protection): return empty list (no required checks)
-- If 403 (insufficient permissions): return empty list with a logged warning — fall back gracefully (means `requireCI: "required"` effectively becomes `"none"` for users without admin access; document this in log warning)
+- If 403 (insufficient permissions): return `ErrBranchProtectionPermissionDenied` — callers decide how to handle (the land checks module treats this as blocking unless `--force`)
 
 ### Verification
 
@@ -114,8 +115,9 @@ Create methods:
 - `CheckCleanWorkingDir() error` — uses `repo.GetWorkingDirectoryStatus()`, returns error if dirty
 - `CheckNotOnTrunk(currentBranch, defaultBranch string) error` — compares branch names
 - `CheckPRExists(ctx, branchName string) (*github.PullRequest, error)` — wraps `FindExistingPRForCurrentBranch()`
+- `CheckLocalHeadMatchesPR(*github.PullRequest) error` — compares local `HEAD` SHA to `pr.Head.SHA`; hard fail if different (not bypassable). Uses `repo.GetHeadSHA()`
 - `CheckApproval(ctx, *github.PullRequest, force bool) (*CheckResult, error)` — evaluates reviews based on `requireApproval` config
-- `CheckCI(ctx, *github.PullRequest, force bool) (*CheckResult, error)` — evaluates checks based on `requireCI` config. When `"required"`, calls `GetRequiredStatusChecks()` and filters checks to only those in the required list.
+- `CheckCI(ctx, *github.PullRequest, force bool) (*CheckResult, error)` — evaluates checks based on `requireCI` config. When `"required"`, calls `GetRequiredStatusChecks()` and filters checks to only those in the required list. On 403 (permission denied), returns a blocking `CheckResult` with guidance instead of silently degrading; `--force` bypasses.
 - `CheckDependentPRs(ctx, branchName string) ([]*github.PullRequest, error)` — wraps `FindDependentPRs()`, purely informational
 
 Each check method is independently testable. The workflow orchestrator calls them in sequence.
@@ -174,14 +176,15 @@ Sequence inside `Execute()`:
 1. `checker.CheckCleanWorkingDir()` — fail if dirty
 2. `repo.GetCurrentBranch()` + `checker.CheckNotOnTrunk()` — fail if on trunk
 3. `checker.CheckPRExists(ctx, branch)` — fail if no PR; print `✓ Found PR #N: "title"`
-4. `client.EnrichPullRequest()` — fetch reviews + checks in parallel
-5. `checker.CheckApproval()` — print result, handle strict/prompt/force. Prompt mode: detect non-TTY and auto-decline with `--force` suggestion
-6. `checker.CheckCI()` — print result, handle required/all/force
-7. `checker.CheckDependentPRs()` — print warning if found
-8. Resolve merge method: flag override → config default. If `--edit` and rebase: warn and skip editor
-9. `merger.Execute()` — prepare commit message (skip editor for rebase), call merge API; print `✓ Squash-merged into main (sha)`
-10. `cleanup.Execute()` — checkout, pull, delete; print each step
-11. Return `LandResult`
+4. `checker.CheckLocalHeadMatchesPR(pr)` — fail if local HEAD differs from PR head SHA (not bypassable)
+5. `client.EnrichPullRequest()` — fetch reviews + checks in parallel
+6. `checker.CheckApproval()` — print result, handle strict/prompt/force. Prompt mode: detect non-TTY and auto-decline with `--force` suggestion
+7. `checker.CheckCI()` — print result, handle required/all/force
+8. `checker.CheckDependentPRs()` — print warning if found
+9. Resolve merge method: flag override → config default. If `--edit` and rebase: warn and skip editor
+10. `merger.Execute()` — prepare commit message (skip editor for rebase), call merge API; print `✓ Squash-merged into main (sha)`
+11. `cleanup.Execute()` — checkout, pull, delete; print each step
+12. Return `LandResult`
 
 Output is printed inline during execution (not buffered), so the user sees progress in real time.
 

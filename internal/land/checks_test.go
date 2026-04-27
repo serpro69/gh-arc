@@ -3,6 +3,7 @@ package land
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -15,12 +16,18 @@ import (
 // --- mocks ---
 
 type mockCheckerRepo struct {
-	status *git.WorkingDirectoryStatus
-	err    error
+	status  *git.WorkingDirectoryStatus
+	err     error
+	headSHA string
+	headErr error
 }
 
 func (m *mockCheckerRepo) GetWorkingDirectoryStatus() (*git.WorkingDirectoryStatus, error) {
 	return m.status, m.err
+}
+
+func (m *mockCheckerRepo) GetHeadSHA() (string, error) {
+	return m.headSHA, m.headErr
 }
 
 type mockCheckerClient struct {
@@ -152,6 +159,44 @@ func TestCheckPRExists(t *testing.T) {
 		_, err := checker.CheckPRExists(ctx, "feature/auth")
 		if err == nil {
 			t.Fatal("expected error")
+		}
+	})
+}
+
+// --- CheckLocalHeadMatchesPR ---
+
+func TestCheckLocalHeadMatchesPR(t *testing.T) {
+	sha := "abc1234567890def"
+
+	t.Run("matching HEAD passes", func(t *testing.T) {
+		repo := &mockCheckerRepo{headSHA: sha}
+		checker := newChecker(repo, nil, defaultLandConfig())
+		pr := &github.PullRequest{Head: github.PRBranch{SHA: sha}}
+		if err := checker.CheckLocalHeadMatchesPR(pr); err != nil {
+			t.Errorf("expected nil, got %v", err)
+		}
+	})
+
+	t.Run("mismatched HEAD fails", func(t *testing.T) {
+		repo := &mockCheckerRepo{headSHA: sha}
+		checker := newChecker(repo, nil, defaultLandConfig())
+		pr := &github.PullRequest{Head: github.PRBranch{SHA: "ffff000111222333"}}
+		err := checker.CheckLocalHeadMatchesPR(pr)
+		if !errors.Is(err, ErrLocalHeadMismatch) {
+			t.Errorf("expected ErrLocalHeadMismatch, got %v", err)
+		}
+	})
+
+	t.Run("repo error propagates", func(t *testing.T) {
+		repo := &mockCheckerRepo{headErr: errors.New("git broken")}
+		checker := newChecker(repo, nil, defaultLandConfig())
+		pr := &github.PullRequest{Head: github.PRBranch{SHA: sha}}
+		err := checker.CheckLocalHeadMatchesPR(pr)
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if !strings.Contains(err.Error(), "git broken") {
+			t.Errorf("expected wrapped error, got %v", err)
 		}
 	})
 }
@@ -472,6 +517,39 @@ func TestCheckCI(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error")
 		}
+	})
+
+	t.Run("required mode/403 permission denied blocks", func(t *testing.T) {
+		cfg := defaultLandConfig()
+		client := &mockCheckerClient{
+			requiredChecksErr: fmt.Errorf("%w: branch \"main\"", github.ErrBranchProtectionPermissionDenied),
+		}
+		checker := newChecker(nil, client, cfg)
+		result, err := checker.CheckCI(ctx, allPassingPR, false)
+		if err != nil {
+			t.Fatalf("expected CheckResult not error, got %v", err)
+		}
+		if result.Passed {
+			t.Error("403 should block when not forced")
+		}
+		assertMessageContains(t, result, "insufficient permissions")
+		assertMessageContains(t, result, "requireCI")
+	})
+
+	t.Run("required mode/403 permission denied bypassed with force", func(t *testing.T) {
+		cfg := defaultLandConfig()
+		client := &mockCheckerClient{
+			requiredChecksErr: fmt.Errorf("%w: branch \"main\"", github.ErrBranchProtectionPermissionDenied),
+		}
+		checker := newChecker(nil, client, cfg)
+		result, err := checker.CheckCI(ctx, allPassingPR, true)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Passed {
+			t.Error("force should bypass 403")
+		}
+		assertMessageContains(t, result, "--force")
 	})
 
 	t.Run("none skips entirely", func(t *testing.T) {

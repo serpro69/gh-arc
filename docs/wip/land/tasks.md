@@ -28,8 +28,8 @@
 - [x] 2.1 Add `MergeOptions` and `MergeResult` types to `internal/github/pullrequest.go`
 - [x] 2.2 Add `MergePullRequest(ctx, owner, repo, number, *MergeOptions) (*MergeResult, error)` method — `PUT /repos/{owner}/{repo}/pulls/{number}/merge` with semantic error mapping (405 → method not allowed, 409 → conflicts, 422 → not mergeable)
 - [x] 2.3 Add `MergePullRequestForCurrentRepo()` convenience wrapper
-- [x] 2.4 Add `GetRequiredStatusChecks(ctx, owner, repo, branch) ([]string, error)` — `GET /repos/{owner}/{repo}/branches/{branch}/protection/required_status_checks`, graceful fallback on 404/403
-- [x] 2.5 Write unit tests with `httptest` server: merge success, 405, 409, 422 responses; required status checks 200, 404, 403 responses
+- [x] 2.4 Add `GetRequiredStatusChecks(ctx, owner, repo, branch) ([]RequiredCheck, error)` — `GET /repos/{owner}/{repo}/branches/{branch}/protection/required_status_checks` with `url.PathEscape()`, app-scoped `{context, app_id}` matching, 404 → empty list, 403 → `ErrBranchProtectionPermissionDenied`
+- [x] 2.5 Write unit tests with `httptest` server: merge success, 405, 409, 422 responses; required status checks 200, 404, 403 (error) responses
 
 → verify: `go test ./internal/github/...` passes
 
@@ -58,9 +58,10 @@
 - [x] 4.3 Implement `CheckNotOnTrunk(currentBranch, defaultBranch)` — compares branch names
 - [x] 4.4 Implement `CheckPRExists(ctx, branchName)` — wraps `FindExistingPRForCurrentBranch()`
 - [x] 4.5 Implement `CheckApproval(ctx, *PullRequest, force)` — evaluates reviews per `requireApproval` config (`"strict"`, `"prompt"`, `"none"`), returns `CheckResult` with `NeedsConfirmation` for prompt mode
-- [x] 4.6 Implement `CheckCI(ctx, *PullRequest, force)` — evaluates checks per `requireCI` config; when `"required"`, calls `GetRequiredStatusChecks()` and filters to only those checks
-- [x] 4.7 Implement `CheckDependentPRs(ctx, branchName)` — wraps `FindDependentPRs()`, informational only
-- [x] 4.8 Write unit tests for each check method: pass, fail, force bypass, prompt mode, each config enum value
+- [x] 4.6 Implement `CheckLocalHeadMatchesPR(pr)` — compares local HEAD SHA to PR head SHA; hard fail if different (not bypassable)
+- [x] 4.7 Implement `CheckCI(ctx, *PullRequest, force)` — evaluates checks per `requireCI` config; when `"required"`, calls `GetRequiredStatusChecks()` and filters to only those checks; handles 403 permission denied as blocking (bypassable with `--force`)
+- [x] 4.8 Implement `CheckDependentPRs(ctx, branchName)` — wraps `FindDependentPRs()`, informational only
+- [x] 4.9 Write unit tests for each check method: pass, fail, force bypass, prompt mode, each config enum value, local HEAD mismatch, 403 permission denied
 
 → verify: `go test ./internal/land/...` passes
 
@@ -101,7 +102,7 @@
 ### Subtasks
 - [ ] 7.1 Create `internal/land/workflow.go` with `LandWorkflow`, `LandOptions`, and `LandResult` types
 - [ ] 7.2 Implement `NewLandWorkflow(repo, client, cfg, owner, name)` constructor — creates sub-components
-- [ ] 7.3 Implement `Execute(ctx, *LandOptions)` — the full 10-step sequence: check clean WD → check not on trunk → find PR → enrich PR → check approval → check CI → check dependent PRs → resolve merge method → execute merge → run cleanup
+- [ ] 7.3 Implement `Execute(ctx, *LandOptions)` — the full 12-step sequence: check clean WD → check not on trunk → find PR → verify local HEAD matches PR head → enrich PR → check approval → check CI → check dependent PRs → resolve merge method → execute merge → run cleanup → return result
 - [ ] 7.4 Add inline output printing during execution (progress steps printed in real time, not buffered)
 - [ ] 7.5 Add prompt handling for `requireApproval: "prompt"` — read stdin for `y/N` confirmation; detect non-TTY (`term.IsTerminal(int(os.Stdin.Fd()))`) and auto-decline with message suggesting `--force`
 - [ ] 7.6 Write integration-style tests with mocked git/github: full happy path, force bypass, prompt mode, merge failure, cleanup failure (non-fatal)

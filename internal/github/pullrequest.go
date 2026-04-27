@@ -13,6 +13,8 @@ import (
 	"github.com/serpro69/gh-arc/internal/logger"
 )
 
+var ErrBranchProtectionPermissionDenied = errors.New("insufficient permissions to read branch protection rules")
+
 // PullRequest represents a GitHub pull request with all relevant information
 type PullRequest struct {
 	Number    int       `json:"number"`
@@ -1794,8 +1796,8 @@ func (c *Client) GetRequiredStatusChecks(ctx context.Context, owner, repo, branc
 			case http.StatusForbidden:
 				logger.Warn().
 					Str("branch", branch).
-					Msg("Insufficient permissions to read branch protection; treating as no required checks")
-				return []RequiredCheck{}, nil
+					Msg("Insufficient permissions to read branch protection rules")
+				return nil, fmt.Errorf("%w: branch %q", ErrBranchProtectionPermissionDenied, branch)
 			}
 		}
 		return nil, fmt.Errorf("failed to fetch required status checks: %w", err)
