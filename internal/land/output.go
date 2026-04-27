@@ -110,9 +110,9 @@ func (o *OutputStyle) PrintDependentPRs(count int) {
 		return
 	}
 	if count == 1 {
-		o.PrintStep("⚠", "1 dependent PR targets this branch — will be retargeted after merge")
+		o.PrintStep("⚠", "1 dependent PR targets this branch — may be retargeted if GitHub auto-deletes the merged branch")
 	} else {
-		o.PrintStep("⚠", fmt.Sprintf("%d dependent PRs target this branch — will be retargeted after merge", count))
+		o.PrintStep("⚠", fmt.Sprintf("%d dependent PRs target this branch — may be retargeted if GitHub auto-deletes the merged branch", count))
 	}
 }
 
@@ -173,7 +173,7 @@ func FormatLandResult(result *LandResult, style *OutputStyle) string {
 			noun = "PRs"
 		}
 		lines = append(lines, style.formatWithIcon("⚠",
-			fmt.Sprintf("%d dependent %s will be retargeted", result.DependentPRCount, noun)))
+			fmt.Sprintf("%d dependent %s may be retargeted", result.DependentPRCount, noun)))
 	}
 
 	for _, w := range result.CleanupWarnings {

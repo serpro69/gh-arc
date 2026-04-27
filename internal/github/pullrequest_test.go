@@ -2830,19 +2830,19 @@ func TestGetRequiredStatusChecks(t *testing.T) {
 		}
 	})
 
-	t.Run("403 returns empty list", func(t *testing.T) {
+	t.Run("403 returns permission denied error", func(t *testing.T) {
 		client, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
 			_, _ = w.Write([]byte(`{"message":"Must have admin access"}`))
 		}))
 
-		checks, err := client.GetRequiredStatusChecks(context.Background(), "owner", "repo", "main")
-		if err != nil {
-			t.Fatalf("expected no error for 403, got: %v", err)
+		_, err := client.GetRequiredStatusChecks(context.Background(), "owner", "repo", "main")
+		if err == nil {
+			t.Fatal("expected error for 403")
 		}
-		if len(checks) != 0 {
-			t.Errorf("expected empty list for 403, got %d checks", len(checks))
+		if !errors.Is(err, ErrBranchProtectionPermissionDenied) {
+			t.Errorf("expected ErrBranchProtectionPermissionDenied, got: %v", err)
 		}
 	})
 
