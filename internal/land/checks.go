@@ -13,10 +13,10 @@ import (
 )
 
 var (
-	ErrDirtyWorkingDir    = errors.New("working directory has uncommitted changes")
-	ErrOnTrunk            = errors.New("cannot land from the default branch")
-	ErrNoPRFound          = errors.New("no open pull request found for current branch")
-	ErrLocalHeadMismatch  = errors.New("local HEAD does not match PR head")
+	ErrDirtyWorkingDir   = errors.New("working directory has uncommitted changes")
+	ErrOnTrunk           = errors.New("cannot land from the default branch")
+	ErrNoPRFound         = errors.New("no open pull request found for current branch")
+	ErrLocalHeadMismatch = errors.New("local HEAD does not match PR head")
 )
 
 // CheckerRepo defines git operations needed by pre-merge checks.
