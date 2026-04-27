@@ -117,4 +117,4 @@ Based on @./README.md, the extension will implement commands for:
 
 # capy — MANDATORY routing rules
 
-@.claude/capy/CLAUDE.md
+@.capy/AGENTS.md
