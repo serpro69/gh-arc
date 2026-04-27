@@ -754,8 +754,8 @@ func TestCheckCI_AppAwareMatching(t *testing.T) {
 			Base: github.PRBranch{Ref: "main"},
 			Checks: []github.PRCheck{
 				{Name: "ci/tests", Status: "completed", Conclusion: "success", App: &struct {
-				ID int `json:"id"`
-			}{ID: 42}},
+					ID int `json:"id"`
+				}{ID: 42}},
 			},
 		}
 		cfg := defaultLandConfig()
@@ -777,8 +777,8 @@ func TestCheckCI_AppAwareMatching(t *testing.T) {
 			Base: github.PRBranch{Ref: "main"},
 			Checks: []github.PRCheck{
 				{Name: "ci/tests", Status: "completed", Conclusion: "success", App: &struct {
-				ID int `json:"id"`
-			}{ID: 99}},
+					ID int `json:"id"`
+				}{ID: 99}},
 			},
 		}
 		cfg := defaultLandConfig()
@@ -800,8 +800,8 @@ func TestCheckCI_AppAwareMatching(t *testing.T) {
 			Base: github.PRBranch{Ref: "main"},
 			Checks: []github.PRCheck{
 				{Name: "ci/tests", Status: "completed", Conclusion: "success", App: &struct {
-				ID int `json:"id"`
-			}{ID: 99}},
+					ID int `json:"id"`
+				}{ID: 99}},
 			},
 		}
 		cfg := defaultLandConfig()
@@ -823,11 +823,11 @@ func TestCheckCI_AppAwareMatching(t *testing.T) {
 			Base: github.PRBranch{Ref: "main"},
 			Checks: []github.PRCheck{
 				{Name: "ci/tests", Status: "completed", Conclusion: "success", App: &struct {
-				ID int `json:"id"`
-			}{ID: 42}},
+					ID int `json:"id"`
+				}{ID: 42}},
 				{Name: "ci/tests", Status: "completed", Conclusion: "failure", App: &struct {
-				ID int `json:"id"`
-			}{ID: 99}},
+					ID int `json:"id"`
+				}{ID: 99}},
 			},
 		}
 		cfg := defaultLandConfig()
