@@ -84,22 +84,23 @@ v.SetDefault("land.requireCI", "required")
 1. Check working directory is clean
 2. Get current branch (fail if on trunk)
 3. Find open PR for current branch
-4. Enrich PR with reviews + CI checks
-5. Run pre-merge checks (approval, CI)
-6. Prepare commit message (optionally open $EDITOR)
-7. Warn about dependent PRs (informational)
-8. Call GitHub merge API
-9. Checkout default branch + pull latest
-10. Delete local branch (unless --no-delete)
-11. Print summary
+4. Verify local HEAD matches PR head SHA
+5. Enrich PR with reviews + CI checks
+6. Run pre-merge checks (approval, CI)
+7. Prepare commit message (optionally open $EDITOR)
+8. Warn about dependent PRs (informational)
+9. Call GitHub merge API
+10. Checkout default branch + pull latest
+11. Delete local branch (unless --no-delete)
+12. Print summary
 ```
 
 ### Routing
 
 Unlike `diff` which has multiple modes (continue, fast-path, normal), `land` has a single linear flow. The only branching points are:
-- `--force` skips checks 5
-- `--edit` adds an editor step at 6
-- `--no-delete` skips step 10
+- `--force` skips checks 6
+- `--edit` adds an editor step at 7
+- `--no-delete` skips step 11
 - `requireApproval: "prompt"` adds an interactive confirmation at step 5
 
 ## Pre-merge Checks
@@ -123,7 +124,13 @@ Checks are evaluated in order, failing fast on the first blocking issue (unless 
 - If no open PR: fail with actionable message suggesting `gh arc diff`.
 - Not bypassable.
 
-### Check 4: Approval status
+### Check 4: Local HEAD matches PR head
+
+- Compares local `HEAD` SHA with `pr.Head.SHA`.
+- If they differ: hard fail with message: "local HEAD is X but PR head is Y — push your changes with 'gh arc diff' or 'git push' before landing".
+- Not bypassable — landing stale code would silently discard unpushed local commits when the local branch is deleted post-merge.
+
+### Check 5: Approval status
 
 - Evaluates PR reviews directly (not via `DeterminePRStatus()`, which combines approval and CI into a single status — `land` needs them evaluated independently since each has its own config enum).
 - Behavior by `requireApproval`:
@@ -132,7 +139,7 @@ Checks are evaluated in order, failing fast on the first blocking issue (unless 
   - `"none"`: skips entirely.
 - Actionable error messages: "PR needs 1 more approval", "PR has outstanding change requests from @bob".
 
-### Check 5: CI status
+### Check 6: CI status
 
 - Behavior by `requireCI`:
   - `"required"`: query branch protection rules for required status checks, verify those pass. `--force` bypasses.
@@ -145,7 +152,7 @@ Checks are evaluated in order, failing fast on the first blocking issue (unless 
 
 - Uses `client.FindDependentPRs()`
 - If found: warn with count, never blocks.
-- GitHub auto-retargets child PRs when the parent branch is deleted after merge (requires "automatically delete head branches" enabled in repo settings).
+- GitHub auto-retargets child PRs when the parent branch is deleted after merge — this requires the "automatically delete head branches" repo setting to be enabled. Since `land` does not delete the remote branch itself, retargeting is contingent on this setting.
 
 ## Merge Execution
 
@@ -215,7 +222,7 @@ Each step prints as it completes:
 ✓ Found PR #42: "Add auth middleware" (feature/auth → main)
 ✓ Approved by @alice, @bob
 ✓ All CI checks passed (3/3)
-⚠ 1 dependent PR targets this branch — will be retargeted after merge
+⚠ 1 dependent PR targets this branch — may be retargeted if GitHub auto-deletes the merged branch
 ✓ Squash-merged into main (abc1234)
 ✓ Switched to main, pulled latest
 ✓ Deleted local branch feature/auth (use git checkout -b feature/auth a1b2c3d to restore)
@@ -270,7 +277,11 @@ Types:
 GET /repos/{owner}/{repo}/branches/{branch}/protection
 ```
 
-Needed to discover which status checks are required. Falls back to an empty required-checks list if the API call fails (404 = no branch protection, 403 = insufficient permissions). This means on failure, `requireCI: "required"` effectively behaves like `"none"` — practical because users who lack admin permissions shouldn't be blocked. Users who want strict CI enforcement regardless can use `requireCI: "all"` instead.
+Needed to discover which status checks are required. Branch name is URL-escaped in the path (e.g. `release/1.2` → `release%2F1.2`). Error handling:
+- 404 (no branch protection): return empty required-checks list — no required checks to enforce.
+- 403 (insufficient permissions): return error. The `land` checks module treats this as a blocking failure ("Cannot verify required status checks"), bypassable with `--force`. Users who lack admin permissions can alternatively use `requireCI: "all"` which checks all runs without needing branch protection API access.
+
+Required checks are modeled as `{context, app_id}` pairs. When the API returns the newer `checks` field (with `app_id`), app-scoped matching is used — a check run must match both context name and app ID. When only the legacy `contexts` field is returned, matching is by name only.
 
 ## Package Structure
 

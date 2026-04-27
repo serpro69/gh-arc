@@ -262,7 +262,7 @@ func TestFormatLandResult(t *testing.T) {
 			"✓ PR #42 squash-merged into main (abc1234)",
 			"✓ Cleaned up branch feature/auth",
 			"git checkout -b feature/auth a1b2c3d",
-			"⚠ 2 dependent PRs will be retargeted",
+			"⚠ 2 dependent PRs may be retargeted",
 		}
 		for _, part := range expectedParts {
 			if !strings.Contains(output, part) {
@@ -295,7 +295,7 @@ func TestFormatLandResult(t *testing.T) {
 		}
 
 		output := FormatLandResult(result, style)
-		if !strings.Contains(output, "1 dependent PR will be retargeted") {
+		if !strings.Contains(output, "1 dependent PR may be retargeted") {
 			t.Errorf("FormatLandResult() should use singular form, got:\n%s", output)
 		}
 	})

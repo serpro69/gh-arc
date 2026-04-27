@@ -13,14 +13,16 @@ import (
 )
 
 var (
-	ErrDirtyWorkingDir = errors.New("working directory has uncommitted changes")
-	ErrOnTrunk         = errors.New("cannot land from the default branch")
-	ErrNoPRFound       = errors.New("no open pull request found for current branch")
+	ErrDirtyWorkingDir    = errors.New("working directory has uncommitted changes")
+	ErrOnTrunk            = errors.New("cannot land from the default branch")
+	ErrNoPRFound          = errors.New("no open pull request found for current branch")
+	ErrLocalHeadMismatch  = errors.New("local HEAD does not match PR head")
 )
 
 // CheckerRepo defines git operations needed by pre-merge checks.
 type CheckerRepo interface {
 	GetWorkingDirectoryStatus() (*git.WorkingDirectoryStatus, error)
+	GetHeadSHA() (string, error)
 }
 
 // CheckerClient defines GitHub operations needed by pre-merge checks.
@@ -87,6 +89,20 @@ func (c *PreMergeChecker) CheckPRExists(ctx context.Context, branchName string) 
 	return pr, nil
 }
 
+// CheckLocalHeadMatchesPR verifies the local HEAD matches the PR's head SHA.
+// Not bypassable — landing stale code would silently discard local commits.
+func (c *PreMergeChecker) CheckLocalHeadMatchesPR(pr *github.PullRequest) error {
+	localSHA, err := c.repo.GetHeadSHA()
+	if err != nil {
+		return fmt.Errorf("failed to get local HEAD SHA: %w", err)
+	}
+	if localSHA != pr.Head.SHA {
+		return fmt.Errorf("%w: local HEAD is %s but PR head is %s — push your changes with 'gh arc diff' or 'git push' before landing",
+			ErrLocalHeadMismatch, localSHA[:7], pr.Head.SHA[:7])
+	}
+	return nil
+}
+
 // CheckApproval evaluates the PR's approval status based on requireApproval config.
 func (c *PreMergeChecker) CheckApproval(_ context.Context, pr *github.PullRequest, force bool) (*CheckResult, error) {
 	if c.config.RequireApproval == config.ApprovalNone {
@@ -130,6 +146,16 @@ func (c *PreMergeChecker) CheckCI(ctx context.Context, pr *github.PullRequest, f
 
 	relevantChecks, err := c.resolveRelevantChecks(ctx, pr)
 	if err != nil {
+		if errors.Is(err, github.ErrBranchProtectionPermissionDenied) {
+			msg := "Cannot verify required status checks (insufficient permissions)"
+			if force {
+				return &CheckResult{Passed: true, Messages: []string{msg + " (bypassed with --force)"}}, nil
+			}
+			return &CheckResult{
+				Passed:   false,
+				Messages: []string{msg + " — use --force to bypass or requireCI: \"all\" to check all runs without branch protection access"},
+			}, nil
+		}
 		return nil, err
 	}
 
