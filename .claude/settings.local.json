@@ -1,79 +1,79 @@
 {
-  "permissions": {
-    "allow": [
-      "mcp__capy__capy_fetch_and_index",
-      "mcp__capy__capy_search"
-    ]
-  },
   "enabledMcpjsonServers": [
     "capy"
   ],
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "",
         "hooks": [
           {
-            "type": "command",
-            "command": "bash $CLAUDE_PROJECT_DIR/.claude/scripts/capy.sh hook posttooluse"
+            "command": "bash $CLAUDE_PROJECT_DIR/.claude/scripts/capy.sh hook posttooluse",
+            "type": "command"
           }
-        ]
+        ],
+        "matcher": ""
       }
     ],
     "PreCompact": [
       {
-        "matcher": "",
         "hooks": [
           {
-            "type": "command",
-            "command": "bash $CLAUDE_PROJECT_DIR/.claude/scripts/capy.sh hook precompact"
+            "command": "bash $CLAUDE_PROJECT_DIR/.claude/scripts/capy.sh hook precompact",
+            "type": "command"
           }
-        ]
+        ],
+        "matcher": ""
       }
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|WebFetch|Read|Grep|Agent|Task|mcp__*capy*",
         "hooks": [
           {
-            "type": "command",
-            "command": "bash $CLAUDE_PROJECT_DIR/.claude/scripts/capy.sh hook pretooluse"
+            "command": "bash $CLAUDE_PROJECT_DIR/.claude/scripts/capy.sh hook pretooluse",
+            "type": "command"
           }
-        ]
+        ],
+        "matcher": "Bash|WebFetch|Read|Grep|Agent|Task|mcp__*capy*"
       }
     ],
     "SessionEnd": [
       {
-        "matcher": "",
         "hooks": [
           {
-            "type": "command",
-            "command": "bash $CLAUDE_PROJECT_DIR/.claude/scripts/capy.sh hook sessionend"
+            "command": "bash $CLAUDE_PROJECT_DIR/.claude/scripts/capy.sh hook sessionend",
+            "type": "command"
           }
-        ]
+        ],
+        "matcher": ""
       }
     ],
     "SessionStart": [
       {
-        "matcher": "",
         "hooks": [
           {
-            "type": "command",
-            "command": "bash $CLAUDE_PROJECT_DIR/.claude/scripts/capy.sh hook sessionstart"
+            "command": "bash $CLAUDE_PROJECT_DIR/.claude/scripts/capy.sh hook sessionstart",
+            "type": "command"
           }
-        ]
+        ],
+        "matcher": ""
       }
     ],
     "UserPromptSubmit": [
       {
-        "matcher": "",
         "hooks": [
           {
-            "type": "command",
-            "command": "bash $CLAUDE_PROJECT_DIR/.claude/scripts/capy.sh hook userpromptsubmit"
+            "command": "bash $CLAUDE_PROJECT_DIR/.claude/scripts/capy.sh hook userpromptsubmit",
+            "type": "command"
           }
-        ]
+        ],
+        "matcher": ""
       }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "mcp__capy__capy_fetch_and_index",
+      "mcp__capy__capy_search"
     ]
   }
 }

@@ -54,3 +54,4 @@ node_modules/
 !.capy/
 !.capy/knowledge.db
 !.capy.toml
+!.capy/AGENTS.md
