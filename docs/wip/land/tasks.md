@@ -66,16 +66,16 @@
 → verify: `go test ./internal/land/...` passes
 
 ## Task 5: Land merge module
-- **Status:** pending
+- **Status:** done
 - **Depends on:** Task 2
 - **Docs:** [implementation.md#33-merge-module](./implementation.md#33-merge-module)
 
 ### Subtasks
-- [ ] 5.1 Create `internal/land/merge.go` with `MergeExecutor` struct and `MergeRequest` type
-- [ ] 5.2 Implement `prepareCommitMessage(pr, edit)` — extracts PR title/body, returns directly for non-edit mode
-- [ ] 5.3 Implement `openEditor(title, body)` — writes temp file, opens `$EDITOR` (reuse editor detection from `internal/template/`), parses result (first line = title, rest = body), aborts on empty/unchanged
-- [ ] 5.4 Implement `Execute(ctx, *MergeRequest)` — coordinates commit message prep and `client.MergePullRequest()` call
-- [ ] 5.5 Write unit tests: successful merge, editor abort, merge API errors
+- [x] 5.1 Create `internal/land/merge.go` with `MergeExecutor` struct and `MergeRequest` type
+- [x] 5.2 Implement `prepareCommitMessage(pr, edit)` — extracts PR title/body, returns directly for non-edit mode
+- [x] 5.3 Implement `openEditor(title, body)` — writes temp file, opens `$EDITOR` (reuse editor detection from `internal/template/`), parses result (first line = title, rest = body), aborts on empty/unchanged
+- [x] 5.4 Implement `Execute(ctx, *MergeRequest)` — coordinates commit message prep and `client.MergePullRequest()` call
+- [x] 5.5 Write unit tests: successful merge, editor abort, merge API errors
 
 → verify: `go test ./internal/land/...` passes
 

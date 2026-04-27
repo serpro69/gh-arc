@@ -20,6 +20,7 @@ type PullRequest struct {
 	Number    int       `json:"number"`
 	NodeID    string    `json:"node_id"` // GraphQL global node ID
 	Title     string    `json:"title"`
+	Body      string    `json:"body"`
 	State     string    `json:"state"` // open, closed
 	Draft     bool      `json:"draft"`
 	CreatedAt time.Time `json:"created_at"`
