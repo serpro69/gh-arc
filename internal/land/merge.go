@@ -104,7 +104,9 @@ func (m *MergeExecutor) openEditor(title, body string) (string, string, error) {
 
 	originalContent := content
 
-	cmd := exec.Command(editor, tmpPath)
+	// Split editor command to handle values like "code --wait" or "vim -u NONE"
+	parts := strings.Fields(editor)
+	cmd := exec.Command(parts[0], append(parts[1:], tmpPath)...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
