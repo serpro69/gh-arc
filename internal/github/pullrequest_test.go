@@ -1,9 +1,17 @@
 package github
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cli/go-gh/v2/pkg/api"
 )
 
 func TestDefaultPullRequestListOptions(t *testing.T) {
@@ -2445,6 +2453,500 @@ func TestReviewerAssignmentEdgeCases(t *testing.T) {
 		// Should only have current reviewers
 		if len(assignment.Users) != 1 {
 			t.Errorf("Expected 1 user, got %d", len(assignment.Users))
+		}
+	})
+}
+
+// redirectTransport redirects all requests to the test server,
+// preserving the path and method while rewriting the host.
+type redirectTransport struct {
+	server *httptest.Server
+}
+
+func (t *redirectTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req2 := req.Clone(req.Context())
+	req2.URL.Scheme = "http"
+	req2.URL.Host = strings.TrimPrefix(t.server.URL, "http://")
+	return http.DefaultTransport.RoundTrip(req2)
+}
+
+// newTestClient creates a Client backed by an httptest server.
+// The handler receives all HTTP requests made through the client.
+func newTestClient(t *testing.T, handler http.Handler) (*Client, *httptest.Server) {
+	t.Helper()
+	server := httptest.NewServer(handler)
+
+	restClient, err := api.NewRESTClient(api.ClientOptions{
+		Host:      "github.com",
+		AuthToken: "test-token",
+		Transport: &redirectTransport{server: server},
+	})
+	if err != nil {
+		server.Close()
+		t.Fatalf("failed to create test REST client: %v", err)
+	}
+
+	client := &Client{
+		restClient:     restClient,
+		config:         DefaultConfig(),
+		cache:          &NoOpCache{},
+		circuitBreaker: NewCircuitBreaker(5, 1*time.Minute),
+		repo:           &Repository{Owner: "owner", Name: "repo"},
+	}
+
+	t.Cleanup(server.Close)
+	return client, server
+}
+
+func TestMergePullRequest(t *testing.T) {
+	t.Run("successful squash merge", func(t *testing.T) {
+		var gotMethod, gotPath string
+		var gotBody map[string]interface{}
+
+		client, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gotMethod = r.Method
+			gotPath = r.URL.Path
+			_ = json.NewDecoder(r.Body).Decode(&gotBody)
+
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(MergeResult{
+				Merged:  true,
+				SHA:     "abc1234",
+				Message: "Pull Request successfully merged",
+			})
+		}))
+
+		result, err := client.MergePullRequest(context.Background(), "owner", "repo", 42, &MergeOptions{
+			Method:        "squash",
+			CommitTitle:   "feat: add auth (#42)",
+			CommitMessage: "Adds authentication middleware",
+		})
+
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Merged {
+			t.Error("expected Merged to be true")
+		}
+		if result.SHA != "abc1234" {
+			t.Errorf("SHA = %q, want %q", result.SHA, "abc1234")
+		}
+		if gotMethod != "PUT" {
+			t.Errorf("method = %q, want PUT", gotMethod)
+		}
+		if !strings.HasSuffix(gotPath, "/repos/owner/repo/pulls/42/merge") {
+			t.Errorf("path = %q, want suffix /repos/owner/repo/pulls/42/merge", gotPath)
+		}
+		if gotBody["merge_method"] != "squash" {
+			t.Errorf("merge_method = %v, want squash", gotBody["merge_method"])
+		}
+		if gotBody["commit_title"] != "feat: add auth (#42)" {
+			t.Errorf("commit_title = %v, want %q", gotBody["commit_title"], "feat: add auth (#42)")
+		}
+	})
+
+	t.Run("successful rebase merge omits commit fields", func(t *testing.T) {
+		var gotBody map[string]interface{}
+
+		client, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewDecoder(r.Body).Decode(&gotBody)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(MergeResult{Merged: true, SHA: "def5678"})
+		}))
+
+		result, err := client.MergePullRequest(context.Background(), "owner", "repo", 42, &MergeOptions{
+			Method:        "rebase",
+			CommitTitle:   "should be ignored",
+			CommitMessage: "should also be ignored",
+		})
+
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Merged {
+			t.Error("expected Merged to be true")
+		}
+		if _, ok := gotBody["commit_title"]; ok {
+			t.Error("rebase should not include commit_title")
+		}
+		if _, ok := gotBody["commit_message"]; ok {
+			t.Error("rebase should not include commit_message")
+		}
+	})
+
+	t.Run("405 method not allowed", func(t *testing.T) {
+		client, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			_, _ = w.Write([]byte(`{"message":"squash is not allowed"}`))
+		}))
+
+		_, err := client.MergePullRequest(context.Background(), "owner", "repo", 42, &MergeOptions{Method: "squash"})
+
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		var mergeErr *MergeMethodNotAllowedError
+		if !errors.As(err, &mergeErr) {
+			t.Fatalf("expected MergeMethodNotAllowedError, got %T: %v", err, err)
+		}
+		if mergeErr.Method != "Squash" {
+			t.Errorf("Method = %q, want %q", mergeErr.Method, "Squash")
+		}
+	})
+
+	t.Run("409 merge conflict", func(t *testing.T) {
+		client, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"message":"Merge conflict"}`))
+		}))
+
+		_, err := client.MergePullRequest(context.Background(), "owner", "repo", 42, &MergeOptions{Method: "squash"})
+
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		var conflictErr *MergeConflictError
+		if !errors.As(err, &conflictErr) {
+			t.Fatalf("expected MergeConflictError, got %T: %v", err, err)
+		}
+	})
+
+	t.Run("422 not mergeable", func(t *testing.T) {
+		client, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write([]byte(`{"message":"Pull Request is not mergeable"}`))
+		}))
+
+		_, err := client.MergePullRequest(context.Background(), "owner", "repo", 42, &MergeOptions{Method: "squash"})
+
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		var notMergeableErr *NotMergeableError
+		if !errors.As(err, &notMergeableErr) {
+			t.Fatalf("expected NotMergeableError, got %T: %v", err, err)
+		}
+		if !strings.Contains(notMergeableErr.Reason, "not mergeable") {
+			t.Errorf("Reason = %q, expected it to contain 'not mergeable'", notMergeableErr.Reason)
+		}
+	})
+
+	t.Run("nil options", func(t *testing.T) {
+		client := &Client{
+			config:         DefaultConfig(),
+			cache:          &NoOpCache{},
+			circuitBreaker: NewCircuitBreaker(5, 1*time.Minute),
+		}
+
+		_, err := client.MergePullRequest(context.Background(), "owner", "repo", 42, nil)
+		if err == nil {
+			t.Fatal("expected error for nil options")
+		}
+		if !strings.Contains(err.Error(), "merge options are required") {
+			t.Errorf("error = %q, want 'merge options are required'", err.Error())
+		}
+	})
+
+	t.Run("invalid merge method", func(t *testing.T) {
+		client := &Client{
+			config:         DefaultConfig(),
+			cache:          &NoOpCache{},
+			circuitBreaker: NewCircuitBreaker(5, 1*time.Minute),
+		}
+
+		for _, method := range []string{"", "merge", "invalid"} {
+			_, err := client.MergePullRequest(context.Background(), "owner", "repo", 42, &MergeOptions{Method: method})
+			if err == nil {
+				t.Errorf("expected error for method %q", method)
+			}
+			if !strings.Contains(err.Error(), "invalid merge method") {
+				t.Errorf("method %q: error = %q, want 'invalid merge method'", method, err.Error())
+			}
+		}
+	})
+}
+
+func TestMergePullRequestForCurrentRepo(t *testing.T) {
+	t.Run("no repository context", func(t *testing.T) {
+		client := &Client{
+			repo:           nil,
+			config:         DefaultConfig(),
+			cache:          &NoOpCache{},
+			circuitBreaker: NewCircuitBreaker(5, 1*time.Minute),
+		}
+
+		_, err := client.MergePullRequestForCurrentRepo(context.Background(), 42, &MergeOptions{Method: "squash"})
+		if err == nil {
+			t.Error("expected error when repository context is not set")
+		}
+		if err.Error() != "no repository context set" {
+			t.Errorf("error = %q, want %q", err.Error(), "no repository context set")
+		}
+	})
+
+	t.Run("delegates to MergePullRequest", func(t *testing.T) {
+		var gotPath string
+
+		client, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gotPath = r.URL.Path
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(MergeResult{Merged: true, SHA: "abc"})
+		}))
+
+		_, err := client.MergePullRequestForCurrentRepo(context.Background(), 42, &MergeOptions{Method: "squash"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.HasSuffix(gotPath, "/repos/owner/repo/pulls/42/merge") {
+			t.Errorf("path = %q, want suffix /repos/owner/repo/pulls/42/merge", gotPath)
+		}
+	})
+}
+
+func TestMergeErrorTypes(t *testing.T) {
+	t.Run("MergeMethodNotAllowedError message", func(t *testing.T) {
+		err := &MergeMethodNotAllowedError{Method: "Squash"}
+		expected := "Squash merges are not allowed on this repo"
+		if err.Error() != expected {
+			t.Errorf("error = %q, want %q", err.Error(), expected)
+		}
+	})
+
+	t.Run("MergeConflictError message", func(t *testing.T) {
+		err := &MergeConflictError{}
+		expected := "PR has merge conflicts"
+		if err.Error() != expected {
+			t.Errorf("error = %q, want %q", err.Error(), expected)
+		}
+	})
+
+	t.Run("NotMergeableError with reason", func(t *testing.T) {
+		err := &NotMergeableError{Reason: "branch protection check failed"}
+		if !strings.Contains(err.Error(), "branch protection check failed") {
+			t.Errorf("error = %q, want it to contain reason", err.Error())
+		}
+	})
+
+	t.Run("NotMergeableError without reason", func(t *testing.T) {
+		err := &NotMergeableError{}
+		expected := "PR is not mergeable"
+		if err.Error() != expected {
+			t.Errorf("error = %q, want %q", err.Error(), expected)
+		}
+	})
+
+	t.Run("mapMergeError with non-HTTP error", func(t *testing.T) {
+		err := mapMergeError(fmt.Errorf("network timeout"), "squash")
+		if !strings.Contains(err.Error(), "failed to merge pull request") {
+			t.Errorf("error = %q, want wrapping message", err.Error())
+		}
+	})
+
+	t.Run("error types preserve original error via Unwrap", func(t *testing.T) {
+		origErr := fmt.Errorf("original")
+
+		mergeMethodErr := &MergeMethodNotAllowedError{Method: "Squash", Err: origErr}
+		if mergeMethodErr.Unwrap() != origErr {
+			t.Error("MergeMethodNotAllowedError.Unwrap() should return original error")
+		}
+
+		conflictErr := &MergeConflictError{Err: origErr}
+		if conflictErr.Unwrap() != origErr {
+			t.Error("MergeConflictError.Unwrap() should return original error")
+		}
+
+		notMergeableErr := &NotMergeableError{Reason: "test", Err: origErr}
+		if notMergeableErr.Unwrap() != origErr {
+			t.Error("NotMergeableError.Unwrap() should return original error")
+		}
+	})
+}
+
+func TestGetRequiredStatusChecks(t *testing.T) {
+	t.Run("success with checks array", func(t *testing.T) {
+		client, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"contexts": []string{},
+				"checks": []map[string]interface{}{
+					{"context": "ci/tests", "app_id": 1},
+					{"context": "ci/lint", "app_id": 1},
+				},
+			})
+		}))
+
+		checks, err := client.GetRequiredStatusChecks(context.Background(), "owner", "repo", "main")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(checks) != 2 {
+			t.Fatalf("got %d checks, want 2", len(checks))
+		}
+		if checks[0].Context != "ci/tests" {
+			t.Errorf("checks[0].Context = %q, want %q", checks[0].Context, "ci/tests")
+		}
+		if checks[0].AppID == nil || *checks[0].AppID != 1 {
+			t.Errorf("checks[0].AppID = %v, want 1", checks[0].AppID)
+		}
+		if checks[1].Context != "ci/lint" {
+			t.Errorf("checks[1].Context = %q, want %q", checks[1].Context, "ci/lint")
+		}
+	})
+
+	t.Run("success with contexts array fallback", func(t *testing.T) {
+		client, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"contexts": []string{"ci/tests", "ci/lint", "ci/build"},
+				"checks":   []map[string]interface{}{},
+			})
+		}))
+
+		checks, err := client.GetRequiredStatusChecks(context.Background(), "owner", "repo", "main")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(checks) != 3 {
+			t.Fatalf("got %d checks, want 3", len(checks))
+		}
+	})
+
+	t.Run("404 returns empty list", func(t *testing.T) {
+		client, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"message":"Branch not protected"}`))
+		}))
+
+		checks, err := client.GetRequiredStatusChecks(context.Background(), "owner", "repo", "main")
+		if err != nil {
+			t.Fatalf("expected no error for 404, got: %v", err)
+		}
+		if len(checks) != 0 {
+			t.Errorf("expected empty list for 404, got %d checks", len(checks))
+		}
+	})
+
+	t.Run("403 returns permission denied error", func(t *testing.T) {
+		client, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"message":"Must have admin access"}`))
+		}))
+
+		_, err := client.GetRequiredStatusChecks(context.Background(), "owner", "repo", "main")
+		if err == nil {
+			t.Fatal("expected error for 403")
+		}
+		if !errors.Is(err, ErrBranchProtectionPermissionDenied) {
+			t.Errorf("expected ErrBranchProtectionPermissionDenied, got: %v", err)
+		}
+	})
+
+	t.Run("500 returns error", func(t *testing.T) {
+		client, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"message":"Internal server error"}`))
+		}))
+
+		_, err := client.GetRequiredStatusChecks(context.Background(), "owner", "repo", "main")
+		if err == nil {
+			t.Fatal("expected error for 500")
+		}
+		if !strings.Contains(err.Error(), "failed to fetch required status checks") {
+			t.Errorf("error = %q, want wrapping message", err.Error())
+		}
+	})
+
+	t.Run("correct API path", func(t *testing.T) {
+		var gotPath string
+
+		client, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gotPath = r.URL.Path
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"contexts": []string{},
+				"checks":   []map[string]interface{}{},
+			})
+		}))
+
+		_, _ = client.GetRequiredStatusChecks(context.Background(), "owner", "repo", "main")
+		expected := "/repos/owner/repo/branches/main/protection/required_status_checks"
+		if !strings.HasSuffix(gotPath, expected) {
+			t.Errorf("path = %q, want suffix %q", gotPath, expected)
+		}
+	})
+
+	t.Run("slash-containing branch name is URL-escaped", func(t *testing.T) {
+		var gotEscapedPath string
+
+		client, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gotEscapedPath = r.URL.EscapedPath()
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"contexts": []string{},
+				"checks": []map[string]interface{}{
+					{"context": "ci/tests", "app_id": nil},
+				},
+			})
+		}))
+
+		_, err := client.GetRequiredStatusChecks(context.Background(), "owner", "repo", "release/1.2")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(gotEscapedPath, "release%2F1.2") {
+			t.Errorf("expected escaped branch in path, got: %q", gotEscapedPath)
+		}
+	})
+
+	t.Run("checks with nil app_id", func(t *testing.T) {
+		client, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"contexts": []string{},
+				"checks": []map[string]interface{}{
+					{"context": "ci/tests", "app_id": nil},
+					{"context": "ci/lint", "app_id": 42},
+				},
+			})
+		}))
+
+		checks, err := client.GetRequiredStatusChecks(context.Background(), "owner", "repo", "main")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(checks) != 2 {
+			t.Fatalf("got %d checks, want 2", len(checks))
+		}
+		if checks[0].AppID != nil {
+			t.Errorf("checks[0].AppID = %v, want nil", checks[0].AppID)
+		}
+		if checks[1].AppID == nil || *checks[1].AppID != 42 {
+			t.Errorf("checks[1].AppID = %v, want 42", checks[1].AppID)
+		}
+	})
+}
+
+func TestGetRequiredStatusChecksForCurrentRepo(t *testing.T) {
+	t.Run("no repository context", func(t *testing.T) {
+		client := &Client{
+			repo:           nil,
+			config:         DefaultConfig(),
+			cache:          &NoOpCache{},
+			circuitBreaker: NewCircuitBreaker(5, 1*time.Minute),
+		}
+
+		_, err := client.GetRequiredStatusChecksForCurrentRepo(context.Background(), "main")
+		if err == nil {
+			t.Error("expected error when repository context is not set")
+		}
+		if err.Error() != "no repository context set" {
+			t.Errorf("error = %q, want %q", err.Error(), "no repository context set")
 		}
 	})
 }

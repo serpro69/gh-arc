@@ -28,7 +28,7 @@ For everything else, use:
 - `capy_batch_execute(commands, queries)` — run multiple commands + search in ONE call
 - `capy_execute(language: "shell", code: "...")` — run in sandbox, only stdout enters context
 
-### Read vs capy_execute_file
+### Read vs capy_execute_file / capy_index
 
 **Default to `Read`.** It's cheap for normal-sized files, shows you actual content (not just patterns you knew to grep for), and is required if an Edit follows. Use `offset`/`limit` to scope large files.
 
@@ -41,8 +41,10 @@ For everything else, use:
 - `capy_execute_file` to grep section headings, then `Read` the file anyway to Edit it. The Read makes the capy call pure overhead.
 - `capy_execute_file` on a code file to "explore structure." Use Serena's `get_symbols_overview` / `find_symbol` — purpose-built and cheaper.
 - `capy_execute_file` on a small/medium file (<2k lines) "to save context." The savings don't exist; you're adding latency.
+- `capy_index` on instruction files (skill definitions, checklists, plugin configs, review profiles). These documents must be `Read` and internalized whole — BM25 returns ranked fragments, which destroys structural relationships between sections. A checklist item saying "check X, but only if Y" becomes meaningless when Y landed in a different search result.
+- `capy_index` on files outside the project directory (e.g. plugin caches under `~/.claude/`, tool configs, system paths). These are instructions or configuration the LLM needs to follow, not project data to query.
 
-**Rule of thumb:** capy saves context only when content would otherwise enter context. If you're going to `Read` it anyway (for Edit, for line citations, for follow-ups), capy adds nothing.
+**Rule of thumb:** capy saves context only when raw data would otherwise flood context and you don't need the full content. If the document is meant to be followed as instructions, applied as a checklist, or read for comprehension — use `Read`. Indexing turns a coherent document into a bag of fragments.
 
 ### Grep (large results)
 Grep results can flood context. Use `capy_execute(language: "shell", code: "grep ...")` to run searches in sandbox. Only your printed summary enters context.
@@ -54,6 +56,22 @@ Grep results can flood context. Use `capy_execute(language: "shell", code: "grep
 3. **PROCESSING**: `capy_execute(language, code)` | `capy_execute_file(path, language, code)` — Sandbox execution. Only stdout enters context.
 4. **WEB**: `capy_fetch_and_index(url, source)` then `capy_search(queries)` — Fetch, chunk, index, query. Raw HTML never enters context.
 5. **INDEX**: `capy_index(content, source)` — Store content in FTS5 knowledge base for later search.
+
+## Source kinds
+
+Every indexed entry has a **kind** that controls its lifecycle and search visibility:
+
+| Kind | What produces it | Retention | Included by default in search? |
+|------|-----------------|-----------|-------------------------------|
+| `durable` | `capy_index`, `capy_fetch_and_index` | Retention-score tiers (hot → warm → cold → evictable) | Yes |
+| `ephemeral` | `capy_execute`, `capy_execute_file`, `capy_batch_execute` (auto-indexed output) | Strict TTL — swept after expiry | No |
+| `session` | `capy sweep` (indexes past conversation transcripts) | Strict TTL — swept after expiry | No |
+
+**Querying non-default kinds:** pass `include_kinds` to `capy_search`:
+- `include_kinds: ["durable", "ephemeral"]` — recover output from earlier commands in this session
+- `include_kinds: ["durable", "session"]` — search past conversation transcripts
+- `include_kinds: ["durable", "ephemeral", "session"]` — search everything
+- Or use `source: "<label>"` to bypass kind filtering entirely (matches any kind)
 
 ## Subagent routing
 

@@ -44,13 +44,32 @@ type DiffConfig struct {
 	StaleRemoteThresholdHours int    `mapstructure:"staleRemoteThresholdHours"`
 }
 
+// Land merge method constants
+const (
+	MergeMethodSquash = "squash"
+	MergeMethodRebase = "rebase"
+)
+
+// Land approval mode constants
+const (
+	ApprovalStrict = "strict"
+	ApprovalPrompt = "prompt"
+	ApprovalNone   = "none"
+)
+
+// Land CI mode constants
+const (
+	CIModeRequired = "required"
+	CIModeAll      = "all"
+	CIModeNone     = "none"
+)
+
 // LandConfig contains merge settings
 type LandConfig struct {
 	DefaultMergeMethod string `mapstructure:"defaultMergeMethod"`
 	DeleteLocalBranch  bool   `mapstructure:"deleteLocalBranch"`
-	DeleteRemoteBranch bool   `mapstructure:"deleteRemoteBranch"`
-	RequireApproval    bool   `mapstructure:"requireApproval"`
-	RequireCI          bool   `mapstructure:"requireCI"`
+	RequireApproval    string `mapstructure:"requireApproval"`
+	RequireCI          string `mapstructure:"requireCI"`
 }
 
 // TestConfig contains test execution settings
@@ -193,11 +212,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("diff.staleRemoteThresholdHours", 24)  // Warn if origin/main older than 24 hours
 
 	// Land defaults
-	v.SetDefault("land.defaultMergeMethod", "squash")
+	v.SetDefault("land.defaultMergeMethod", MergeMethodSquash)
 	v.SetDefault("land.deleteLocalBranch", true)
-	v.SetDefault("land.deleteRemoteBranch", true)
-	v.SetDefault("land.requireApproval", true)
-	v.SetDefault("land.requireCI", true)
+	v.SetDefault("land.requireApproval", ApprovalStrict)
+	v.SetDefault("land.requireCI", CIModeRequired)
 
 	// Test defaults (empty runners - auto-detect)
 	v.SetDefault("test.runners", []TestRunner{})
@@ -219,12 +237,31 @@ func setDefaults(v *viper.Viper) {
 func (c *Config) Validate() error {
 	// Validate merge method
 	validMergeMethods := map[string]bool{
-		"squash": true,
-		"merge":  true,
-		"rebase": true,
+		MergeMethodSquash: true,
+		MergeMethodRebase: true,
 	}
 	if !validMergeMethods[c.Land.DefaultMergeMethod] {
-		return fmt.Errorf("invalid merge method: %s (must be squash, merge, or rebase)", c.Land.DefaultMergeMethod)
+		return fmt.Errorf("invalid merge method: %q (must be squash or rebase)", c.Land.DefaultMergeMethod)
+	}
+
+	// Validate requireApproval enum
+	validApprovalModes := map[string]bool{
+		ApprovalStrict: true,
+		ApprovalPrompt: true,
+		ApprovalNone:   true,
+	}
+	if !validApprovalModes[c.Land.RequireApproval] {
+		return fmt.Errorf("invalid land.requireApproval value: %q (must be strict, prompt, or none)", c.Land.RequireApproval)
+	}
+
+	// Validate requireCI enum
+	validCIModes := map[string]bool{
+		CIModeRequired: true,
+		CIModeAll:      true,
+		CIModeNone:     true,
+	}
+	if !validCIModes[c.Land.RequireCI] {
+		return fmt.Errorf("invalid land.requireCI value: %q (must be required, all, or none)", c.Land.RequireCI)
 	}
 
 	// Validate mega-linter enabled value
