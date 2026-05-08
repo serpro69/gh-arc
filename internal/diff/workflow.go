@@ -17,16 +17,16 @@ import (
 // It coordinates between auto-branch detection, base branch detection,
 // template generation/editing, and PR creation/updates.
 type DiffWorkflow struct {
-	repo              *git.Repository
-	client            *github.Client
-	config            *config.Config
-	owner             string
-	name              string
+	repo               *git.Repository
+	client             *github.Client
+	config             *config.Config
+	owner              string
+	name               string
 	autoBranchDetector *AutoBranchDetector
-	baseDetector      *BaseBranchDetector
-	dependentDetector *DependentPRDetector
-	continueExecutor  *ContinueModeExecutor
-	prExecutor        *PRExecutor
+	baseDetector       *BaseBranchDetector
+	dependentDetector  *DependentPRDetector
+	continueExecutor   *ContinueModeExecutor
+	prExecutor         *PRExecutor
 }
 
 // DiffOptions contains all options for the diff command
@@ -41,32 +41,32 @@ type DiffOptions struct {
 
 // DiffResult contains the complete results of the diff workflow
 type DiffResult struct {
-	PR                 *github.PullRequest
-	WasCreated         bool
-	DraftChanged       bool
-	AutoBranchUsed     bool
-	AutoBranchName     string
+	PR                       *github.PullRequest
+	WasCreated               bool
+	DraftChanged             bool
+	AutoBranchUsed           bool
+	AutoBranchName           string
 	AutoBranchCheckoutFailed bool
-	IsStacking         bool
-	BaseBranch         string
-	ParentPR           *github.PullRequest
-	ReviewersAdded     []string
-	Messages           []string
+	IsStacking               bool
+	BaseBranch               string
+	ParentPR                 *github.PullRequest
+	ReviewersAdded           []string
+	Messages                 []string
 }
 
 // NewDiffWorkflow creates a new diff workflow orchestrator
 func NewDiffWorkflow(repo *git.Repository, client *github.Client, cfg *config.Config, owner, name string) *DiffWorkflow {
 	return &DiffWorkflow{
-		repo:              repo,
-		client:            client,
-		config:            cfg,
-		owner:             owner,
-		name:              name,
+		repo:               repo,
+		client:             client,
+		config:             cfg,
+		owner:              owner,
+		name:               name,
 		autoBranchDetector: NewAutoBranchDetector(repo, &cfg.Diff),
-		baseDetector:      NewBaseBranchDetector(repo, client, &cfg.Diff, owner, name),
-		dependentDetector: NewDependentPRDetector(client, &cfg.Diff, owner, name),
-		continueExecutor:  NewContinueModeExecutor(repo, client, &cfg.Diff, owner, name),
-		prExecutor:        NewPRExecutor(client, repo, owner, name),
+		baseDetector:       NewBaseBranchDetector(repo, client, &cfg.Diff, owner, name),
+		dependentDetector:  NewDependentPRDetector(client, &cfg.Diff, owner, name),
+		continueExecutor:   NewContinueModeExecutor(repo, client, &cfg.Diff, owner, name),
+		prExecutor:         NewPRExecutor(client, repo, owner, name),
 	}
 }
 
@@ -74,21 +74,21 @@ func NewDiffWorkflow(repo *git.Repository, client *github.Client, cfg *config.Co
 // This is the main entry point that routes to the appropriate sub-workflow:
 //
 // 1. Continue Mode (--continue flag):
-//    - Loads saved template from previous validation failure
-//    - Allows user to fix errors and retry
-//    - See: executeContinueMode()
+//   - Loads saved template from previous validation failure
+//   - Allows user to fix errors and retry
+//   - See: executeContinueMode()
 //
 // 2. Fast Path (existing PR, no --edit flag):
-//    - Pushes new commits if any
-//    - Updates draft status if flags provided
-//    - Updates base branch if changed
-//    - See: executeFastPath()
+//   - Pushes new commits if any
+//   - Updates draft status if flags provided
+//   - Updates base branch if changed
+//   - See: executeFastPath()
 //
 // 3. Normal Mode (new PR or --edit flag):
-//    - Full template generation and editing flow
-//    - Handles auto-branch creation if on main
-//    - Creates or updates PR with full metadata
-//    - See: executeWithTemplateEditing()
+//   - Full template generation and editing flow
+//   - Handles auto-branch creation if on main
+//   - Creates or updates PR with full metadata
+//   - See: executeWithTemplateEditing()
 func (w *DiffWorkflow) Execute(ctx context.Context, opts *DiffOptions) (*DiffResult, error) {
 	logger.Debug().
 		Bool("continue", opts.Continue).

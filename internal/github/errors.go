@@ -317,11 +317,11 @@ func ParseErrorResponse(errResp *ErrorResponse) error {
 
 // CircularDependencyError represents a circular dependency in stacked PRs
 type CircularDependencyError struct {
-	Message      string
-	Branches     []string // The branches forming the circular dependency
-	CurrentPR    int      // Current PR number
-	ConflictingPR int     // PR number that creates the circular dependency
-	Err          error
+	Message       string
+	Branches      []string // The branches forming the circular dependency
+	CurrentPR     int      // Current PR number
+	ConflictingPR int      // PR number that creates the circular dependency
+	Err           error
 }
 
 func (e *CircularDependencyError) Error() string {
@@ -415,11 +415,11 @@ func IsInvalidBaseError(err error) bool {
 
 // ParentPRConflictError represents a conflict with the parent PR in stacked workflow
 type ParentPRConflictError struct {
-	Message    string
-	ParentPR   int    // Parent PR number
+	Message     string
+	ParentPR    int    // Parent PR number
 	ParentState string // Parent PR state (closed, merged, etc.)
-	Reason     string // Reason for the conflict
-	Err        error
+	Reason      string // Reason for the conflict
+	Err         error
 }
 
 func (e *ParentPRConflictError) Error() string {
@@ -458,12 +458,12 @@ func IsParentPRConflictError(err error) bool {
 
 // StackingError represents a general stacking-related error
 type StackingError struct {
-	Message      string
-	CurrentBranch string // Current branch name
-	BaseBranch   string // Base branch name
-	Operation    string // Operation being performed (create, update, etc.)
-	Context      map[string]interface{} // Additional context
-	Err          error
+	Message       string
+	CurrentBranch string                 // Current branch name
+	BaseBranch    string                 // Base branch name
+	Operation     string                 // Operation being performed (create, update, etc.)
+	Context       map[string]interface{} // Additional context
+	Err           error
 }
 
 func (e *StackingError) Error() string {

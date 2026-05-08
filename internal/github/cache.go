@@ -35,11 +35,11 @@ type Cache interface {
 
 // CacheStats holds statistics about cache performance
 type CacheStats struct {
-	Hits          int64 // Number of cache hits
-	Misses        int64 // Number of cache misses
-	Evictions     int64 // Number of evictions due to TTL expiration
-	Size          int   // Current number of entries
-	HitRate       float64 // Hit rate percentage (hits / (hits + misses))
+	Hits      int64   // Number of cache hits
+	Misses    int64   // Number of cache misses
+	Evictions int64   // Number of evictions due to TTL expiration
+	Size      int     // Current number of entries
+	HitRate   float64 // Hit rate percentage (hits / (hits + misses))
 }
 
 // cacheEntry represents a single cached item with metadata
@@ -57,9 +57,9 @@ func (e *cacheEntry) isExpired() bool {
 
 // MemoryCache is a thread-safe in-memory cache with TTL and ETag support
 type MemoryCache struct {
-	entries sync.Map // map[string]*cacheEntry
-	hits    atomic.Int64
-	misses  atomic.Int64
+	entries   sync.Map // map[string]*cacheEntry
+	hits      atomic.Int64
+	misses    atomic.Int64
 	evictions atomic.Int64
 
 	// cleanupInterval defines how often to check for expired entries

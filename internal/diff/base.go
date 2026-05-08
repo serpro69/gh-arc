@@ -36,10 +36,10 @@ type stackingCandidate struct {
 
 // BaseBranchResult contains the result of base branch detection
 type BaseBranchResult struct {
-	Base       string                 // The detected base branch name
-	IsStacking bool                   // Whether this is a stacked PR
-	ParentPR   *github.PullRequest    // The parent PR if stacking
-	Method     string                 // How the base was determined
+	Base       string              // The detected base branch name
+	IsStacking bool                // Whether this is a stacked PR
+	ParentPR   *github.PullRequest // The parent PR if stacking
+	Method     string              // How the base was determined
 }
 
 // BaseBranchDetector handles intelligent base branch detection for stacking

@@ -157,8 +157,8 @@ func TestAutoBranchIntegration(t *testing.T) {
 
 		// Create detector with auto-create enabled
 		cfg := &config.DiffConfig{
-			AutoCreateBranchFromMain: true,
-			AutoBranchNamePattern:    "feature/auto-from-main-{timestamp}",
+			AutoCreateBranchFromMain:  true,
+			AutoBranchNamePattern:     "feature/auto-from-main-{timestamp}",
 			StaleRemoteThresholdHours: 24,
 		}
 
@@ -306,8 +306,8 @@ func TestAutoBranchIntegration(t *testing.T) {
 		for _, tt := range patterns {
 			t.Run(tt.name, func(t *testing.T) {
 				cfg := &config.DiffConfig{
-					AutoCreateBranchFromMain: true,
-					AutoBranchNamePattern:    tt.pattern,
+					AutoCreateBranchFromMain:  true,
+					AutoBranchNamePattern:     tt.pattern,
 					StaleRemoteThresholdHours: 24,
 				}
 
@@ -473,7 +473,7 @@ func TestAutoBranchIntegration(t *testing.T) {
 
 		// Create detector with 24-hour threshold
 		cfg := &config.DiffConfig{
-			AutoCreateBranchFromMain: true,
+			AutoCreateBranchFromMain:  true,
 			StaleRemoteThresholdHours: 24,
 		}
 
@@ -748,7 +748,7 @@ func TestAutoBranchIntegration(t *testing.T) {
 
 		// Create detector with threshold disabled (0)
 		cfg := &config.DiffConfig{
-			AutoCreateBranchFromMain: true,
+			AutoCreateBranchFromMain:  true,
 			StaleRemoteThresholdHours: 0, // Disabled
 		}
 
@@ -779,7 +779,7 @@ func TestAutoBranchIntegration(t *testing.T) {
 		// Don't create remote ref (simulates offline or first push)
 
 		cfg := &config.DiffConfig{
-			AutoCreateBranchFromMain: true,
+			AutoCreateBranchFromMain:  true,
 			StaleRemoteThresholdHours: 24,
 		}
 

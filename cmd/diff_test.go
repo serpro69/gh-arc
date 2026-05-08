@@ -35,9 +35,9 @@ func TestContextNoTimeoutDuringLongEditorSession(t *testing.T) {
 	// Simulate short delays that would have previously triggered timeouts
 	// We use short delays (milliseconds) for fast testing, but the principle is the same
 	delays := []time.Duration{
-		100 * time.Millisecond,  // Simulates fast user
-		500 * time.Millisecond,  // Simulates medium user
-		1 * time.Second,         // Simulates slow user
+		100 * time.Millisecond, // Simulates fast user
+		500 * time.Millisecond, // Simulates medium user
+		1 * time.Second,        // Simulates slow user
 	}
 
 	for _, delay := range delays {

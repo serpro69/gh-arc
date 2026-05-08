@@ -35,12 +35,12 @@ func (m *mockPRGitRepo) Push(ctx context.Context, branch string) error {
 
 // Mock GitHub client for testing
 type mockPRGitHubClient struct {
-	createPRFunc       func(ctx context.Context, owner, name, title, head, base, body string, draft bool, parentPR *github.PullRequest) (*github.PullRequest, error)
-	updatePRFunc       func(ctx context.Context, owner, name string, number int, title, body string, draft *bool, parentPR *github.PullRequest) (*github.PullRequest, error)
-	markReadyFunc      func(ctx context.Context, owner, name string, pr *github.PullRequest) (*github.PullRequest, error)
-	convertDraftFunc   func(ctx context.Context, owner, name string, pr *github.PullRequest) (*github.PullRequest, error)
+	createPRFunc        func(ctx context.Context, owner, name, title, head, base, body string, draft bool, parentPR *github.PullRequest) (*github.PullRequest, error)
+	updatePRFunc        func(ctx context.Context, owner, name string, number int, title, body string, draft *bool, parentPR *github.PullRequest) (*github.PullRequest, error)
+	markReadyFunc       func(ctx context.Context, owner, name string, pr *github.PullRequest) (*github.PullRequest, error)
+	convertDraftFunc    func(ctx context.Context, owner, name string, pr *github.PullRequest) (*github.PullRequest, error)
 	assignReviewersFunc func(ctx context.Context, owner, name string, number int, users, teams []string) error
-	getCurrentUserFunc func(ctx context.Context) (string, error)
+	getCurrentUserFunc  func(ctx context.Context) (string, error)
 }
 
 func (m *mockPRGitHubClient) CreatePullRequest(ctx context.Context, owner, name, title, head, base, body string, draft bool, parentPR *github.PullRequest) (*github.PullRequest, error) {
@@ -314,13 +314,13 @@ func TestPRExecutor_UpdatePR_DraftTransitions(t *testing.T) {
 
 func TestPRExecutor_AssignReviewers(t *testing.T) {
 	tests := []struct {
-		name           string
-		reviewers      []string
-		currentUser    string
-		wantUsers      []string
-		wantTeams      []string
-		assignErr      error
-		wantErr        bool
+		name        string
+		reviewers   []string
+		currentUser string
+		wantUsers   []string
+		wantTeams   []string
+		assignErr   error
+		wantErr     bool
 	}{
 		{
 			name:        "filter out current user",
@@ -497,7 +497,6 @@ func TestPRExecutor_UpdateDraftStatus(t *testing.T) {
 		})
 	}
 }
-
 
 func TestAutoBranchCheckoutError_Unwrap(t *testing.T) {
 	innerErr := errors.New("git checkout failed")

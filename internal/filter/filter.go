@@ -9,10 +9,10 @@ import (
 
 // PRFilter contains criteria for filtering pull requests
 type PRFilter struct {
-	Author        string // Filter by author login (supports "me")
-	Status        string // Filter by status (draft, approved, changes_requested, review_required)
-	Branch        string // Filter by branch pattern (supports wildcards)
-	CurrentUser   string // Current authenticated user login (for "me")
+	Author      string // Filter by author login (supports "me")
+	Status      string // Filter by status (draft, approved, changes_requested, review_required)
+	Branch      string // Filter by branch pattern (supports wildcards)
+	CurrentUser string // Current authenticated user login (for "me")
 }
 
 // FilterPullRequests applies filters to a list of pull requests
