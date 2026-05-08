@@ -31,9 +31,9 @@ type PullRequest struct {
 	HTMLURL   string    `json:"html_url"`
 
 	// Additional fields populated by separate API calls
-	Reviews    []PRReview    `json:"-"` // Not included in list PR response
-	Checks     []PRCheck     `json:"-"` // Not included in list PR response
-	Reviewers  []PRReviewer  `json:"-"` // Not included in list PR response
+	Reviews   []PRReview   `json:"-"` // Not included in list PR response
+	Checks    []PRCheck    `json:"-"` // Not included in list PR response
+	Reviewers []PRReviewer `json:"-"` // Not included in list PR response
 }
 
 // PRUser represents a user associated with a pull request
@@ -69,8 +69,8 @@ type PRReview struct {
 type PRCheck struct {
 	ID          int       `json:"id"`
 	Name        string    `json:"name"`
-	Status      string    `json:"status"`      // queued, in_progress, completed
-	Conclusion  string    `json:"conclusion"`  // success, failure, neutral, cancelled, skipped, timed_out, action_required
+	Status      string    `json:"status"`     // queued, in_progress, completed
+	Conclusion  string    `json:"conclusion"` // success, failure, neutral, cancelled, skipped, timed_out, action_required
 	StartedAt   time.Time `json:"started_at"`
 	CompletedAt time.Time `json:"completed_at,omitempty"`
 	App         *struct {
@@ -1006,11 +1006,11 @@ func DetectRebase(existingPR *PullRequest, currentBaseSHA string) bool {
 
 // StackedPRUpdateResult represents the result of a stacked PR update operation
 type StackedPRUpdateResult struct {
-	UpdatedBase    bool     // Whether the base was actually updated
-	OldBase        string   // Previous base branch name
-	NewBase        string   // New base branch name
-	RebaseDetected bool     // Whether a rebase was detected
-	Error          error    // Any error that occurred
+	UpdatedBase    bool   // Whether the base was actually updated
+	OldBase        string // Previous base branch name
+	NewBase        string // New base branch name
+	RebaseDetected bool   // Whether a rebase was detected
+	Error          error  // Any error that occurred
 }
 
 // HandleStackedPRUpdate orchestrates the complete workflow for updating stacked PR bases
@@ -1104,12 +1104,12 @@ func (c *Client) HandleStackedPRUpdate(
 
 // CreatePRRequest represents the payload for creating a pull request
 type CreatePRRequest struct {
-	Title                string `json:"title"`
-	Head                 string `json:"head"`               // branch name (source)
-	Base                 string `json:"base"`               // base branch (target)
-	Body                 string `json:"body"`               // PR description
-	Draft                bool   `json:"draft,omitempty"`    // optional draft state
-	MaintainerCanModify  bool   `json:"maintainer_can_modify,omitempty"`
+	Title               string `json:"title"`
+	Head                string `json:"head"`            // branch name (source)
+	Base                string `json:"base"`            // base branch (target)
+	Body                string `json:"body"`            // PR description
+	Draft               bool   `json:"draft,omitempty"` // optional draft state
+	MaintainerCanModify bool   `json:"maintainer_can_modify,omitempty"`
 }
 
 // CreatePullRequest creates a new pull request in the specified repository
@@ -1278,11 +1278,11 @@ func (c *Client) UpdatePullRequestForCurrentRepo(
 
 // DraftTransitionResult represents the result of checking if a PR can transition from draft
 type DraftTransitionResult struct {
-	CanTransition      bool     // Whether the PR can safely transition to ready
-	BlockingReasons    []string // Reasons preventing transition
-	DependentPRsOpen   bool     // Whether there are dependent PRs still open
-	DependentPRsDraft  bool     // Whether dependent PRs are in draft state
-	DependentPRCount   int      // Number of dependent PRs found
+	CanTransition     bool     // Whether the PR can safely transition to ready
+	BlockingReasons   []string // Reasons preventing transition
+	DependentPRsOpen  bool     // Whether there are dependent PRs still open
+	DependentPRsDraft bool     // Whether dependent PRs are in draft state
+	DependentPRCount  int      // Number of dependent PRs found
 }
 
 // CheckDraftTransition determines if a PR can safely transition from draft to ready
@@ -1500,11 +1500,11 @@ func (c *Client) AssignReviewersForCurrentRepo(
 
 // StackAwareReviewerOptions contains options for stack-aware reviewer suggestions
 type StackAwareReviewerOptions struct {
-	CurrentReviewers []string        // Reviewers from template for current PR
-	ParentPR         *PullRequest    // Parent PR in stack (if any)
-	CurrentUser      string          // Current user to filter out
-	InheritParent    bool            // Whether to inherit parent PR reviewers
-	DeduplicateStack bool            // Whether to deduplicate across stack
+	CurrentReviewers []string     // Reviewers from template for current PR
+	ParentPR         *PullRequest // Parent PR in stack (if any)
+	CurrentUser      string       // Current user to filter out
+	InheritParent    bool         // Whether to inherit parent PR reviewers
+	DeduplicateStack bool         // Whether to deduplicate across stack
 }
 
 // GetStackAwareReviewers returns reviewers considering stacking context
@@ -1522,7 +1522,7 @@ func GetStackAwareReviewers(opts *StackAwareReviewerOptions) *ReviewerAssignment
 		// Filter out current user
 		if opts.CurrentUser != "" {
 			if strings.EqualFold(cleaned, opts.CurrentUser) ||
-			   strings.EqualFold(cleaned, strings.TrimPrefix(opts.CurrentUser, "@")) {
+				strings.EqualFold(cleaned, strings.TrimPrefix(opts.CurrentUser, "@")) {
 				logger.Debug().
 					Str("reviewer", cleaned).
 					Msg("Filtered out current user from reviewers")

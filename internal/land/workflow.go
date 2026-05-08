@@ -41,11 +41,11 @@ type LandOptions struct {
 
 // LandWorkflow orchestrates the entire land command sequence.
 type LandWorkflow struct {
-	repo    WorkflowRepo
-	client  WorkflowClient
-	config  *config.Config
-	owner   string
-	name    string
+	repo       WorkflowRepo
+	client     WorkflowClient
+	config     *config.Config
+	owner      string
+	name       string
 	checker    *PreMergeChecker
 	merger     *MergeExecutor
 	cleanup    *PostMergeCleanup
@@ -57,11 +57,11 @@ type LandWorkflow struct {
 // NewLandWorkflow creates a new LandWorkflow with all sub-components.
 func NewLandWorkflow(repo WorkflowRepo, client WorkflowClient, cfg *config.Config, owner, name string) *LandWorkflow {
 	return &LandWorkflow{
-		repo:    repo,
-		client:  client,
-		config:  cfg,
-		owner:   owner,
-		name:    name,
+		repo:       repo,
+		client:     client,
+		config:     cfg,
+		owner:      owner,
+		name:       name,
 		checker:    NewPreMergeChecker(repo, client, &cfg.Land),
 		merger:     NewMergeExecutor(client),
 		cleanup:    NewPostMergeCleanup(repo),

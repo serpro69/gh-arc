@@ -11,7 +11,7 @@ import (
 
 var (
 	// Global flags
-	verbosity int  // Verbosity level: 0=warn, 1=info, 2=debug, 3=trace
+	verbosity int // Verbosity level: 0=warn, 1=info, 2=debug, 3=trace
 	quiet     bool
 	jsonOut   bool
 

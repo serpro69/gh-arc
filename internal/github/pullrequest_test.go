@@ -1495,11 +1495,11 @@ func TestCheckDraftTransition(t *testing.T) {
 func TestDraftTransitionResultStructure(t *testing.T) {
 	t.Run("can transition with no blockers", func(t *testing.T) {
 		result := &DraftTransitionResult{
-			CanTransition:    true,
-			BlockingReasons:  []string{},
-			DependentPRsOpen: false,
+			CanTransition:     true,
+			BlockingReasons:   []string{},
+			DependentPRsOpen:  false,
 			DependentPRsDraft: false,
-			DependentPRCount: 0,
+			DependentPRCount:  0,
 		}
 
 		if !result.CanTransition {
@@ -1512,11 +1512,11 @@ func TestDraftTransitionResultStructure(t *testing.T) {
 
 	t.Run("can transition with dependent PRs", func(t *testing.T) {
 		result := &DraftTransitionResult{
-			CanTransition:    true,
-			BlockingReasons:  []string{"2 dependent PR(s) target this branch"},
-			DependentPRsOpen: true,
+			CanTransition:     true,
+			BlockingReasons:   []string{"2 dependent PR(s) target this branch"},
+			DependentPRsOpen:  true,
 			DependentPRsDraft: false,
-			DependentPRCount: 2,
+			DependentPRCount:  2,
 		}
 
 		if !result.CanTransition {
@@ -1532,11 +1532,11 @@ func TestDraftTransitionResultStructure(t *testing.T) {
 
 	t.Run("dependent PRs in draft state", func(t *testing.T) {
 		result := &DraftTransitionResult{
-			CanTransition:    true,
-			BlockingReasons:  []string{"1 dependent PR(s) are still in draft state"},
-			DependentPRsOpen: true,
+			CanTransition:     true,
+			BlockingReasons:   []string{"1 dependent PR(s) are still in draft state"},
+			DependentPRsOpen:  true,
 			DependentPRsDraft: true,
-			DependentPRCount: 1,
+			DependentPRCount:  1,
 		}
 
 		if !result.DependentPRsDraft {
@@ -1616,9 +1616,9 @@ func TestStackingMetadataInPRBody(t *testing.T) {
 func TestPRCreationWithStackingScenarios(t *testing.T) {
 	t.Run("non-stacked PR (no parent)", func(t *testing.T) {
 		// Simulate creating a PR without parent
-		_ = "Feature PR"      // title
-		_ = "feature/auth"    // head
-		_ = "main"            // base
+		_ = "Feature PR"   // title
+		_ = "feature/auth" // head
+		_ = "main"         // base
 		body := "Implements authentication"
 		parentPR := (*PullRequest)(nil)
 
@@ -1643,9 +1643,9 @@ func TestPRCreationWithStackingScenarios(t *testing.T) {
 
 	t.Run("stacked PR (with parent)", func(t *testing.T) {
 		// Simulate creating a stacked PR
-		_ = "Feature PR - Part 2"   // title
-		_ = "feature/auth-part2"    // head
-		_ = "feature/auth"          // base
+		_ = "Feature PR - Part 2" // title
+		_ = "feature/auth-part2"  // head
+		_ = "feature/auth"        // base
 		body := "Continues authentication work"
 		parentPR := &PullRequest{
 			Number: 122,
@@ -1931,13 +1931,13 @@ func TestAssignReviewersRequestStructure(t *testing.T) {
 
 func TestGetStackAwareReviewers(t *testing.T) {
 	tests := []struct {
-		name                string
-		opts                *StackAwareReviewerOptions
-		expectedUsersCount  int
-		expectedTeamsCount  int
-		expectedUsers       []string
-		expectedTeams       []string
-		shouldContainUser   string
+		name                 string
+		opts                 *StackAwareReviewerOptions
+		expectedUsersCount   int
+		expectedTeamsCount   int
+		expectedUsers        []string
+		expectedTeams        []string
+		shouldContainUser    string
 		shouldNotContainUser string
 	}{
 		{
@@ -2214,8 +2214,8 @@ func TestFormatReviewerAssignment(t *testing.T) {
 				Number: 122,
 				Title:  "Parent PR",
 			},
-			inherited:   false,
-			expectEmpty: false,
+			inherited:     false,
+			expectEmpty:   false,
 			expectedParts: []string{"Assigned reviewers:", "@octocat"},
 		},
 	}

@@ -12,7 +12,7 @@ import (
 
 // DependentPRInfo contains information about PRs that depend on the current branch
 type DependentPRInfo struct {
-	DependentPRs []*github.PullRequest // PRs that target this branch
+	DependentPRs  []*github.PullRequest // PRs that target this branch
 	HasDependents bool                  // Whether there are any dependent PRs
 }
 

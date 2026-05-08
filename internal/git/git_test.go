@@ -630,46 +630,46 @@ func TestGetGitConfig(t *testing.T) {
 // TestParseConfigKey tests parsing git config keys
 func TestParseConfigKey(t *testing.T) {
 	testCases := []struct {
-		name           string
-		key            string
-		expSection     string
-		expSubsection  string
-		expOption      string
+		name          string
+		key           string
+		expSection    string
+		expSubsection string
+		expOption     string
 	}{
 		{
-			name:           "two parts - simple key",
-			key:            "user.name",
-			expSection:     "user",
-			expSubsection:  "",
-			expOption:      "name",
+			name:          "two parts - simple key",
+			key:           "user.name",
+			expSection:    "user",
+			expSubsection: "",
+			expOption:     "name",
 		},
 		{
-			name:           "three parts - subsection key",
-			key:            "remote.origin.url",
-			expSection:     "remote",
-			expSubsection:  "origin",
-			expOption:      "url",
+			name:          "three parts - subsection key",
+			key:           "remote.origin.url",
+			expSection:    "remote",
+			expSubsection: "origin",
+			expOption:     "url",
 		},
 		{
-			name:           "four parts - subsection with dot",
-			key:            "url.https://example.com/.insteadOf",
-			expSection:     "url",
-			expSubsection:  "https://example.com/",
-			expOption:      "insteadOf",
+			name:          "four parts - subsection with dot",
+			key:           "url.https://example.com/.insteadOf",
+			expSection:    "url",
+			expSubsection: "https://example.com/",
+			expOption:     "insteadOf",
 		},
 		{
-			name:           "five parts - subsection with multiple dots",
-			key:            "http.https://weak.example.com.sslVerify",
-			expSection:     "http",
-			expSubsection:  "https://weak.example.com",
-			expOption:      "sslVerify",
+			name:          "five parts - subsection with multiple dots",
+			key:           "http.https://weak.example.com.sslVerify",
+			expSection:    "http",
+			expSubsection: "https://weak.example.com",
+			expOption:     "sslVerify",
 		},
 		{
-			name:           "one part - invalid key",
-			key:            "invalid",
-			expSection:     "",
-			expSubsection:  "",
-			expOption:      "",
+			name:          "one part - invalid key",
+			key:           "invalid",
+			expSection:    "",
+			expSubsection: "",
+			expOption:     "",
 		},
 	}
 

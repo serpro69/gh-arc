@@ -15,19 +15,19 @@ import (
 // --- workflow mocks ---
 
 type mockWorkflowRepo struct {
-	status          *git.WorkingDirectoryStatus
-	statusErr       error
-	headSHA         string
-	headSHAErr      error
-	currentBranch   string
+	status           *git.WorkingDirectoryStatus
+	statusErr        error
+	headSHA          string
+	headSHAErr       error
+	currentBranch    string
 	currentBranchErr error
-	defaultBranch   string
+	defaultBranch    string
 	defaultBranchErr error
-	checkoutErr     error
-	pullErr         error
-	branchSHA       string
-	branchSHAErr    error
-	deleteBranchErr error
+	checkoutErr      error
+	pullErr          error
+	branchSHA        string
+	branchSHAErr     error
+	deleteBranchErr  error
 }
 
 func (m *mockWorkflowRepo) GetWorkingDirectoryStatus() (*git.WorkingDirectoryStatus, error) {

@@ -19,9 +19,9 @@ type Owner struct {
 
 // Rule represents a CODEOWNERS rule mapping a pattern to owners
 type Rule struct {
-	Pattern string   // File pattern (glob)
-	Owners  []Owner  // List of owners for this pattern
-	Line    int      // Line number in CODEOWNERS file (for debugging)
+	Pattern string  // File pattern (glob)
+	Owners  []Owner // List of owners for this pattern
+	Line    int     // Line number in CODEOWNERS file (for debugging)
 }
 
 // CodeOwners represents a parsed CODEOWNERS file

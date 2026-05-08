@@ -396,11 +396,11 @@ func TestValidateOwner(t *testing.T) {
 		{"@user1", true},
 		{"@org/team", true},
 		{"@my-org/security-team", true},
-		{"user1", false}, // Missing @
-		{"@", false},     // Empty name
-		{"", false},      // Empty string
-		{"@org/", false}, // Empty team name
-		{"@/team", false}, // Empty org name
+		{"user1", false},           // Missing @
+		{"@", false},               // Empty name
+		{"", false},                // Empty string
+		{"@org/", false},           // Empty team name
+		{"@/team", false},          // Empty org name
 		{"@org/team/extra", false}, // Too many slashes
 	}
 

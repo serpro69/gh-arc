@@ -55,11 +55,11 @@ func TestRootCommand(t *testing.T) {
 
 func TestFlagParsing(t *testing.T) {
 	tests := []struct {
-		name             string
-		args             []string
-		expectVerbosity  int
-		expectQuiet      bool
-		expectJSON       bool
+		name            string
+		args            []string
+		expectVerbosity int
+		expectQuiet     bool
+		expectJSON      bool
 	}{
 		{
 			name:            "no flags",

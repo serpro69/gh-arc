@@ -58,12 +58,12 @@ type TemplateFields struct {
 
 // StackingContext contains stacking information for template header
 type StackingContext struct {
-	IsStacking       bool
-	BaseBranch       string
-	ParentPR         *github.PullRequest
-	DependentPRs     []*github.PullRequest
-	CurrentBranch    string
-	ShowDependents   bool
+	IsStacking     bool
+	BaseBranch     string
+	ParentPR       *github.PullRequest
+	DependentPRs   []*github.PullRequest
+	CurrentBranch  string
+	ShowDependents bool
 }
 
 // TemplateGenerator generates PR templates with stacking context
@@ -71,8 +71,8 @@ type TemplateGenerator struct {
 	stackingContext *StackingContext
 	analysis        *CommitAnalysis
 	reviewers       []string
-	linearEnabled   bool   // Whether to show Linear Ref field
-	defaultDraft    bool   // Default draft status from config
+	linearEnabled   bool // Whether to show Linear Ref field
+	defaultDraft    bool // Default draft status from config
 }
 
 // NewTemplateGenerator creates a new template generator

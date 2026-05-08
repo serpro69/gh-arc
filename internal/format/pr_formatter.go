@@ -36,11 +36,11 @@ const (
 
 // PRFormatterOptions contains options for formatting PR output
 type PRFormatterOptions struct {
-	UseColor      bool // Enable color output
-	MaxTitleWidth int  // Maximum width for title column (0 = no limit)
+	UseColor      bool   // Enable color output
+	MaxTitleWidth int    // Maximum width for title column (0 = no limit)
 	SortBy        string // Sort field: "updated", "created", "number"
-	SortDesc      bool // Sort in descending order
-	ShowSummary   bool // Show summary row at the end
+	SortDesc      bool   // Sort in descending order
+	ShowSummary   bool   // Show summary row at the end
 }
 
 // DefaultPRFormatterOptions returns options with sensible defaults
