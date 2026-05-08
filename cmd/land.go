@@ -26,6 +26,7 @@ var (
 var landCmd = &cobra.Command{
 	Use:   "land",
 	Short: "Merge the current branch's pull request",
+	Args:  cobra.NoArgs,
 	Long: `Merge the current branch's pull request after verifying preconditions.
 
 Checks approval status, CI results, and local/remote HEAD consistency before
