@@ -110,15 +110,15 @@
 → verify: `go test ./internal/land/...` passes
 
 ## Task 8: Cobra command wiring
-- **Status:** pending
+- **Status:** done
 - **Depends on:** Task 7
 - **Docs:** [implementation.md#phase-4-command-wiring](./implementation.md#phase-4-command-wiring)
 
 ### Subtasks
-- [ ] 8.1 Create `cmd/land.go` with `landCmd` Cobra command — `Use`, `Short`, `Long` (with usage examples), `RunE: runLand`
-- [ ] 8.2 Define flag variables (`landSquash`, `landRebase`, `landForce`, `landEdit`, `landNoDelete`) and register in `init()`, mark `--squash`/`--rebase` mutually exclusive
-- [ ] 8.3 Implement `runLand()` — load config, get repo context, open git repo, create client, create `LandWorkflow`, execute, handle error types with actionable messages
-- [ ] 8.4 Register command: `rootCmd.AddCommand(landCmd)` in `init()`
+- [x] 8.1 Create `cmd/land.go` with `landCmd` Cobra command — `Use`, `Short`, `Long` (with usage examples), `RunE: runLand`
+- [x] 8.2 Define flag variables (`landSquash`, `landRebase`, `landForce`, `landEdit`, `landNoDelete`) and register in `init()`, mark `--squash`/`--rebase` mutually exclusive
+- [x] 8.3 Implement `runLand()` — load config, get repo context, open git repo, create client, create `LandWorkflow`, execute, handle error types with actionable messages
+- [x] 8.4 Register command: `rootCmd.AddCommand(landCmd)` in `init()`
 
 → verify: `go build -o gh-arc` succeeds, `./gh-arc land --help` shows correct usage and flags
 
