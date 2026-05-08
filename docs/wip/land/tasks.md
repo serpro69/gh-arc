@@ -2,7 +2,7 @@
 
 > Design: [./design.md](./design.md)
 > Implementation: [./implementation.md](./implementation.md)
-> Status: pending
+> Status: done
 > Created: 2026-04-25
 
 ## Task 1: Config changes
@@ -123,11 +123,11 @@
 → verify: `go build -o gh-arc` succeeds, `./gh-arc land --help` shows correct usage and flags
 
 ## Task 9: Final verification
-- **Status:** pending
+- **Status:** done
 - **Depends on:** Task 1, Task 2, Task 3, Task 4, Task 5, Task 6, Task 7, Task 8
 
 ### Subtasks
-- [ ] 9.1 Run `test` skill to verify all tasks — full test suite, `go vet`, `go fmt`
-- [ ] 9.2 Run `document` skill to update any relevant docs
-- [ ] 9.3 Run `review-code` skill with Go input to review the implementation
-- [ ] 9.4 Run `review-spec` skill to verify implementation matches design and implementation docs
+- [x] 9.1 Run `test` skill to verify all tasks — full test suite, `go vet`, `go fmt`
+- [x] 9.2 Run `document` skill to update any relevant docs
+- [x] 9.3 Run `review-code` skill with Go input to review the implementation
+- [x] 9.4 Run `review-spec` skill to verify implementation matches design and implementation docs
