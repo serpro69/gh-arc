@@ -80,17 +80,17 @@
 → verify: `go test ./internal/land/...` passes
 
 ## Task 6: Land cleanup module
-- **Status:** pending
+- **Status:** done
 - **Depends on:** —
 - **Docs:** [implementation.md#34-cleanup-module](./implementation.md#34-cleanup-module)
 
 ### Subtasks
-- [ ] 6.1 Create `internal/land/cleanup.go` with `PostMergeCleanup` struct and `CleanupResult` type
-- [ ] 6.2 Implement `checkoutBranch(branch)` — runs `git checkout` via CLI
-- [ ] 6.3 Implement `pullLatest(branch)` — runs `git pull origin` via CLI
-- [ ] 6.4 Implement `deleteLocalBranch(branch)` — captures SHA via `git rev-parse`, runs `git branch -D`, returns SHA for restore message
-- [ ] 6.5 Implement `Execute(defaultBranch, featureBranch, noDelete)` — runs steps sequentially, catches errors as warnings in `CleanupResult.Warnings`
-- [ ] 6.6 Write unit tests: each step success/failure, `--no-delete` skips deletion, failures are non-fatal
+- [x] 6.1 Create `internal/land/cleanup.go` with `PostMergeCleanup` struct and `CleanupResult` type
+- [x] 6.2 Implement `checkoutBranch(branch)` — runs `git checkout` via CLI
+- [x] 6.3 Implement `pullLatest(branch)` — runs `git pull origin` via CLI
+- [x] 6.4 Implement `deleteLocalBranch(branch)` — captures SHA via `git rev-parse`, runs `git branch -D`, returns SHA for restore message
+- [x] 6.5 Implement `Execute(defaultBranch, featureBranch, noDelete)` — runs steps sequentially, catches errors as warnings in `CleanupResult.Warnings`
+- [x] 6.6 Write unit tests: each step success/failure, `--no-delete` skips deletion, failures are non-fatal
 
 → verify: `go test ./internal/land/...` passes
 

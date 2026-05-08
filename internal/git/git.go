@@ -1461,3 +1461,85 @@ func (r *Repository) GetRemoteRefAge(remoteRef string) (time.Duration, error) {
 
 	return age, nil
 }
+
+// CheckoutBranch switches to an existing local branch via git CLI.
+func (r *Repository) CheckoutBranch(branch string) error {
+	if branch == "" {
+		return fmt.Errorf("branch name cannot be empty")
+	}
+
+	cmd := exec.Command("git", "checkout", branch)
+	cmd.Dir = r.path
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to checkout branch %s: %w\nOutput: %s",
+			branch, err, string(output))
+	}
+
+	logger.Debug().
+		Str("branch", branch).
+		Msg("Checked out branch")
+	return nil
+}
+
+// PullOrigin pulls the latest changes from origin for the given branch via git CLI.
+func (r *Repository) PullOrigin(branch string) error {
+	if branch == "" {
+		return fmt.Errorf("branch name cannot be empty")
+	}
+
+	cmd := exec.Command("git", "pull", "origin", branch)
+	cmd.Dir = r.path
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to pull origin/%s: %w\nOutput: %s",
+			branch, err, string(output))
+	}
+
+	logger.Debug().
+		Str("branch", branch).
+		Msg("Pulled latest from origin")
+	return nil
+}
+
+// GetBranchSHA returns the SHA of the tip of the given branch via git rev-parse.
+func (r *Repository) GetBranchSHA(branch string) (string, error) {
+	if branch == "" {
+		return "", fmt.Errorf("branch name cannot be empty")
+	}
+
+	cmd := exec.Command("git", "rev-parse", branch)
+	cmd.Dir = r.path
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to get SHA for branch %s: %w\nOutput: %s",
+			branch, err, string(output))
+	}
+
+	return strings.TrimSpace(string(output)), nil
+}
+
+// DeleteLocalBranch force-deletes a local branch via git CLI.
+// Uses -D (force) because the local tracking info may not reflect the remote merge.
+func (r *Repository) DeleteLocalBranch(branch string) error {
+	if branch == "" {
+		return fmt.Errorf("branch name cannot be empty")
+	}
+
+	cmd := exec.Command("git", "branch", "-D", branch)
+	cmd.Dir = r.path
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to delete branch %s: %w\nOutput: %s",
+			branch, err, string(output))
+	}
+
+	logger.Debug().
+		Str("branch", branch).
+		Msg("Deleted local branch")
+	return nil
+}
