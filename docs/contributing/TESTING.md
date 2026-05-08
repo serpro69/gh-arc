@@ -786,6 +786,8 @@ go tool cover -func=coverage.out
   - `internal/github` (GitHub API client)
   - `internal/git` (Git operations)
   - `internal/config` (Configuration)
+  - `internal/land` (Land workflow — checks, merge, cleanup)
+  - `internal/diff` (Diff workflow — PR creation/update)
 
 - **Less Critical**: 60%+ coverage
   - `internal/format` (Formatting)
