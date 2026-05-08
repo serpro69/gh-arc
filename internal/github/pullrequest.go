@@ -1636,9 +1636,10 @@ func DetectReviewerConflicts(currentReviewers []string, parentPR *PullRequest) [
 
 // MergeOptions contains options for merging a pull request
 type MergeOptions struct {
-	Method        string // "squash" or "rebase"
-	CommitTitle   string // squash only: merge commit title
-	CommitMessage string // squash only: merge commit body
+	Method          string // "squash" or "rebase"
+	CommitTitle     string // squash only: merge commit title
+	CommitMessage   string // squash only: merge commit body
+	ExpectedHeadSHA string // reject merge if PR head has moved
 }
 
 // MergeResult represents the result of a merge operation
@@ -1672,6 +1673,9 @@ func (c *Client) MergePullRequest(ctx context.Context, owner, repo string, numbe
 
 	payload := map[string]interface{}{
 		"merge_method": opts.Method,
+	}
+	if opts.ExpectedHeadSHA != "" {
+		payload["sha"] = opts.ExpectedHeadSHA
 	}
 	if opts.Method == "squash" {
 		if opts.CommitTitle != "" {

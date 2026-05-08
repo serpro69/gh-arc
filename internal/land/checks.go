@@ -164,10 +164,17 @@ func (c *PreMergeChecker) CheckCI(ctx context.Context, pr *github.PullRequest, f
 	}
 
 	if relevantChecks == nil {
-		if force {
-			return &CheckResult{Passed: true, Messages: []string{"No CI checks found (bypassed with --force)"}}, nil
+		if c.config.RequireCI == config.CIModeRequired {
+			return &CheckResult{Passed: true, Messages: []string{"No required CI checks configured"}}, nil
 		}
-		return &CheckResult{Passed: true, Messages: []string{"No required CI checks configured"}}, nil
+		msg := "No CI checks found — this may indicate a fetch failure"
+		if force {
+			return &CheckResult{Passed: true, Messages: []string{msg + " (bypassed with --force)"}}, nil
+		}
+		return &CheckResult{
+			Passed:   false,
+			Messages: []string{msg + " — use --force to bypass"},
+		}, nil
 	}
 
 	var failed, inProgress []string
