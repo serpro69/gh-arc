@@ -95,17 +95,17 @@
 → verify: `go test ./internal/land/...` passes
 
 ## Task 7: Land workflow orchestrator
-- **Status:** pending
+- **Status:** done
 - **Depends on:** Task 3, Task 4, Task 5, Task 6
 - **Docs:** [implementation.md#35-workflow-orchestrator](./implementation.md#35-workflow-orchestrator)
 
 ### Subtasks
-- [ ] 7.1 Create `internal/land/workflow.go` with `LandWorkflow`, `LandOptions`, and `LandResult` types
-- [ ] 7.2 Implement `NewLandWorkflow(repo, client, cfg, owner, name)` constructor — creates sub-components
-- [ ] 7.3 Implement `Execute(ctx, *LandOptions)` — the full 12-step sequence: check clean WD → check not on trunk → find PR → verify local HEAD matches PR head → enrich PR → check approval → check CI → check dependent PRs → resolve merge method → execute merge → run cleanup → return result
-- [ ] 7.4 Add inline output printing during execution (progress steps printed in real time, not buffered)
-- [ ] 7.5 Add prompt handling for `requireApproval: "prompt"` — read stdin for `y/N` confirmation; detect non-TTY (`term.IsTerminal(int(os.Stdin.Fd()))`) and auto-decline with message suggesting `--force`
-- [ ] 7.6 Write integration-style tests with mocked git/github: full happy path, force bypass, prompt mode, merge failure, cleanup failure (non-fatal)
+- [x] 7.1 Create `internal/land/workflow.go` with `LandWorkflow`, `LandOptions`, and `LandResult` types
+- [x] 7.2 Implement `NewLandWorkflow(repo, client, cfg, owner, name)` constructor — creates sub-components
+- [x] 7.3 Implement `Execute(ctx, *LandOptions)` — the full 12-step sequence: check clean WD → check not on trunk → find PR → verify local HEAD matches PR head → enrich PR → check approval → check CI → check dependent PRs → resolve merge method → execute merge → run cleanup → return result
+- [x] 7.4 Add inline output printing during execution (progress steps printed in real time, not buffered)
+- [x] 7.5 Add prompt handling for `requireApproval: "prompt"` — read stdin for `y/N` confirmation; detect non-TTY (injectable `isTerminal` func, defaults to `term.IsTerminal`) and auto-decline with message suggesting `--force`
+- [x] 7.6 Write integration-style tests with mocked git/github: full happy path, force bypass, prompt mode, merge failure, cleanup failure (non-fatal)
 
 → verify: `go test ./internal/land/...` passes
 
