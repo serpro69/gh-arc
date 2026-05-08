@@ -20,32 +20,32 @@ This guide provides a detailed explanation of the `gh-arc` codebase architecture
 ### High-Level Architecture
 
 ```
-┌───────────────────────────────────────────────────────┐
-│                   CLI Layer (cmd/)                    │
-│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐   │
-│  │  root   │  │  diff   │  │  list   │  │  auth   │   │
-│  └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘   │
-└───────┼────────────┼────────────┼────────────┼────────┘
-        │            │            │            │
-        └────────────┴─────┬──────┴────────────┘
-                           │
-┌──────────────────────────┴────────────────────────────┐
-│           Business Logic Layer (internal/)            │
-│       ┌──────────┐  ┌──────────┐  ┌──────────┐        │
-│       │  github  │  │   git    │  │  config  │        │
-│       └────┬─────┘  └────┬─────┘  └────┬─────┘        │
-│            │             │             │              │
-│       ┌────┴─────┐  ┌────┴─────┐  ┌────┴─────┐        │
-│       │  cache   │  │ template │  │  logger  │        │
-│       └──────────┘  └──────────┘  └──────────┘        │
-└──────────────────────────┬────────────────────────────┘
-                           │
-┌──────────────────────────┴────────────────────────────┐
-│              External Dependencies                    │
-│       ┌──────────┐  ┌──────────┐  ┌──────────┐        │
-│       │  go-gh   │  │  go-git  │  │  viper   │        │
-│       └──────────┘  └──────────┘  └──────────┘        │
-└───────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                        CLI Layer (cmd/)                          │
+│  ┌────────┐  ┌────────┐  ┌────────┐  ┌────────┐  ┌────────┐    │
+│  │  root  │  │  diff  │  │  land  │  │  list  │  │  auth  │    │
+│  └───┬────┘  └───┬────┘  └───┬────┘  └───┬────┘  └───┬────┘    │
+└──────┼───────────┼───────────┼───────────┼───────────┼──────────┘
+       │           │           │           │           │
+       └───────────┴───────────┴─────┬─────┴───────────┘
+                                     │
+┌────────────────────────────────────┴─────────────────────────────┐
+│                Business Logic Layer (internal/)                  │
+│    ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐       │
+│    │  github  │  │   git    │  │  config  │  │   land   │       │
+│    └────┬─────┘  └────┬─────┘  └────┬─────┘  └──────────┘       │
+│         │             │             │                            │
+│    ┌────┴─────┐  ┌────┴─────┐  ┌────┴─────┐  ┌──────────┐       │
+│    │  cache   │  │ template │  │  logger  │  │   diff   │       │
+│    └──────────┘  └──────────┘  └──────────┘  └──────────┘       │
+└────────────────────────────────────┬─────────────────────────────┘
+                                     │
+┌────────────────────────────────────┴─────────────────────────────┐
+│                     External Dependencies                       │
+│         ┌──────────┐  ┌──────────┐  ┌──────────┐                │
+│         │  go-gh   │  │  go-git  │  │  viper   │                │
+│         └──────────┘  └──────────┘  └──────────┘                │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 ## Architecture Principles
@@ -94,6 +94,7 @@ Contains Cobra command definitions that handle:
 **Key Files:**
 - `root.go` - Root command, global flags, initialization
 - `diff.go` - PR creation/update workflow
+- `land.go` - PR merge workflow (pre-merge checks, merge, cleanup)
 - `list.go` - PR listing and filtering
 - `auth.go` - Authentication verification
 - `version.go` - Version information display
@@ -494,6 +495,52 @@ type DiffWorkflow struct {
 - Business logic moved to testable, reusable components
 - Clear separation of concerns (CLI vs workflow)
 
+#### `internal/land/` - Land Workflow
+
+**Purpose:** Implements the land command workflow — pre-merge verification, merge execution, and post-merge cleanup.
+
+**Key Components:**
+- `workflow.go` - Main orchestrator coordinating the 12-step land sequence
+- `checks.go` - Pre-merge checks (clean WD, not on trunk, PR exists, approval, CI, dependent PRs)
+- `merge.go` - Merge execution (commit message preparation, GitHub merge API call)
+- `cleanup.go` - Post-merge cleanup (checkout default branch, pull, delete local branch)
+- `output.go` - Real-time terminal output formatting with `✓`/`✗`/`⚠` status indicators
+
+**Responsibilities:**
+- Orchestrate complete land workflow (verify → merge → cleanup)
+- Enforce pre-merge checks with configurable strictness (`strict`, `prompt`, `none`)
+- Evaluate CI status per config (`required`, `all`, `none`)
+- Handle interactive prompt mode for approval confirmation (TTY-aware)
+- Prepare and optionally edit merge commit messages via `$EDITOR`
+- Clean up workspace post-merge (best-effort, never fails if merge succeeded)
+
+**Architecture:**
+
+The land package mirrors `internal/diff/`'s orchestrator pattern. Each concern is a separate struct with its own interface:
+
+```go
+WorkflowRepo      → CheckerRepo + CleanupRepo + branch operations
+WorkflowClient    → CheckerClient + MergerClient + EnrichPullRequest
+```
+
+Each sub-component (`PreMergeChecker`, `MergeExecutor`, `PostMergeCleanup`, `OutputStyle`) is independently testable via narrow interfaces. The `LandWorkflow` composes them and drives the sequence.
+
+**Error Types:**
+
+```go
+var (
+    ErrDirtyWorkingDir   = errors.New("working directory has uncommitted changes")
+    ErrOnTrunk           = errors.New("cannot land from the default branch")
+    ErrNoPRFound         = errors.New("no open pull request found for current branch")
+    ErrLocalHeadMismatch = errors.New("local HEAD does not match PR head")
+    ErrApprovalFailed    = errors.New("approval check failed")
+    ErrCIFailed          = errors.New("CI check failed")
+    ErrMergeDeclined     = errors.New("merge declined by user")
+    ErrNonInteractive    = errors.New("approval required in non-interactive environment")
+    ErrMergeAborted      = errors.New("merge aborted: commit message empty or unchanged")
+)
+```
+
 #### `internal/version/` - Version Management
 
 **Purpose:** Version information and build metadata.
@@ -804,6 +851,78 @@ logger.Debug().
    └─> Print to stdout
 
 3. Return to user's shell
+```
+
+### Example: `gh arc land` Command Flow
+
+```
+1. User runs: gh arc land --squash
+
+2. cmd/land.go:runLand()
+   ├─> Load configuration (config.Load())
+   ├─> Open Git repository (git.OpenRepository())
+   ├─> Create GitHub client (github.NewClient())
+   ├─> Get repo context (repository.Current())
+   ├─> Create LandWorkflow orchestrator (land.NewLandWorkflow())
+   │
+   └─> Execute workflow (workflow.Execute())
+       │
+       ├─> Step 1: Check clean working directory
+       │   └─> checker.CheckCleanWorkingDir() — always blocks if dirty
+       │
+       ├─> Step 2: Check not on trunk
+       │   ├─> repo.GetCurrentBranch()
+       │   └─> checker.CheckNotOnTrunk() — hard fail if on default branch
+       │
+       ├─> Step 3: Find PR for current branch
+       │   └─> checker.CheckPRExists(ctx, branch)
+       │       └─> client.FindExistingPRForCurrentBranch()
+       │
+       ├─> Step 4: Verify local HEAD matches PR head
+       │   └─> checker.CheckLocalHeadMatchesPR(pr)
+       │       └─> Compare repo.GetHeadSHA() with pr.Head.SHA
+       │
+       ├─> Step 5: Enrich PR with reviews + CI data
+       │   └─> client.EnrichPullRequest() — fetches reviews and check runs
+       │
+       ├─> Step 6: Check approval status
+       │   └─> checker.CheckApproval(ctx, pr, force)
+       │       ├─> "strict": block if not approved (--force bypasses)
+       │       ├─> "prompt": ask y/N (TTY-aware, --force bypasses)
+       │       └─> "none": skip entirely
+       │
+       ├─> Step 7: Check CI status
+       │   └─> checker.CheckCI(ctx, pr, force)
+       │       ├─> "required": query branch protection required checks
+       │       ├─> "all": every check must pass
+       │       └─> "none": skip entirely
+       │
+       ├─> Step 8: Check dependent PRs (informational)
+       │   └─> checker.CheckDependentPRs(ctx, branch)
+       │       └─> Warn if found, never blocks
+       │
+       ├─> Step 9: Resolve merge method
+       │   └─> Flag override (--squash/--rebase) → config default
+       │
+       ├─> Step 10: Execute merge
+       │   └─> merger.Execute(ctx, *MergeRequest)
+       │       ├─> prepareCommitMessage(pr, edit, isRebase)
+       │       │   ├─> If --edit (and not rebase): open $EDITOR
+       │       │   └─> Else: use PR title + body
+       │       └─> client.MergePullRequestForCurrentRepo()
+       │
+       ├─> Step 11: Post-merge cleanup
+       │   └─> cleanup.Execute(defaultBranch, featureBranch, noDelete)
+       │       ├─> checkoutBranch(defaultBranch)
+       │       ├─> pullLatest(defaultBranch)
+       │       └─> deleteLocalBranch(featureBranch) — unless --no-delete
+       │       (all failures are non-fatal warnings)
+       │
+       └─> Step 12: Return LandResult
+
+3. cmd/land.go displays result (printed inline during execution)
+
+4. Return to user's shell
 ```
 
 ## Design Patterns
