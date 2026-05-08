@@ -17,6 +17,10 @@ var (
 	ErrOnTrunk           = errors.New("cannot land from the default branch")
 	ErrNoPRFound         = errors.New("no open pull request found for current branch")
 	ErrLocalHeadMismatch = errors.New("local HEAD does not match PR head")
+	ErrApprovalFailed    = errors.New("approval check failed")
+	ErrCIFailed          = errors.New("CI check failed")
+	ErrMergeDeclined     = errors.New("merge declined by user")
+	ErrNonInteractive    = errors.New("approval required in non-interactive environment")
 )
 
 // CheckerRepo defines git operations needed by pre-merge checks.
