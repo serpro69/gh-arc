@@ -210,9 +210,9 @@ func TestFormatSummary(t *testing.T) {
 	opts := &PRFormatterOptions{UseColor: false}
 
 	statusCounts := map[string]int{
-		"approved":           5,
-		"changes_requested":  2,
-		"review_required":    3,
+		"approved":          5,
+		"changes_requested": 2,
+		"review_required":   3,
 	}
 
 	result := formatSummary(statusCounts, 10, opts)

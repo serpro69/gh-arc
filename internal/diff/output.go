@@ -11,14 +11,14 @@ import (
 
 // OutputStyle defines the styling configuration for terminal output
 type OutputStyle struct {
-	profile     termenv.Profile
-	useColor    bool
-	errorStyle  termenv.Style
-	warningStyle termenv.Style
-	successStyle termenv.Style
-	infoStyle   termenv.Style
+	profile        termenv.Profile
+	useColor       bool
+	errorStyle     termenv.Style
+	warningStyle   termenv.Style
+	successStyle   termenv.Style
+	infoStyle      termenv.Style
 	highlightStyle termenv.Style
-	dimStyle    termenv.Style
+	dimStyle       termenv.Style
 }
 
 // NewOutputStyle creates a new OutputStyle with appropriate color profile
@@ -31,11 +31,11 @@ func NewOutputStyle(useColor bool) *OutputStyle {
 	return &OutputStyle{
 		profile:        profile,
 		useColor:       useColor,
-		errorStyle:     termenv.Style{}.Foreground(profile.Color("1")),   // Red
-		warningStyle:   termenv.Style{}.Foreground(profile.Color("3")),   // Yellow
-		successStyle:   termenv.Style{}.Foreground(profile.Color("2")),   // Green
-		infoStyle:      termenv.Style{}.Foreground(profile.Color("4")),   // Blue
-		highlightStyle: termenv.Style{}.Foreground(profile.Color("6")),   // Cyan
+		errorStyle:     termenv.Style{}.Foreground(profile.Color("1")), // Red
+		warningStyle:   termenv.Style{}.Foreground(profile.Color("3")), // Yellow
+		successStyle:   termenv.Style{}.Foreground(profile.Color("2")), // Green
+		infoStyle:      termenv.Style{}.Foreground(profile.Color("4")), // Blue
+		highlightStyle: termenv.Style{}.Foreground(profile.Color("6")), // Cyan
 		dimStyle:       termenv.Style{}.Faint(),
 	}
 }

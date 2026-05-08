@@ -439,9 +439,9 @@ func TestWorkflow_ErrorRecovery_TemplatePreservation(t *testing.T) {
 	}
 
 	scenarios := []struct {
-		name            string
-		errorStage      string
-		shouldPreserve  bool
+		name           string
+		errorStage     string
+		shouldPreserve bool
 	}{
 		{
 			name:           "error_after_editing",

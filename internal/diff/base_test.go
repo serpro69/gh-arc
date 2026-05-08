@@ -333,7 +333,7 @@ func TestDetectBaseBranch_IndependentBranches_NoStacking(t *testing.T) {
 	mockRepo := &mockRepository{
 		defaultBranch: "main",
 		branches: []git.BranchInfo{
-			{Name: "main", Hash: "aaa111"},       // main at commit A
+			{Name: "main", Hash: "aaa111"},      // main at commit A
 			{Name: "feature-1", Hash: "ddd444"}, // feature-1 at commit D
 			{Name: "feature-2", Hash: "fff666"}, // feature-2 at commit F (current)
 		},
@@ -400,7 +400,7 @@ func TestDetectBaseBranch_IndependentBranches_DifferentMergeBases_NoStacking(t *
 	mockRepo := &mockRepository{
 		defaultBranch: "main",
 		branches: []git.BranchInfo{
-			{Name: "main", Hash: "aaa222"},       // main at A'
+			{Name: "main", Hash: "aaa222"},      // main at A'
 			{Name: "feature-1", Hash: "ddd444"}, // feature-1 at D
 			{Name: "feature-2", Hash: "fff666"}, // feature-2 at F (current)
 		},

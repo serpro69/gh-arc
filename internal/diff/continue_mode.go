@@ -36,12 +36,12 @@ type ContinueModeOptions struct {
 
 // ContinueModeResult contains the results of continue mode execution
 type ContinueModeResult struct {
-	PR             *github.PullRequest
-	WasCreated     bool
-	HeadBranch     string
-	BaseBranch     string
-	ParsedFields   *template.TemplateFields
-	Messages       []string
+	PR           *github.PullRequest
+	WasCreated   bool
+	HeadBranch   string
+	BaseBranch   string
+	ParsedFields *template.TemplateFields
+	Messages     []string
 }
 
 // NewContinueModeExecutor creates a new continue mode executor

@@ -1540,11 +1540,11 @@ ENG-123, ENG-124
 // Test ExtractBranchInfo with standard PR header
 func TestExtractBranchInfo(t *testing.T) {
 	tests := []struct {
-		name          string
+		name            string
 		templateContent string
-		expectedHead  string
-		expectedBase  string
-		expectedFound bool
+		expectedHead    string
+		expectedBase    string
+		expectedFound   bool
 	}{
 		{
 			name: "standard PR header format",
@@ -1747,25 +1747,25 @@ func TestExtractBranchInfo_WhitespaceHandling(t *testing.T) {
 // Test ExtractBranchInfo edge cases
 func TestExtractBranchInfo_EdgeCases(t *testing.T) {
 	tests := []struct {
-		name          string
+		name            string
 		templateContent string
-		expectedHead  string
-		expectedBase  string
-		expectedFound bool
+		expectedHead    string
+		expectedBase    string
+		expectedFound   bool
 	}{
 		{
-			name:          "empty content",
+			name:            "empty content",
 			templateContent: "",
-			expectedHead:  "",
-			expectedBase:  "",
-			expectedFound: false,
+			expectedHead:    "",
+			expectedBase:    "",
+			expectedFound:   false,
 		},
 		{
-			name:          "only whitespace",
+			name:            "only whitespace",
 			templateContent: "   \n\n   \n",
-			expectedHead:  "",
-			expectedBase:  "",
-			expectedFound: false,
+			expectedHead:    "",
+			expectedBase:    "",
+			expectedFound:   false,
 		},
 		{
 			name: "header with arrow but no colon",
@@ -2037,7 +2037,7 @@ Test`,
 			wantOk:   false,
 		},
 		{
-			name: "empty content",
+			name:     "empty content",
 			content:  "",
 			wantBase: "",
 			wantOk:   false,

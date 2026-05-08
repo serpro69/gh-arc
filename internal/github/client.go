@@ -168,7 +168,7 @@ func NewClient(opts ...ClientOption) (*Client, error) {
 		restClient:     restClient,
 		graphqlClient:  graphqlClient,
 		config:         config,
-		cache:          &NoOpCache{}, // Will be replaced below if caching is enabled
+		cache:          &NoOpCache{},                        // Will be replaced below if caching is enabled
 		circuitBreaker: NewCircuitBreaker(5, 1*time.Minute), // 5 failures, 1 minute reset
 	}
 

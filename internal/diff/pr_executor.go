@@ -49,12 +49,12 @@ type PRRequest struct {
 
 // PRResult contains the results of a PR create/update operation
 type PRResult struct {
-	PR              *github.PullRequest
-	WasCreated      bool
-	DraftChanged    bool
-	ReviewersAdded  []string
-	Pushed          bool
-	Messages        []string
+	PR             *github.PullRequest
+	WasCreated     bool
+	DraftChanged   bool
+	ReviewersAdded []string
+	Pushed         bool
+	Messages       []string
 }
 
 // NewPRExecutor creates a new PR executor
