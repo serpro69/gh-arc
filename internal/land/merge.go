@@ -46,9 +46,10 @@ func (m *MergeExecutor) Execute(ctx context.Context, req *MergeRequest) (*github
 	}
 
 	opts := &github.MergeOptions{
-		Method:        req.Method,
-		CommitTitle:   title,
-		CommitMessage: body,
+		Method:          req.Method,
+		CommitTitle:     title,
+		CommitMessage:   body,
+		ExpectedHeadSHA: req.PR.Head.SHA,
 	}
 
 	result, err := m.client.MergePullRequestForCurrentRepo(ctx, req.PR.Number, opts)
@@ -104,7 +105,8 @@ func (m *MergeExecutor) openEditor(title, body string) (string, string, error) {
 
 	originalContent := content
 
-	// Split editor command to handle values like "code --wait" or "vim -u NONE"
+	// TODO: strings.Fields breaks on quoted args (e.g. EDITOR='/path/to/my editor').
+	// Centralize with shell-word parsing and share with internal/template/template.go:485.
 	parts := strings.Fields(editor)
 	cmd := exec.Command(parts[0], append(parts[1:], tmpPath)...)
 	cmd.Stdin = os.Stdin

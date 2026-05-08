@@ -579,7 +579,7 @@ func TestCheckCI(t *testing.T) {
 		}
 	})
 
-	t.Run("all mode/no checks found without force", func(t *testing.T) {
+	t.Run("all mode/no checks found without force blocks", func(t *testing.T) {
 		cfg := defaultLandConfig()
 		cfg.RequireCI = config.CIModeAll
 		checker := newChecker(nil, &mockCheckerClient{}, cfg)
@@ -587,8 +587,21 @@ func TestCheckCI(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+		if result.Passed {
+			t.Error("all mode with no checks should block (possible fetch failure)")
+		}
+	})
+
+	t.Run("all mode/no checks found with force bypasses", func(t *testing.T) {
+		cfg := defaultLandConfig()
+		cfg.RequireCI = config.CIModeAll
+		checker := newChecker(nil, &mockCheckerClient{}, cfg)
+		result, err := checker.CheckCI(ctx, noChecksPR, true)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 		if !result.Passed {
-			t.Error("no checks with no required checks should pass")
+			t.Error("force should bypass")
 		}
 	})
 
