@@ -176,3 +176,10 @@ These commands mirror [phorgeit/arcanist](https://github.com/phorgeit/arcanist) 
 - Rate limiting is a real concern for integration tests — consider test design that minimizes API calls (reuse repos across tests in a suite, batch operations)
 - The `testify/suite` pattern works well for shared setup/teardown of test repositories
 - CI should run integration tests only on main branch pushes (not on every PR) to avoid token exposure and rate limit issues
+
+--
+
+## Task 14: Addendum
+
+- `arc open <num>` - opens a github issue/pr in the default system browser
+- `arc status <pr_num>` - detailed status/logs from the pr status checks
