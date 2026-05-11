@@ -60,7 +60,7 @@ gh extension install .
 
 ## Architecture
 
-See @./docs/contributing/ARCHITECTURE.md for an architecture overview.
+See `./docs/contributing/ARCHITECTURE.md` for an architecture overview.
 
 ### Planned Features
 
