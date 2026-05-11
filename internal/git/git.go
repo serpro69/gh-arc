@@ -165,39 +165,46 @@ func (r *Repository) IsDetachedHead() (bool, error) {
 }
 
 // GetWorkingDirectoryStatus returns the status of the working directory.
+// Uses git CLI instead of go-git's Worktree.Status(), which has known issues
+// with .gitignore handling, global excludes, and file permission tracking.
 func (r *Repository) GetWorkingDirectoryStatus() (*WorkingDirectoryStatus, error) {
-	worktree, err := r.repo.Worktree()
+	cmd := exec.Command("git", "status", "--porcelain")
+	cmd.Dir = r.path
+	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get worktree: %w", err)
-	}
-
-	status, err := worktree.Status()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get status: %w", err)
+		return nil, fmt.Errorf("failed to get working directory status: %w", err)
 	}
 
 	wdStatus := &WorkingDirectoryStatus{
-		IsClean:        status.IsClean(),
+		IsClean:        true,
 		StagedFiles:    make([]string, 0),
 		UnstagedFiles:  make([]string, 0),
 		UntrackedFiles: make([]string, 0),
 	}
 
-	// Iterate through file statuses
-	for filePath, fileStatus := range status {
-		// Check staging area status
-		if fileStatus.Staging != git.Unmodified && fileStatus.Staging != git.Untracked {
-			wdStatus.StagedFiles = append(wdStatus.StagedFiles, filePath)
-		}
+	lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
+	if len(lines) == 1 && lines[0] == "" {
+		return wdStatus, nil
+	}
 
-		// Check worktree status
-		if fileStatus.Worktree == git.Modified || fileStatus.Worktree == git.Deleted {
-			wdStatus.UnstagedFiles = append(wdStatus.UnstagedFiles, filePath)
+	wdStatus.IsClean = false
+	for _, line := range lines {
+		if len(line) < 4 {
+			continue
 		}
+		x := line[0]    // index (staging) status
+		y := line[1]    // worktree status
+		file := line[3:] // filename starts after "XY "
 
-		// Check untracked files
-		if fileStatus.Staging == git.Untracked {
-			wdStatus.UntrackedFiles = append(wdStatus.UntrackedFiles, filePath)
+		if x == '?' {
+			wdStatus.UntrackedFiles = append(wdStatus.UntrackedFiles, file)
+			continue
+		}
+		if x != ' ' && x != '?' {
+			wdStatus.StagedFiles = append(wdStatus.StagedFiles, file)
+		}
+		if y != ' ' && y != '?' {
+			wdStatus.UnstagedFiles = append(wdStatus.UnstagedFiles, file)
 		}
 	}
 
