@@ -154,12 +154,15 @@ Within each directory, JSON files take precedence over YAML files (`.arc.json` >
 
 ### Configuration Format
 
+A [JSON Schema](docs/arc.schema.json) is available for editor autocompletion and validation. For `.arc.json`, add the `$schema` key as shown below. For YAML, configure your editor's YAML language server to associate the schema with `.arc.yaml`/`.arc.yml` files.
+
 Create a `.arc.json` or `.arc.yaml` file in your project root or user config directory:
 
 **JSON format (`.arc.json`):**
 
 ```json
 {
+  "$schema": "https://raw.githubusercontent.com/serpro69/gh-arc/main/docs/arc.schema.json",
   "github": {
     "defaultBranch": "main",
     "defaultReviewers": [],

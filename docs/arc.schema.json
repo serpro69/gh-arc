@@ -1,0 +1,293 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/serpro69/gh-arc/main/docs/arc.schema.json",
+  "title": "gh-arc configuration",
+  "description": "Configuration schema for the gh-arc GitHub CLI extension",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Path or URL to the JSON Schema for editor validation"
+    },
+    "github": {
+      "type": "object",
+      "description": "GitHub-related settings",
+      "additionalProperties": false,
+      "properties": {
+        "defaultBranch": {
+          "type": "string",
+          "description": "Default base branch for the repository",
+          "default": "main"
+        },
+        "defaultReviewers": {
+          "type": "array",
+          "description": "GitHub usernames to request reviews from by default",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "autoAssignReviewer": {
+          "type": "boolean",
+          "description": "Automatically assign a reviewer when creating a PR",
+          "default": false
+        }
+      }
+    },
+    "diff": {
+      "type": "object",
+      "description": "PR creation and diff settings",
+      "additionalProperties": false,
+      "properties": {
+        "createAsDraft": {
+          "type": "boolean",
+          "description": "Create PRs as draft by default",
+          "default": false
+        },
+        "autoUpdatePR": {
+          "type": "boolean",
+          "description": "Automatically update existing PR when running diff again",
+          "default": true
+        },
+        "includeCommitMessages": {
+          "type": "boolean",
+          "description": "Include commit messages in the PR description",
+          "default": true
+        },
+        "enableStacking": {
+          "type": "boolean",
+          "description": "Enable stacked PRs (opt-out, enabled by default)",
+          "default": true
+        },
+        "defaultBase": {
+          "type": "string",
+          "description": "Default base branch for PRs. Empty string means auto-detect from git",
+          "pattern": "^$|^[a-zA-Z0-9][^ ]*$",
+          "default": ""
+        },
+        "showStackingWarnings": {
+          "type": "boolean",
+          "description": "Show warnings about stacked PR relationships",
+          "default": true
+        },
+        "templatePath": {
+          "type": "string",
+          "description": "Path to a custom PR template file. Empty string uses the built-in template",
+          "default": ""
+        },
+        "requireTestPlan": {
+          "type": "boolean",
+          "description": "Require a test plan section in the PR description",
+          "default": true
+        },
+        "linearEnabled": {
+          "type": "boolean",
+          "description": "Enable Linear integration for issue linking",
+          "default": false
+        },
+        "linearDefaultProject": {
+          "type": "string",
+          "description": "Default Linear project key for issue linking",
+          "default": ""
+        },
+        "autoCreateBranchFromMain": {
+          "type": "boolean",
+          "description": "Automatically create a feature branch from main when running diff on the default branch",
+          "default": true
+        },
+        "autoBranchNamePattern": {
+          "type": "string",
+          "description": "Pattern for auto-created branch names. Empty string uses default pattern. Set to \"null\" to prompt the user",
+          "pattern": "^$|^null$|^[^/]([^.~ ^:?*\\[\\\\]|\\.(?!\\.))*$",
+          "default": ""
+        },
+        "staleRemoteThresholdHours": {
+          "type": "integer",
+          "description": "Warn if origin/main is older than this many hours",
+          "minimum": 0,
+          "default": 24
+        }
+      }
+    },
+    "land": {
+      "type": "object",
+      "description": "Merge/land settings",
+      "additionalProperties": false,
+      "properties": {
+        "defaultMergeMethod": {
+          "type": "string",
+          "description": "Default merge method when landing PRs",
+          "enum": ["squash", "rebase"],
+          "default": "squash"
+        },
+        "deleteLocalBranch": {
+          "type": "boolean",
+          "description": "Delete the local branch after landing",
+          "default": true
+        },
+        "requireApproval": {
+          "type": "string",
+          "description": "Approval requirement before landing. \"strict\" blocks without approval, \"prompt\" asks for confirmation, \"none\" skips the check",
+          "enum": ["strict", "prompt", "none"],
+          "default": "strict"
+        },
+        "requireCI": {
+          "type": "string",
+          "description": "CI check requirement before landing. \"required\" blocks if required checks fail, \"all\" blocks if any check fails, \"none\" skips the check",
+          "enum": ["required", "all", "none"],
+          "default": "required"
+        }
+      }
+    },
+    "test": {
+      "type": "object",
+      "description": "Test execution settings",
+      "additionalProperties": false,
+      "properties": {
+        "runners": {
+          "type": "array",
+          "description": "Test runner configurations. Empty array enables auto-detection",
+          "items": {
+            "$ref": "#/$defs/testRunner"
+          },
+          "default": []
+        }
+      }
+    },
+    "lint": {
+      "type": "object",
+      "description": "Linting settings",
+      "additionalProperties": false,
+      "properties": {
+        "runners": {
+          "type": "array",
+          "description": "Linter runner configurations",
+          "items": {
+            "$ref": "#/$defs/lintRunner"
+          },
+          "default": []
+        },
+        "megaLinter": {
+          "type": "object",
+          "description": "Mega-linter specific settings",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "string",
+              "description": "Whether to use mega-linter. \"auto\" detects based on project config",
+              "enum": ["auto", "true", "false"],
+              "default": "auto"
+            },
+            "config": {
+              "type": "string",
+              "description": "Path to the mega-linter configuration file",
+              "default": ".mega-linter.yml"
+            },
+            "fixIssues": {
+              "type": "boolean",
+              "description": "Automatically fix issues found by mega-linter",
+              "default": false
+            }
+          }
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "description": "Output preferences",
+      "additionalProperties": false,
+      "properties": {
+        "verbose": {
+          "type": "boolean",
+          "description": "Enable verbose output",
+          "default": false
+        },
+        "quiet": {
+          "type": "boolean",
+          "description": "Suppress non-essential output",
+          "default": false
+        },
+        "json": {
+          "type": "boolean",
+          "description": "Output in JSON format",
+          "default": false
+        },
+        "color": {
+          "type": "boolean",
+          "description": "Enable colored output",
+          "default": true
+        }
+      }
+    }
+  },
+  "$defs": {
+    "testRunner": {
+      "type": "object",
+      "description": "A test runner configuration",
+      "additionalProperties": false,
+      "required": ["name", "command"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Display name for this test runner",
+          "minLength": 1
+        },
+        "command": {
+          "type": "string",
+          "description": "Command to execute",
+          "minLength": 1
+        },
+        "args": {
+          "type": "array",
+          "description": "Arguments to pass to the command",
+          "items": {
+            "type": "string"
+          }
+        },
+        "workingDir": {
+          "type": "string",
+          "description": "Working directory for the command"
+        },
+        "timeout": {
+          "type": "string",
+          "description": "Timeout duration (e.g. \"30s\", \"5m\")"
+        }
+      }
+    },
+    "lintRunner": {
+      "type": "object",
+      "description": "A linter runner configuration",
+      "additionalProperties": false,
+      "required": ["name", "command"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Display name for this linter",
+          "minLength": 1
+        },
+        "command": {
+          "type": "string",
+          "description": "Command to execute",
+          "minLength": 1
+        },
+        "args": {
+          "type": "array",
+          "description": "Arguments to pass to the command",
+          "items": {
+            "type": "string"
+          }
+        },
+        "workingDir": {
+          "type": "string",
+          "description": "Working directory for the command"
+        },
+        "autoFix": {
+          "type": "boolean",
+          "description": "Automatically apply fixes",
+          "default": false
+        }
+      }
+    }
+  }
+}
