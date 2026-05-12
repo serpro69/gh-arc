@@ -115,6 +115,6 @@ Based on @./README.md, the extension will implement commands for:
 # Extra Instructions
 @.claude/CLAUDE.extra.md
 
-# capy — MANDATORY routing rules
+# capy — context-window routing
 
 @.capy/AGENTS.md
