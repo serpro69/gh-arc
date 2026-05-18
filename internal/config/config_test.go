@@ -97,6 +97,36 @@ func TestLoad(t *testing.T) {
 		}
 	})
 
+	t.Run("load config from repo root when cwd is a subdirectory", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// Initialize a git repo in tmpDir so FindRepositoryRoot resolves it
+		if err := os.Mkdir(filepath.Join(tmpDir, ".git"), 0o755); err != nil {
+			t.Fatalf("Failed to create .git dir: %v", err)
+		}
+
+		// Place config at repo root
+		configContent := `{"github":{"defaultBranch":"from-root"}}`
+		if err := os.WriteFile(filepath.Join(tmpDir, ".arc.json"), []byte(configContent), 0o644); err != nil {
+			t.Fatalf("Failed to write config: %v", err)
+		}
+
+		// Create a nested subdirectory and chdir into it
+		subDir := filepath.Join(tmpDir, "src", "pkg")
+		if err := os.MkdirAll(subDir, 0o755); err != nil {
+			t.Fatalf("Failed to create subdir: %v", err)
+		}
+		os.Chdir(subDir)
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if cfg.GitHub.DefaultBranch != "from-root" {
+			t.Errorf("Expected branch 'from-root', got '%s'", cfg.GitHub.DefaultBranch)
+		}
+	})
+
 	t.Run("load from YAML config file (.yaml)", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		os.Chdir(tmpDir)

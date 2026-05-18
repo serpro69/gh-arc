@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/serpro69/gh-arc/internal/git"
 	"github.com/spf13/viper"
 )
 
@@ -131,8 +132,13 @@ func Load() (*Config, error) {
 	setDefaults(v)
 
 	// Add config search paths (expand environment variables)
+	// Resolve repo root so config is found even when running from a subdirectory
+	repoRoot := "."
+	if root, err := git.FindRepositoryRoot(""); err == nil {
+		repoRoot = root
+	}
 	searchPaths := []string{
-		".",                                  // Current directory
+		repoRoot,                             // Repository root directory
 		os.ExpandEnv("$HOME/.config/gh-arc"), // User config directory
 		"/etc/gh-arc",                        // System-wide config
 	}
