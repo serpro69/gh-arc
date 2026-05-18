@@ -1550,3 +1550,19 @@ func (r *Repository) DeleteLocalBranch(branch string) error {
 		Msg("Deleted local branch")
 	return nil
 }
+
+// PruneRemoteRefs removes stale remote-tracking references for branches that
+// no longer exist on the remote (e.g. after GitHub auto-deletes a merged branch).
+func (r *Repository) PruneRemoteRefs() error {
+	cmd := exec.Command("git", "remote", "prune", "origin")
+	cmd.Dir = r.path
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to prune remote references: %w\nOutput: %s",
+			err, string(output))
+	}
+
+	logger.Debug().Msg("Pruned stale remote-tracking references")
+	return nil
+}

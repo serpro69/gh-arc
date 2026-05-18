@@ -218,6 +218,9 @@ func (w *LandWorkflow) printCleanupResult(result *CleanupResult, defaultBranch, 
 	if result.CheckedOut && result.Pulled {
 		w.output.PrintCheckout(defaultBranch)
 	}
+	if result.RemotePruned {
+		w.output.PrintRemotePruned()
+	}
 	if result.BranchDeleted {
 		w.output.PrintBranchDeleted(featureBranch, result.DeletedBranchSHA)
 	}

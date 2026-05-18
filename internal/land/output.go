@@ -131,6 +131,11 @@ func (o *OutputStyle) PrintCheckout(branch string) {
 	o.PrintStep("✓", fmt.Sprintf("Switched to %s, pulled latest", branch))
 }
 
+// PrintRemotePruned prints the remote refs prune step.
+func (o *OutputStyle) PrintRemotePruned() {
+	o.PrintStep("✓", "Pruned stale remote-tracking references")
+}
+
 // PrintBranchDeleted prints the branch deletion step with a restore command.
 func (o *OutputStyle) PrintBranchDeleted(branch, sha string) {
 	shortSHA := truncateSHA(sha)
