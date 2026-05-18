@@ -1,0 +1,451 @@
+ ▐▛███▜▌   Claude Code v2.1.143
+▝▜█████▛▘  Opus 4.6 · Claude Team
+  ▘▘ ▝▝    ~/Projects/personal/gh-arc
+
+  Using Opus 4.6 (from .claude/settings.json) · /model to change
+
+❯ Let's use kk:design to turn task 8 from @docs/archive/tm_tasks.md into a full 
+   feature design. Let's start with the lint, but I think the implementation    
+  will be similar for both, so keep that in mind.                               
+  ⎿  Read docs/archive/tm_tasks.md (210 lines)
+
+● Skill(kk:design)
+  ⎿  Successfully loaded skill
+
+● I'll follow the design skill workflow. Let me load the process files first.
+
+  Read 3 files (ctrl+o to expand)
+
+● Let me start by understanding the project and running profile detection. I'll
+  read the key files in parallel.
+
+  Searched for 1 pattern, read 2 files, listed 1 directory (ctrl+o to expand)
+
+● The Go profile's design signals match (Go, go.mod). Let me read the config,
+  the existing internal/lint/ package, and the Go profile's design content.
+
+  Read 3 files, listed 1 directory (ctrl+o to expand)
+
+● This is a Go project — the go profile matches. Let me confirm and then explore
+   more of the existing code.
+
+● User answered Claude's questions:
+  ⎿  · This appears to be a Go feature. Activate the Go profile for design-phase
+      guidance? → Yes
+
+● Go profile activated. The conditional checklists (database, grpc,
+  observability) don't apply here. Let me now explore the patterns I'll need to
+  understand for the design.
+
+  Read 3 files, listed 1 directory (ctrl+o to expand)
+
+● Let me check the config schema and the testing-flags WIP docs (mentioned as
+  having overlap with Task 8).
+
+  Read 1 file, listed 1 directory (ctrl+o to expand)
+
+● Let me check the testing-flags design (overlap mentioned in Task 8) and the
+  default MegaLinter config.
+
+  Read 2 files (ctrl+o to expand)
+
+● Let me search for prior design context in the capy knowledge base before
+  proceeding to refinement questions.
+
+  Called capy (ctrl+o to expand)
+
+● No directly relevant prior design context in the knowledge base. I now have a
+  solid understanding of the codebase. Let me start the refinement questions.
+
+  Here's what I've gathered so far:
+  - Config already defines LintConfig (with runners + MegaLinter) and TestConfig
+   (with runners)
+  - internal/lint/ exists with MegaLinter config embed
+  - The codebase follows thin CLI layer (cmd/) + internal orchestrator pattern
+  (internal/diff/, internal/land/)
+  - internal/git/ has GetChangedFiles(base, head) for detecting changes between
+  refs
+  - The testing-flags WIP is complementary (E2E testing via
+  --dry-run/--offline), not overlapping
+
+  First refinement question:
+
+● User answered Claude's questions:
+  ⎿  · What should `gh arc lint` lint by default — only files changed on the 
+     current branch (vs the default branch), or all files in the repo? → Changed
+      files only (Recommended)
+
+● User answered Claude's questions:
+  ⎿  · When no runners are configured (empty array), should `gh arc lint` 
+     auto-detect available linters? → we're not targeting go developers, where 
+     did you get that idea from?
+● You're right, I was wrong to frame it that way. gh-arc is a general-purpose
+  trunk-based workflow tool that happens to be written in Go — it targets any
+  developer using GitHub, regardless of language ecosystem.
+
+● User answered Claude's questions:
+  ⎿  · Given that gh-arc is language-agnostic, what's the right auto-detection 
+     strategy when no lint runners are configured? → No auto-detection, but why 
+     error on missing linters? Let's chat about it
+
+● Good question. I was thinking about it wrong. Here's my take:
+
+  When no runners are configured and the user runs gh arc lint, the right
+  behavior is: print a clear message explaining how to configure runners, then 
+  exit 0 (not error). Something like:
+
+  No lint runners configured.
+
+  Add runners to .arc.json:
+    "lint": { "runners": [{ "name": "golangci-lint", "command": "golangci-lint",
+   "args": ["run"] }] }
+
+  Or enable MegaLinter (requires Docker):
+    "lint": { "megaLinter": { "enabled": "true" } }
+
+  The flow would be:
+  1. Configured runners exist → run them
+  2. No runners, but MegaLinter enabled: "true" (or "auto" and Docker detected)
+  → run MegaLinter
+  3. Neither → helpful guidance message, exit 0
+
+  No error, no silent no-op. The user learns what to do without being blocked.
+
+● User answered Claude's questions:
+  ⎿  · Does that flow (configured runners → MegaLinter fallback → guidance 
+     message) work for you, or would you structure it differently? → Yes, that 
+     works
+
+● User answered Claude's questions:
+  ⎿  · Should MegaLinter integration be included in v1 of the lint command, or 
+     deferred? It requires Docker and adds complexity (container management, 
+     output parsing). → Defer MegaLinter to v2 (Recommended)
+
+● User answered Claude's questions:
+  ⎿  · How should lint results be presented? The task mentions file:line:column 
+     for IDE-clickable output. → chat with pal gemini-3.1-pro about this
+
+● Let me get a second opinion from PAL on this.
+
+  Called pal (ctrl+o to expand)
+
+● PAL's analysis is solid and I agree. The recommendation: passthrough + 
+  summary, with --json scoped to execution status (not parsed issues). Key
+  points:
+
+  - Stream native output directly (cmd.Stdout = os.Stdout) to preserve colors
+  and formatting
+  - Frame each runner with a banner (> Running golangci-lint...) and summary (✗ 
+  golangci-lint: 3 issues found)
+  - Use exit codes as source of truth for pass/fail, not output parsing
+  - --json returns runner execution metadata (name, status, exit_code,
+  duration), not individual lint findings
+  - Users who need JSON issues configure the linter itself (e.g., eslint -f json
+   in runner args)
+
+  This avoids the arcanist trap of maintaining per-tool parsers while keeping
+  multi-runner output clear.
+
+● User answered Claude's questions:
+  ⎿  · Should `gh arc lint` support a `--fix` flag that tells runners to 
+     auto-fix issues? The config already has per-runner `autoFix` booleans. → 
+     Yes, --fix flag (Recommended)
+
+● User answered Claude's questions:
+  ⎿  · How should the `--fix` mechanism work? The config has per-runner 
+     `autoFix: bool` but no way to specify *what* fix args to pass. → Add 
+     fixArgs to runner config (Recommended)
+
+● User answered Claude's questions:
+  ⎿  · When multiple runners are configured, should `gh arc lint` stop on the 
+     first runner failure, or run all runners and report combined results? → Run
+      all, report combined (Recommended)
+
+● User answered Claude's questions:
+  ⎿  · Last question: for `gh arc unit`, should changed-file detection work at 
+     the Go package level (run tests for packages containing changed files) or 
+     be language-agnostic like lint (pass changed file paths to the test 
+     runner)? → unit should just run all tests maybe? I don't see how we could 
+     properly do language-agnostic file path testing?
+
+● That's a fair pushback. Scoping tests to changed files is inherently
+  language-specific — Go uses packages, Jest uses file paths, Python uses module
+   paths. The translation layer would need per-ecosystem knowledge, which
+  defeats the language-agnostic goal.
+
+  The pragmatic v1 for unit: just run the configured test runners as-is (all
+  tests). The runner's args already define what to test (e.g., ["./..."] for Go,
+   ["--run", "src/"] for Jest). If users want to scope, they configure the
+  runner args.
+
+  A --changed flag could come later with ecosystem-specific adapters, but v1
+  doesn't need it. The key value of gh arc unit isn't file scoping — it's
+  consistent runner execution with status reporting, the same way lint works.
+
+  That means lint and unit share the exact same runner execution engine. The
+  only difference:
+  - lint: passes changed file paths to runners, has --fix, has fixArgs
+  - unit: runs runners as configured (no file scoping), has --coverage (future)
+
+  I now have enough to describe the full design. Let me present it section by
+  section.
+
+  ---
+  Section 1: Architecture Overview
+
+  The feature introduces a shared runner execution engine in internal/runner/
+  that both gh arc lint and gh arc unit use. This engine handles:
+
+  - Runner discovery (from config)
+  - Sequential execution with output streaming
+  - Exit code tracking and result aggregation
+  - Summary reporting (✓/✗ per runner)
+  - --json output mode (execution metadata)
+
+  On top of the shared engine:
+  - internal/lint/ adds changed-file detection (diff vs default branch), file
+  filtering, --fix support, and MegaLinter integration (deferred to v2)
+  - internal/unit/ (future) wraps the engine with test-specific concerns
+  (--coverage, etc.)
+
+  The CLI layer follows the established pattern: thin cmd/lint.go that loads
+  config, opens git repo, and delegates to internal/lint/.
+
+  The changed-file detection reuses git.GetChangedFiles(base, head) where base
+  is the merge-base of HEAD and the default branch (from config or
+  auto-detected). A --all flag overrides to lint everything.
+
+  Does this high-level structure look right so far?
+
+● User answered Claude's questions:
+  ⎿  · Does this architecture structure (shared runner engine in 
+     internal/runner/, lint-specific logic in internal/lint/, thin cmd/lint.go) 
+     look right? → Looks good, but since we're doing the same engine , let's 
+     include unit as well in the same feature, just break it into two phases
+
+● Good call. Two phases, one feature:
+  - Phase 1: Shared runner engine (internal/runner/) + gh arc lint command
+  - Phase 2: gh arc unit command (reuses the engine, adds test-specific flags)
+
+  ---
+  Section 2: Shared Runner Engine (internal/runner/)
+
+  The runner engine is the core abstraction. It takes a list of runner
+  configurations and executes them sequentially, streaming output and collecting
+   results.
+
+  Key types:
+
+  - RunnerConfig — unified config for both lint and unit runners: name, command,
+   args, workingDir, timeout, and optional fixArgs/autoFix (lint-only fields
+  ignored by unit)
+  - RunResult — per-runner outcome: name, status (pass/fail/error/skipped), exit
+   code, duration
+  - ExecutionResult — aggregate of all RunResults, overall success bool
+  - Engine — the executor. Takes []RunnerConfig + EngineOptions (json mode,
+  verbose, file list for lint)
+
+  Execution flow:
+
+  1. For each runner: print banner (> Running <name>...)
+  2. Build the command: command + args (+ fixArgs if --fix) (+ file paths for
+  lint runners)
+  3. Execute with os/exec, streaming stdout/stderr directly to terminal
+  (preserving TTY colors)
+  4. Capture exit code and duration
+  5. Print per-runner summary line (✓ <name>: passed or ✗ <name>: 3 issues 
+  found)
+  6. After all runners: print overall summary
+  7. Return ExecutionResult
+
+  --json mode: Suppresses banners and streaming output. Collects stdout/stderr
+  per runner (optional). Returns JSON with execution metadata per PAL's
+  recommendation — runner name, status, exit_code, duration_ms.
+
+  File path passing: For lint, changed file paths are appended to the runner's
+  args. For unit, no file paths — args run as-is.
+
+  Timeouts: If a runner config specifies a timeout, wrap exec.CommandContext
+  with a deadline. Default: no timeout (let the tool run to completion).
+
+  Does this engine design make sense before I move to the lint-specific and
+  unit-specific layers?
+
+● User answered Claude's questions:
+  ⎿  · Does the shared runner engine design make sense? Anything you'd change 
+     about the execution flow or types? → Yes, continue
+
+● Section 3: gh arc lint — Lint-Specific Layer (internal/lint/)
+
+  This layer wraps the runner engine with lint concerns: changed-file detection,
+   file filtering, and the --fix flag.
+
+  Workflow (the LintWorkflow orchestrator):
+
+  1. Resolve runners. Load LintConfig.Runners from config. If empty and
+  MegaLinter enabled: "true" (or "auto" + Docker detected) → MegaLinter runner
+  (v2). If nothing → print guidance message, exit 0.
+  2. Detect changed files. Find the merge-base between HEAD and the default
+  branch (git.GetMergeBase(defaultBranch, "HEAD")), then
+  git.GetChangedFiles(mergeBase, "HEAD"). If --all flag, skip this and pass no
+  file paths (runner lints everything).
+  3. Filter files. Remove deleted files (can't lint them). Optionally filter by
+  file extension if a runner declares which extensions it handles (future — not
+  in v1).
+  4. Convert runner configs. Map config.LintRunner → runner.RunnerConfig,
+  injecting fixArgs when --fix is active.
+  5. Execute. Call runner.Engine.Run() with configs + changed file paths.
+  6. Return results. Propagate ExecutionResult to the CLI layer.
+
+  CLI flags (cmd/lint.go):
+  - --fix — enable auto-fix mode (appends fixArgs to each runner)
+  - --all — lint all files, not just changed ones
+  - No positional args (enforced with cobra.NoArgs per the review finding)
+
+  Exit codes:
+  - 0 — all runners passed
+  - 1 — one or more runners reported issues (non-zero exit)
+  - The command never exits >1 for lint findings — the distinction between "lint
+   issues" and "runner crash" is the runner's exit code, which is reported in
+  the summary
+
+● User answered Claude's questions:
+  ⎿  · Does the lint layer design look right? Specifically the changed-file 
+     detection via merge-base and the exit code strategy. → Yes, continue to 
+     unit
+
+● Section 4: gh arc unit — Test-Specific Layer (internal/unit/)
+
+  Simpler than lint since there's no file scoping or fix mode.
+
+  Workflow (the UnitWorkflow orchestrator):
+
+  1. Resolve runners. Load TestConfig.Runners from config. If empty → print
+  guidance message (similar to lint's), exit 0.
+  2. Convert runner configs. Map config.TestRunner → runner.RunnerConfig. The
+  Timeout field on TestRunner gets parsed (e.g., "5m" → time.Duration) and set
+  on the RunnerConfig.
+  3. Execute. Call runner.Engine.Run() with configs, no file paths.
+  4. Return results.
+
+  CLI flags (cmd/unit.go):
+  - No special flags in v1. --coverage is a natural future addition.
+  - No positional args (cobra.NoArgs)
+
+  Same exit code strategy as lint: 0 for all pass, 1 for any failure.
+
+  The key difference from lint: No changed-file detection, no --fix, no --all
+  flag. Just run the configured test runners and report results. The value is in
+   the consistent execution framework, status reporting, and --json output — not
+   in scoping.
+
+  ---
+  Section 5: Config Changes
+
+  The existing config types need one addition:
+
+  - LintRunner: Add FixArgs []string field (mapstructure:"fixArgs") — args
+  appended when --fix is active
+  - JSON schema: Add fixArgs to the lintRunner definition
+  - TestRunner: No changes needed — the existing fields (name, command, args,
+  workingDir, timeout) are sufficient
+
+  The autoFix bool on LintRunner becomes the per-runner opt-in: if autoFix: 
+  false (default), the runner skips fix mode even when --fix is passed globally.
+   This gives users per-runner control.
+
+  ---
+  That covers the full design. Overall summary of decisions:
+
+  ┌────────────────────┬────────────────────────────────────────────────────┐
+  │      Decision      │                       Choice                       │
+  ├────────────────────┼────────────────────────────────────────────────────┤
+  │ Default lint scope │ Changed files only (vs default branch merge-base)  │
+  ├────────────────────┼────────────────────────────────────────────────────┤
+  │ Auto-detection     │ None — guidance message when no runners configured │
+  ├────────────────────┼────────────────────────────────────────────────────┤
+  │ MegaLinter         │ Deferred to v2                                     │
+  ├────────────────────┼────────────────────────────────────────────────────┤
+  │ Output format      │ Passthrough + summary (banners, ✓/✗ per runner)    │
+  ├────────────────────┼────────────────────────────────────────────────────┤
+  │ --json             │ Execution metadata (status, exit_code, duration)   │
+  ├────────────────────┼────────────────────────────────────────────────────┤
+  │ --fix              │ Global flag, uses per-runner fixArgs config        │
+  ├────────────────────┼────────────────────────────────────────────────────┤
+  │ Multi-runner       │ Run all, report combined                           │
+  │ failures           │                                                    │
+  ├────────────────────┼────────────────────────────────────────────────────┤
+  │ Unit file scoping  │ None — runs all tests as configured                │
+  ├────────────────────┼────────────────────────────────────────────────────┤
+  │ Architecture       │ Shared internal/runner/ engine, internal/lint/ +   │
+  │                    │ internal/unit/ wrappers                            │
+  └────────────────────┴────────────────────────────────────────────────────┘
+● User answered Claude's questions:
+  ⎿  · Does the full design look right? Ready to document it in docs/wip/ and 
+     create the task list? → Yes, document it
+
+● I'll create the docs directory and write all three files.
+
+● Bash(mkdir -p /home/sergio/Projects/personal/gh-arc/docs/wip/lint-unit)
+  ⎿  Done
+
+● Write(docs/wip/lint-unit/design.md)
+  ⎿  Wrote 231 lines to docs/wip/lint-unit/design.md
+      2 # Design: `gh arc lint` and `gh arc unit`
+      3 > Status: approved
+      5 > Task 8 from [docs/archive/tm_tasks.md](../../archive/tm_tasks.m
+        d)
+      6 
+      8 ## Overview
+      9 Two commands — `gh arc lint` and `gh arc unit` — that run configu
+        are a common runner execution engine. The design prioritizes lang
+        uage-agnostic extensibility: `gh-arc` is a general-purpose trunk-
+        based workflow tool, not tied to any specific language ecosystem.
+     … +299 lines (ctrl+o to expand)
+
+● Write(docs/wip/lint-unit/implementation.md)
+  ⎿  Wrote 251 lines to docs/wip/lint-unit/implementation.md
+       2 # Implementation Plan: `gh arc lint` and `gh arc unit`
+       3 > Design: [./design.md](./design.md)
+       4 > Status: ready
+       5 > Created: 2026-05-18
+       6 
+       7 ## Phasing
+       8 
+       9 - **Phase 1**: Shared runner engine (`internal/runner/`) + `gh a
+         rc lint` command
+      10 - **Phase 2**: `gh arc unit` command (reuses the engine)
+     … +327 lines (ctrl+o to expand)
+
+● Write(docs/wip/lint-unit/tasks.md)
+  ⎿  Wrote 121 lines to docs/wip/lint-unit/tasks.md
+       1 # Tasks: `gh arc lint` and `gh arc unit`
+       2 
+       3 > Design: [./design.md](./design.md)
+       4 > Implementation: [./implementation.md](./implementation.md)
+       5 > Status: pending
+       6 > Created: 2026-05-18
+       7 
+       8 ---
+       9 
+      10 ## Phase 1: Shared Runner Engine + Lint Command
+     … +194 lines (ctrl+o to expand)
+
+● All three documents are written:
+
+  - docs/wip/lint-unit/design.md — Full design covering architecture, decisions,
+   output strategy, config, and deferred items
+  - docs/wip/lint-unit/implementation.md — Detailed implementation plan in two
+  phases with file paths, types, testing approaches, and verification steps
+  - docs/wip/lint-unit/tasks.md — 7 tasks (4 in Phase 1, 2 in Phase 2, 1
+  verification) with granular subtasks
+
+  Key design decisions captured:
+  - Shared runner engine in internal/runner/, reused by both commands
+  - Passthrough + summary output (no per-tool parsers)
+  - Changed-files-only linting via merge-base detection
+  - --fix via per-runner fixArgs config field
+  - unit runs all tests without file scoping
+  - MegaLinter deferred to v2
+
+✻ Churned for 9m 20s
