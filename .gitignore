@@ -12,6 +12,7 @@
 # sops-encrypted files
 !*.sops
 !.sessions/
+!.arc.yml
 
 /gh-arc*
 
