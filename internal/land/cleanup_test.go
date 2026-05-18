@@ -8,11 +8,13 @@ import (
 type mockCleanupRepo struct {
 	checkoutErr       error
 	pullErr           error
+	pruneErr          error
 	branchSHA         string
 	branchSHAErr      error
 	deleteBranchErr   error
 	checkoutCalls     []string
 	pullCalls         []string
+	pruneCalls        int
 	branchSHACalls    []string
 	deleteBranchCalls []string
 }
@@ -25,6 +27,11 @@ func (m *mockCleanupRepo) CheckoutBranch(branch string) error {
 func (m *mockCleanupRepo) PullOrigin(branch string) error {
 	m.pullCalls = append(m.pullCalls, branch)
 	return m.pullErr
+}
+
+func (m *mockCleanupRepo) PruneRemoteRefs() error {
+	m.pruneCalls++
+	return m.pruneErr
 }
 
 func (m *mockCleanupRepo) GetBranchSHA(branch string) (string, error) {
@@ -52,6 +59,9 @@ func TestPostMergeCleanup_Execute_HappyPath(t *testing.T) {
 	if !result.Pulled {
 		t.Error("expected Pulled to be true")
 	}
+	if !result.RemotePruned {
+		t.Error("expected RemotePruned to be true")
+	}
 	if !result.BranchDeleted {
 		t.Error("expected BranchDeleted to be true")
 	}
@@ -67,6 +77,9 @@ func TestPostMergeCleanup_Execute_HappyPath(t *testing.T) {
 	}
 	if len(mock.pullCalls) != 1 || mock.pullCalls[0] != "main" {
 		t.Errorf("expected pull called with 'main', got %v", mock.pullCalls)
+	}
+	if mock.pruneCalls != 1 {
+		t.Errorf("expected prune called once, got %d", mock.pruneCalls)
 	}
 	if len(mock.deleteBranchCalls) != 1 || mock.deleteBranchCalls[0] != "feature/auth" {
 		t.Errorf("expected delete called with 'feature/auth', got %v", mock.deleteBranchCalls)
@@ -88,11 +101,17 @@ func TestPostMergeCleanup_Execute_NoDelete(t *testing.T) {
 	if !result.Pulled {
 		t.Error("expected Pulled to be true")
 	}
+	if !result.RemotePruned {
+		t.Error("expected RemotePruned to be true even when noDelete is true")
+	}
 	if result.BranchDeleted {
 		t.Error("expected BranchDeleted to be false when noDelete is true")
 	}
 	if result.DeletedBranchSHA != "" {
 		t.Errorf("expected empty DeletedBranchSHA, got %s", result.DeletedBranchSHA)
+	}
+	if mock.pruneCalls != 1 {
+		t.Errorf("expected prune called once even with noDelete, got %d", mock.pruneCalls)
 	}
 	if len(mock.deleteBranchCalls) != 0 {
 		t.Error("expected delete not to be called when noDelete is true")
@@ -131,6 +150,9 @@ func TestPostMergeCleanup_Execute_CheckoutFailure(t *testing.T) {
 	if len(mock.pullCalls) != 0 {
 		t.Error("pull should not be called after checkout failure")
 	}
+	if mock.pruneCalls != 0 {
+		t.Error("prune should not be called after checkout failure")
+	}
 	if len(mock.deleteBranchCalls) != 0 {
 		t.Error("delete should not be called after checkout failure")
 	}
@@ -156,6 +178,35 @@ func TestPostMergeCleanup_Execute_PullFailure(t *testing.T) {
 	}
 	if !result.BranchDeleted {
 		t.Error("expected BranchDeleted to be true — pull failure should not block deletion")
+	}
+	if len(result.Warnings) != 1 {
+		t.Fatalf("expected 1 warning, got %d: %v", len(result.Warnings), result.Warnings)
+	}
+}
+
+func TestPostMergeCleanup_Execute_PruneFailure(t *testing.T) {
+	mock := &mockCleanupRepo{
+		pruneErr:  errors.New("network timeout"),
+		branchSHA: "abc1234",
+	}
+	cleanup := NewPostMergeCleanup(mock)
+
+	result, err := cleanup.Execute("main", "feature/auth", false)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.CheckedOut {
+		t.Error("expected CheckedOut to be true")
+	}
+	if !result.Pulled {
+		t.Error("expected Pulled to be true")
+	}
+	if result.RemotePruned {
+		t.Error("expected RemotePruned to be false")
+	}
+	if !result.BranchDeleted {
+		t.Error("expected BranchDeleted to be true — prune failure should not block deletion")
 	}
 	if len(result.Warnings) != 1 {
 		t.Fatalf("expected 1 warning, got %d: %v", len(result.Warnings), result.Warnings)
@@ -222,7 +273,7 @@ func TestPostMergeCleanup_Execute_AllFailures(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.CheckedOut || result.Pulled || result.BranchDeleted {
+	if result.CheckedOut || result.Pulled || result.RemotePruned || result.BranchDeleted {
 		t.Error("nothing should succeed when checkout fails")
 	}
 	if len(result.Warnings) != 1 {
