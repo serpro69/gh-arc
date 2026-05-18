@@ -33,7 +33,7 @@ cmd/unit.go ──┘    internal/unit/
 
 - `RunnerConfig` — unified execution config: name, command, args, workingDir, timeout, optional extra args (used by lint's --fix)
 - `RunResult` — per-runner outcome: name, status (pass/fail/error/skipped), exit code, duration
-- `ExecutionResult` — aggregate of all RunResults, overall success bool
+- `ExecutionResult` — aggregate of all RunResults, overall success bool, optional skip reason (for cases like "no changed files")
 - `Engine` — the executor, takes `[]RunnerConfig` + `EngineOptions`
 
 **Execution flow per runner:**
@@ -71,13 +71,15 @@ Wraps the runner engine with lint-specific concerns.
 
 **Workflow:**
 
-1. **Resolve runners.** Load `LintConfig.Runners` from config. If empty and MegaLinter is enabled → MegaLinter runner (deferred to v2). If nothing → print guidance message with config examples, exit 0.
+1. **Resolve runners.** Load `LintConfig.Runners` from config. If empty and MegaLinter is enabled → MegaLinter runner (deferred to v2). If nothing → print guidance message with config examples (suppressed in JSON mode), exit 0.
 2. **Detect changed files.** Compute merge-base between HEAD and the default branch via `git.GetMergeBase()`, then `git.GetFilesChanged(mergeBase, "HEAD")` (returns `[]git.FileChange` with deletion metadata). Filter out entries where `IsDeleted == true`, then extract paths from the remaining entries. If `--all` flag → skip detection, pass no file paths (runner lints everything).
-3. **Convert configs.** Map `config.LintRunner` → `runner.RunnerConfig`. When `--fix` is active and the runner's `autoFix` is true, append `fixArgs` to the command args.
+3. **Convert configs.** Map `config.LintRunner` → `runner.RunnerConfig`, including parsing `Timeout` (same as unit). When `--fix` is active and the runner's `autoFix` is true, append `fixArgs` to the command args. File paths are adjusted relative to each runner's `workingDir` if set.
 4. **Execute.** Call `Engine.Run()` with configs + changed file paths.
 5. **Return results.**
 
 **Changed-file detection detail:** Uses merge-base (not the default branch tip) to correctly handle the case where the default branch has advanced since the feature branch was created. This matches how GitHub computes the PR diff.
+
+**File path normalization:** Changed file paths from git are repo-relative. When a runner's `workingDir` is a subdirectory (e.g., `frontend/`), paths are adjusted relative to that directory. Files outside the runner's `workingDir` are skipped for that runner.
 
 **`--fix` mechanism:** Each `LintRunner` declares `fixArgs` (e.g., `["--fix"]` for golangci-lint). The `--fix` CLI flag enables fix mode globally. Per-runner `autoFix: bool` controls opt-in — if `autoFix: false` (the default), the runner skips fix mode even when `--fix` is passed. This gives per-runner granularity.
 

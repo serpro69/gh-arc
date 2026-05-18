@@ -25,7 +25,7 @@ Define the following types:
 
 - **`RunnerConfig`**: Name (string), Command (string), Args ([]string), ExtraArgs ([]string — appended to Args at execution time, used for --fix), WorkingDir (string), Timeout (time.Duration), FilePaths ([]string — changed files appended to command args).
 - **`RunResult`**: Name (string), Status (enum: Passed, Failed, Error, Skipped), ExitCode (int), Duration (time.Duration), Err (error — only set for Status=Error, e.g. command not found).
-- **`ExecutionResult`**: Runners ([]RunResult), Success (bool — true iff all runners passed). Add a helper method `FailedCount() int`.
+- **`ExecutionResult`**: Runners ([]RunResult), Success (bool — true iff all runners passed), SkipReason (string — optional, set when execution was skipped e.g. "no changed files"). Add a helper method `FailedCount() int`.
 - **`EngineOptions`**: JSONMode (bool), Verbose (bool), Stdout (io.Writer), Stderr (io.Writer) — allow injection for testing.
 
 Status should be a string type with constants, not iota, so it serializes cleanly to JSON.
@@ -58,7 +58,7 @@ Formatting functions used by the engine:
 - `PrintBanner(w io.Writer, name string)` — prints `▶ Running <name>...` with a newline.
 - `PrintResult(w io.Writer, result RunResult)` — prints the ✓/✗ summary line with duration.
 - `PrintSummary(w io.Writer, result ExecutionResult)` — prints the overall summary: `━━━` separator + `✓ N runners passed` or `✗ M of N runners failed`.
-- `FormatJSON(result ExecutionResult, command string) ([]byte, error)` — serializes to JSON per the schema in the design doc. The `command` parameter is "lint" or "unit".
+- `FormatJSON(result ExecutionResult, command string) ([]byte, error)` — serializes to JSON per the schema in the design doc. The `command` parameter is "lint" or "unit". When `result.SkipReason` is non-empty, includes a `"skipped"` field in the output.
 
 Follow the output patterns from `internal/land/output.go` (✓/✗/⚠ indicators). Use `fmt.Fprintf` to the injected writer, not direct `fmt.Println`, so output is testable.
 
@@ -127,18 +127,19 @@ Constructor: `NewLintWorkflow(repo LintRepository, executor Executor, cfg *confi
 Method `Execute(ctx context.Context, opts *LintOptions) (*LintResult, error)`:
 
 1. **Resolve runners.** Check `cfg.Lint.Runners`. If empty:
-   - Check MegaLinter config: if `enabled == "true"` or (`enabled == "auto"` and Docker is available), print a message that MegaLinter support is coming in a future version, then fall through.
-   - Print guidance message (config examples for adding runners). Return success result with zero runners.
+   - Check MegaLinter config: if `enabled == "true"` or (`enabled == "auto"` and Docker is available), and not JSON mode, print a message that MegaLinter support is coming in a future version, then fall through.
+   - If not JSON mode, print guidance message (config examples for adding runners). Return success result with zero runners (in JSON mode, the empty ExecutionResult serializes to `{"command":"lint","success":true,"runners":[]}` — no guidance printed).
 2. **Detect changed files** (unless `opts.All`):
    a. Get default branch: `cfg.GitHub.DefaultBranch` (or auto-detect via `repo.GetDefaultBranch()`).
    b. Compute merge-base: `repo.GetMergeBase("origin/"+defaultBranch, "HEAD")`. Fall back to `repo.GetMergeBase(defaultBranch, "HEAD")` if origin ref doesn't exist.
    c. Get changed files: `repo.GetFilesChanged(mergeBase, "HEAD")` — returns `[]git.FileChange` with deletion metadata.
    d. Filter out entries where `FileChange.IsDeleted == true`. Extract `.Path` from remaining entries.
-   e. If no changed files remain, print "No changed files to lint" and return success.
+   e. If no changed files remain: if not JSON mode, print "No changed files to lint". Return success result with `SkipReason: "no changed files"` (FormatJSON includes this as `"skipped"` in JSON output).
 3. **Build runner configs.** For each `config.LintRunner`:
    a. Create `runner.RunnerConfig` with Name, Command, Args, WorkingDir.
-   b. If `opts.Fix` and runner's `AutoFix` is true and `FixArgs` is non-empty: set `ExtraArgs` to `FixArgs`.
-   c. If not `opts.All`: set `FilePaths` to the changed file paths.
+   b. If runner's `Timeout` is non-empty, parse via `time.ParseDuration`. If parsing fails, error with clear message (same pattern as unit workflow). Set `RunnerConfig.Timeout`.
+   c. If `opts.Fix` and runner's `AutoFix` is true and `FixArgs` is non-empty: set `ExtraArgs` to `FixArgs`.
+   d. If not `opts.All`: set `FilePaths` to the changed file paths. File paths are repo-relative (from `GetFilesChanged`). If `WorkingDir` is non-empty and differs from repo root, paths must be adjusted relative to `WorkingDir` (e.g., repo-relative `frontend/src/App.tsx` becomes `src/App.tsx` when `WorkingDir` is `frontend/`). If a changed file falls outside the runner's `WorkingDir`, skip it for that runner.
 4. **Execute.** Call `executor.Run()` with configs + changed file paths.
 5. **Return** `LintResult`.
 
@@ -152,7 +153,10 @@ type Executor interface {
 
 `Engine` satisfies this interface. In production, `cmd/lint.go` creates the engine and passes it to the workflow. In tests, a mock executor verifies the configs/file paths without running real subprocesses.
 
-**Merge-base fallback:** Try `origin/<default>` first (most accurate for feature branches). If that fails (e.g. no remote), fall back to the local default branch ref. If that also fails, error with a message suggesting `git fetch origin`.
+**Merge-base fallback — two distinct failure modes:**
+
+1. **Ref resolution failure** (neither `origin/<default>` nor `<default>` can be resolved): error with a message suggesting `git fetch origin`. This means the default branch ref doesn't exist locally.
+2. **No common ancestor** (both refs resolve but `GetMergeBase` fails, e.g. orphan branch): fall back to linting all files with a `⚠` warning. This is a valid but unusual state — the branch has no shared history with the default branch.
 
 #### Testing `internal/lint/`
 
@@ -181,7 +185,7 @@ Follow the pattern from `cmd/land.go`:
    c. Create `LintWorkflow`.
    d. Call `Execute()` with options mapped from flags.
    e. Handle errors. If the result is non-nil and `!result.Success`, return `ErrSilentExit` (a sentinel error defined in `cmd/` that `Execute()` recognizes — it exits 1 without printing the error, since the lint summary already reported failures).
-   f. Read JSON mode via `cmd.GetJSON()` (not `cfg.Output.JSON` — the helper resolves flag-vs-config precedence). Read verbose via `cmd.GetVerbose()`. Pass both into `LintOptions`.
+   f. Read JSON mode via `GetJSON()` (not `cfg.Output.JSON` — the package-level helper in `cmd/root.go` resolves flag-vs-config precedence). Read verbose via `GetVerbose()`. Pass both into `LintOptions`.
    g. In JSON mode, the workflow returns a `LintResult` and the CLI layer calls `runner.FormatJSON()` to print the single JSON object.
 
 #### Testing
@@ -209,7 +213,7 @@ Constructor: `NewUnitWorkflow(executor runner.Executor, cfg *config.Config) *Uni
 
 Method `Execute(ctx context.Context, opts *UnitOptions) (*UnitResult, error)`:
 
-1. **Resolve runners.** Check `cfg.Test.Runners`. If empty → guidance message, return success.
+1. **Resolve runners.** Check `cfg.Test.Runners`. If empty: if not JSON mode, print guidance message. Return success result with zero runners.
 2. **Build runner configs.** For each `config.TestRunner`:
    a. Create `runner.RunnerConfig` with Name, Command, Args, WorkingDir.
    b. Parse `Timeout` string to `time.Duration` (using `time.ParseDuration`). If parsing fails, error with clear message.
@@ -235,7 +239,7 @@ Same pattern as `cmd/lint.go` but simpler:
 3. `runUnit`:
    a. Load config.
    b. Create `runner.Engine` and `UnitWorkflow` (no git repo needed).
-   c. Read `cmd.GetJSON()` and `cmd.GetVerbose()` into `UnitOptions`.
+   c. Read `GetJSON()` and `GetVerbose()` into `UnitOptions`.
    d. Call `Execute()`.
    e. Handle results same as lint (return `ErrSilentExit` on test failure).
 
@@ -248,7 +252,8 @@ Same pattern as `cmd/lint.go` but simpler:
 - **Command not found**: When a runner's binary doesn't exist, report as Error (not Failed). The summary should say `✗ <name>: command not found` with a hint to install the tool or check the config.
 - **Timeout**: Report as Error with duration. `✗ <name>: timed out after 5m0s`.
 - **No git repo** (lint only): If `git.OpenRepository()` fails, error with "not a git repository" (same pattern as other commands).
-- **Merge-base failure** (lint only): If no common ancestor exists (e.g. orphan branch), fall back to linting all files with a warning.
+- **Ref resolution failure** (lint only): If neither `origin/<default>` nor local `<default>` can be resolved, error with a message suggesting `git fetch origin`.
+- **No common ancestor** (lint only): If both refs resolve but `GetMergeBase` fails (e.g. orphan branch), fall back to linting all files with a `⚠` warning.
 
 ### Output Consistency
 
@@ -260,7 +265,7 @@ Use the same output patterns as `internal/land/output.go`:
 
 ### JSON Mode
 
-Read via `cmd.GetJSON()` (resolves `--json` flag vs `cfg.Output.JSON` precedence — the helper already exists in `cmd/root.go:128`). Similarly, use `cmd.GetVerbose()` for verbosity (`cmd/root.go:118`).
+Read via `GetJSON()` (package-level helper in `cmd/root.go:128` — resolves `--json` flag vs `cfg.Output.JSON` precedence). Similarly, use `GetVerbose()` for verbosity (`cmd/root.go:118`). These are package-level functions in the `cmd` package, not methods on `*cobra.Command`.
 
 When JSON mode is active:
 - Suppress **all** non-JSON output — banners, runner stdout/stderr, summaries, and guidance messages
