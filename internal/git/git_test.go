@@ -101,13 +101,26 @@ func TestRepositoryWithTempRepo(t *testing.T) {
 // TestIsDetachedHead tests detached HEAD detection
 func TestIsDetachedHead(t *testing.T) {
 	t.Run("not detached in normal branch", func(t *testing.T) {
-		// Open the current repository
-		repo, err := OpenRepository("../..")
+		tmpDir := t.TempDir()
+		gitRepo, err := git.PlainInit(tmpDir, false)
+		require.NoError(t, err)
+
+		worktree, err := gitRepo.Worktree()
+		require.NoError(t, err)
+		testFile := filepath.Join(tmpDir, "test.txt")
+		require.NoError(t, os.WriteFile(testFile, []byte("content"), 0644))
+		_, err = worktree.Add("test.txt")
+		require.NoError(t, err)
+		_, err = worktree.Commit("initial commit", &git.CommitOptions{
+			Author: &object.Signature{Name: "Test", Email: "test@test.com", When: time.Now()},
+		})
+		require.NoError(t, err)
+
+		repo, err := OpenRepository(tmpDir)
 		require.NoError(t, err)
 
 		isDetached, err := repo.IsDetachedHead()
 		require.NoError(t, err)
-		// In normal development, we're on a branch, not detached
 		assert.False(t, isDetached)
 	})
 
