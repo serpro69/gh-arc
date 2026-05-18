@@ -15,6 +15,7 @@ For context, the following tasks are already done and form the foundation these 
 - **Task 3** — Git operations module (`internal/git/`) with go-git, branch ops, commit parsing, diff generation
 - **Task 4** — `gh arc diff` command with template editor, stacked PR support, auto-branch from main, CODEOWNERS parsing
 - **Task 5** — `gh arc list` command with PR table display, filtering, CI/review status
+- **Task 6** - `gh arc land` command
 
 ### Existing configuration
 
@@ -27,14 +28,17 @@ These commands mirror [phorgeit/arcanist](https://github.com/phorgeit/arcanist) 
 ---
 
 ## Task 6: `gh arc land` — Merge approved PRs to main
+
 - **Priority:** high
 - **Depends on:** Task 2 (GitHub client), Task 3 (Git operations)
+- **Status:** Done ([PR#31](https://github.com/serpro69/gh-arc/pull/31))
 
 **Motivation:** This is the counterpart to `gh arc diff` — together they form the core review loop. Without `land`, users must leave the CLI to merge PRs via the GitHub web UI or use `gh pr merge` directly (losing the opinionated verification flow). The original arcanist `arc land` was one of the most-used commands because it enforced team conventions (approval required, CI green) at merge time.
 
 **Summary:** Accept PR number or detect from current branch. Verify the PR is approved (at least one approval, no outstanding change requests) and all CI/check runs pass. Offer merge method selection (squash by default, configurable via `land.defaultMergeMethod`). After merge: switch to default branch, pull latest, delete local feature branch, optionally delete remote branch.
 
 **Key considerations for design:**
+
 - Config already defines `LandConfig` with all relevant settings — the command should respect these defaults while allowing flag overrides
 - Must handle stacked PRs gracefully — when landing a parent PR, dependent PRs need their base branch updated (or at minimum, warn the user). This is the inverse of the stacking detection in `diff`
 - Should detect when the user is on the branch being landed vs. specifying a PR number, similar to how `diff` auto-detects the current branch's PR
@@ -46,6 +50,7 @@ These commands mirror [phorgeit/arcanist](https://github.com/phorgeit/arcanist) 
 ---
 
 ## Task 7: `gh arc cover` — Reviewer suggestion system
+
 - **Priority:** medium
 - **Depends on:** Task 2 (GitHub client), Task 3 (Git operations)
 
@@ -54,11 +59,12 @@ These commands mirror [phorgeit/arcanist](https://github.com/phorgeit/arcanist) 
 **Summary:** Analyze changed files in the current branch (or a specified PR), run `git blame` to find recent contributors, parse CODEOWNERS for explicit ownership, query GitHub API to validate suggested reviewers are actual collaborators, score candidates based on recency and coverage, and display ranked suggestions.
 
 **Key considerations for design:**
+
 - The `internal/codeowners/` package already exists with parsing and pattern matching — this command should reuse it rather than duplicating
 - `diff` already has reviewer suggestion logic (used to pre-fill the template) — `cover` should share the same scoring engine but provide a standalone, more detailed view
 - Need to filter out the current user from suggestions (already handled in `pr_executor.assignReviewers()`)
 - Consider team handles from CODEOWNERS — should these be expanded to individual members or suggested as-is?
-- Output should show why each person is suggested (e.g., "modified auth.go 12 times in last 3 months", "CODEOWNERS match for internal/github/*")
+- Output should show why each person is suggested (e.g., "modified auth.go 12 times in last 3 months", "CODEOWNERS match for internal/github/\*")
 - The `--count` flag controls how many suggestions to show (default 5)
 
 **Arcanist reference:** `arc cover` was straightforward blame analysis. Our version adds CODEOWNERS integration since that's standard on GitHub.
@@ -66,6 +72,7 @@ These commands mirror [phorgeit/arcanist](https://github.com/phorgeit/arcanist) 
 ---
 
 ## Task 8: `gh arc lint` / `gh arc unit` — Code quality integration
+
 - **Priority:** medium
 - **Depends on:** Task 3 (Git operations)
 
@@ -74,6 +81,7 @@ These commands mirror [phorgeit/arcanist](https://github.com/phorgeit/arcanist) 
 **Summary:** Two commands sharing a common plugin architecture. `lint` detects changed files from git diff and runs configured linters; `unit` detects changed packages and runs test runners. Both parse tool output and display results in a consistent format.
 
 **Key considerations for design:**
+
 - Config already defines `TestConfig` and `LintConfig` with runner arrays — each runner specifies command, args, working directory, and timeout. The implementation should execute these configured runners
 - The plugin interface should be simple: detect (can this tool run?), execute (run it), parse (interpret output). Avoid over-engineering the abstraction — start with golangci-lint and `go test`, add more later
 - Changed file detection differs between the two: `lint` operates on individual files, `unit` operates on Go packages containing changed files
@@ -81,23 +89,27 @@ These commands mirror [phorgeit/arcanist](https://github.com/phorgeit/arcanist) 
 - `MegaLinter` integration is mentioned in config — this could be a lint plugin that delegates to MegaLinter's Docker-based approach. Decide during design whether to include this in v1 or defer
 - Results should include file:line:column for IDE-clickable output
 
-**Arcanist reference:** `arc lint` and `arc unit` had a rich plugin system (ArcanistLinter, ArcanistUnitTestEngine). We want something simpler since Go tooling is more standardized, but the extensibility principle is the same.
+**Arcanist reference:** `arc lint` and `arc unit` had a rich plugin system (ArcanistLinter, ArcanistUnitTestEngine). We want something simpler, but the extensibility principle is the same - we want to support various language ecosystems, either out of the box, or by allowing easy extensibility.
 
 ---
 
 ## Task 9: Branch and patch management commands
+
 - **Priority:** low
 - **Depends on:** Task 2 (GitHub client), Task 3 (Git operations)
 
 **Motivation:** These are convenience commands that round out the daily workflow. `branch` provides a quick overview of what you're working on (like `git branch` but with PR context). `patch` and `export` support the reviewer side — applying someone else's changes locally for testing. `amend` addresses the common need to update commit messages after review feedback.
 
 **Summary:** Four related but independent commands:
+
 - **`gh arc branch`** — List local branches enriched with PR status, CI state, and review status. Mark branches safe to delete (already merged). `--cleanup` flag to bulk-delete merged branches.
 - **`gh arc patch`** — Apply a PR's changes to the working copy for local testing. Accept PR number or URL.
 - **`gh arc export`** — Download a PR as a patch file (`.patch` or `.diff` format).
 - **`gh arc amend`** — Update the most recent commit message, optionally incorporating review feedback context.
+- **`gh arc work <branch>`** - Create a new feature branch from current HEAD
 
 **Key considerations for design:**
+
 - These are four separate commands that could be implemented incrementally — consider whether they should be one task or split into separate design docs
 - `branch` is the most complex — it needs to batch GitHub API calls efficiently (one call per branch for PR lookup would be slow). Consider using GraphQL to fetch all open PRs in one call and match to local branches
 - `patch` could delegate to `gh pr checkout` if available, with a fallback to fetching the diff and applying with `git apply`
@@ -109,6 +121,7 @@ These commands mirror [phorgeit/arcanist](https://github.com/phorgeit/arcanist) 
 ---
 
 ## Task 10: Auxiliary features and polish
+
 - **Priority:** low
 - **Depends on:** Task 1 (CLI framework), Task 2 (GitHub client)
 
@@ -117,6 +130,7 @@ These commands mirror [phorgeit/arcanist](https://github.com/phorgeit/arcanist) 
 **Summary:** Shell completion generation (bash/zsh/fish/powershell via Cobra's built-in generators), gist management (create/list/view/edit/delete), interactive configuration wizard (`gh arc config init`), lipgloss-based terminal styling, and progress indicators for long operations.
 
 **Key considerations for design:**
+
 - Shell completion already has a workaround documented in README.md (wrapper script + completion from releases) — the built-in command formalizes this
 - Gist commands could be thin wrappers around `gh gist` — decide whether there's enough value-add to justify a separate implementation vs. delegating
 - The config wizard should generate `.arc.json`/`.arc.yaml` and explain what each setting does — useful for onboarding new team members
@@ -127,6 +141,7 @@ These commands mirror [phorgeit/arcanist](https://github.com/phorgeit/arcanist) 
 ---
 
 ## Task 11: Persistent caching system (TieredCache)
+
 - **Priority:** medium
 - **Depends on:** Task 2 (GitHub client)
 
@@ -135,6 +150,7 @@ These commands mirror [phorgeit/arcanist](https://github.com/phorgeit/arcanist) 
 **Summary:** Add `FileCache` implementing the existing `Cache` interface with file-based persistence under `~/.cache/gh-arc/`. Wrap both in a `TieredCache` (L1 memory, L2 file). Add `gh arc cache clear/stats` management commands and a global `--no-cache` flag. Implement pruning (LRU, max size, max age), cache versioning, and per-user key namespacing to prevent cross-account pollution.
 
 **Key considerations for design:**
+
 - The existing `Cache` interface in `internal/github/cache.go` already defines `Get`/`Set` with TTL and ETag support — `FileCache` should implement the same interface cleanly
 - File locking is critical for concurrent access (multiple terminal sessions running `gh arc` simultaneously)
 - Different data types need different TTLs: branch/ref data can be cached longer (hours), PR data should be shorter (minutes), review/CI status should be very short or use ETags for conditional requests
@@ -145,6 +161,7 @@ These commands mirror [phorgeit/arcanist](https://github.com/phorgeit/arcanist) 
 ---
 
 ## Task 12: Enhanced auth subcommands
+
 - **Priority:** medium
 - **Depends on:** Task 2 (GitHub client), Task 5 (`list` command, for existing auth patterns)
 
@@ -153,6 +170,7 @@ These commands mirror [phorgeit/arcanist](https://github.com/phorgeit/arcanist) 
 **Summary:** Refactor `gh arc auth` from a single `RunE` command to a parent command with two subcommands. `auth status` combines the existing API verification with `gh auth status` output. `auth refresh` wraps `gh auth refresh` and automatically appends the required OAuth scopes (`user:email`, `read:user`).
 
 **Key considerations for design:**
+
 - Backward compatibility: currently `gh arc auth` runs verification directly. After refactoring, bare `gh arc auth` (no subcommand) should either show help or default to `auth status` — decide which is less surprising
 - The refresh command should merge user-specified scopes with required ones, not replace them
 - Both subcommands depend on `gh` CLI being installed — need `exec.LookPath` check with a helpful error message if missing
@@ -162,6 +180,7 @@ These commands mirror [phorgeit/arcanist](https://github.com/phorgeit/arcanist) 
 ---
 
 ## Task 13: Integration testing infrastructure
+
 - **Priority:** medium
 - **Depends on:** Task 2 (GitHub client), Task 3 (Git operations)
 
@@ -170,6 +189,7 @@ These commands mirror [phorgeit/arcanist](https://github.com/phorgeit/arcanist) 
 **Summary:** Create a `testutil` package with helpers for creating/destroying test repositories, validating test environment (token scopes), and cleaning up orphaned resources. Implement Phase 1 integration tests covering core API operations (PR CRUD, reviews, check runs). Set up CI/CD pipeline with `//go:build integration` tag separation.
 
 **Key considerations for design:**
+
 - **Overlap with testing-flags:** The `docs/wip/testing-flags/` feature covers E2E testing from the binary/CLI level using `--dry-run`/`--offline` flags. This task is about API-level integration tests using real GitHub calls. They're complementary, not duplicative — but the design should clarify the boundary
 - Ephemeral test repos must be reliably cleaned up — orphan detection should scan for repos matching a naming pattern (e.g., `gh-arc-integration-test-*`) and delete stale ones
 - Tests should be gated behind `GITHUB_INTEGRATION_TOKEN` env var — never run against real repos by accident
@@ -183,3 +203,7 @@ These commands mirror [phorgeit/arcanist](https://github.com/phorgeit/arcanist) 
 
 - `arc open <num>` - opens a github issue/pr in the default system browser
 - `arc status <pr_num>` - detailed status/logs from the pr status checks
+- `arc view <pr_num>` - show a git diff for the pr
+- `arc checkout <pr_num>` - checkout the pr in a local branch (pretty much a shortcut for `gh pr checkout`)
+- `arc approve <pr_num> --comment "foo bar"` - approve the pr with an optional comment
+- `arc alias foo=bar` - create an alias `foo` for arc cmd `bar` (adds an alias entry to configuration?)
