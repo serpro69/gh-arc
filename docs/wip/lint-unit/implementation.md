@@ -80,29 +80,34 @@ Use `t.TempDir()` for working directory tests. Inject `bytes.Buffer` as Stdout/S
 
 #### `internal/config/config.go`
 
-Add `FixArgs` field to `LintRunner`:
+Add two fields to `LintRunner`:
 
 ```
 FixArgs []string `mapstructure:"fixArgs"`
+Timeout string   `mapstructure:"timeout"`
 ```
 
-No other changes — the existing fields and validation are sufficient.
+`Timeout` is symmetric with `TestRunner.Timeout` — a Go duration string parsed at workflow time. Without it, a hung linter blocks the pipeline indefinitely.
 
 #### `docs/arc.schema.json`
 
-Add `fixArgs` to the `lintRunner` definition:
+Add `fixArgs` and `timeout` to the `lintRunner` definition:
 
 ```json
 "fixArgs": {
   "type": "array",
   "description": "Arguments appended to the command when --fix is active",
   "items": { "type": "string" }
+},
+"timeout": {
+  "type": "string",
+  "description": "Timeout duration (e.g. \"30s\", \"5m\")"
 }
 ```
 
 #### Testing
 
-Add a config test case that loads a config with `fixArgs` and verifies it deserializes correctly. Add to the existing test file `internal/config/config_test.go`.
+Add config test cases that load a config with `fixArgs` and `timeout` and verify they deserialize into `LintRunner.FixArgs` and `LintRunner.Timeout` correctly. Add to the existing test file `internal/config/config_test.go`.
 
 ### 1.3 Lint Workflow (`internal/lint/`)
 
@@ -115,9 +120,9 @@ The existing `internal/lint/` package has `embed.go` (MegaLinter config). Add `w
 
 #### `workflow.go` — Lint Orchestrator
 
-The `LintWorkflow` struct holds: repo (`*git.Repository`), config (`*config.Config`).
+The `LintWorkflow` struct holds: repo (`LintRepository` interface), executor (`Executor` interface — see below), config (`*config.Config`).
 
-Constructor: `NewLintWorkflow(repo *git.Repository, cfg *config.Config) *LintWorkflow`.
+Constructor: `NewLintWorkflow(repo LintRepository, executor Executor, cfg *config.Config) *LintWorkflow`.
 
 Method `Execute(ctx context.Context, opts *LintOptions) (*LintResult, error)`:
 
@@ -127,15 +132,25 @@ Method `Execute(ctx context.Context, opts *LintOptions) (*LintResult, error)`:
 2. **Detect changed files** (unless `opts.All`):
    a. Get default branch: `cfg.GitHub.DefaultBranch` (or auto-detect via `repo.GetDefaultBranch()`).
    b. Compute merge-base: `repo.GetMergeBase("origin/"+defaultBranch, "HEAD")`. Fall back to `repo.GetMergeBase(defaultBranch, "HEAD")` if origin ref doesn't exist.
-   c. Get changed files: `repo.GetChangedFiles(mergeBase, "HEAD")`.
-   d. Filter out deleted files (where `FileChange.IsDeleted == true`).
+   c. Get changed files: `repo.GetFilesChanged(mergeBase, "HEAD")` — returns `[]git.FileChange` with deletion metadata.
+   d. Filter out entries where `FileChange.IsDeleted == true`. Extract `.Path` from remaining entries.
    e. If no changed files remain, print "No changed files to lint" and return success.
 3. **Build runner configs.** For each `config.LintRunner`:
    a. Create `runner.RunnerConfig` with Name, Command, Args, WorkingDir.
    b. If `opts.Fix` and runner's `AutoFix` is true and `FixArgs` is non-empty: set `ExtraArgs` to `FixArgs`.
    c. If not `opts.All`: set `FilePaths` to the changed file paths.
-4. **Execute.** Create `runner.Engine` and call `Run()`.
+4. **Execute.** Call `executor.Run()` with configs + changed file paths.
 5. **Return** `LintResult`.
+
+**Engine injection:** The workflow does not create the `runner.Engine` directly. Instead, it depends on an `Executor` interface (defined in `internal/runner/types.go`):
+
+```
+type Executor interface {
+    Run(ctx context.Context, configs []RunnerConfig) (*ExecutionResult, error)
+}
+```
+
+`Engine` satisfies this interface. In production, `cmd/lint.go` creates the engine and passes it to the workflow. In tests, a mock executor verifies the configs/file paths without running real subprocesses.
 
 **Merge-base fallback:** Try `origin/<default>` first (most accurate for feature branches). If that fails (e.g. no remote), fall back to the local default branch ref. If that also fails, error with a message suggesting `git fetch origin`.
 
@@ -143,7 +158,8 @@ Method `Execute(ctx context.Context, opts *LintOptions) (*LintResult, error)`:
 
 The workflow orchestrates git operations and the runner engine. Test with mocks/interfaces:
 
-- Define a `LintRepository` interface with the git methods the workflow needs: `GetDefaultBranch()`, `GetMergeBase()`, `GetChangedFiles()`. The real `git.Repository` satisfies this.
+- Define a `LintRepository` interface with the git methods the workflow needs: `GetDefaultBranch() (string, error)`, `GetMergeBase(ref1, ref2 string) (string, error)`, `GetFilesChanged(base, head string) ([]git.FileChange, error)`. The real `git.Repository` satisfies this.
+- Define a mock `Executor` that records the `[]RunnerConfig` it receives, allowing assertions on file paths, extra args, etc. without running subprocesses.
 - Test cases:
   - No runners configured → guidance message, success
   - Runners configured, changed files found → engine called with correct file paths
@@ -164,8 +180,9 @@ Follow the pattern from `cmd/land.go`:
    b. Open git repo (`git.OpenRepository(".")`).
    c. Create `LintWorkflow`.
    d. Call `Execute()` with options mapped from flags.
-   e. Handle errors. If the result is non-nil and `!result.Success`, return exit code 1 (use `cobra.ErrSilent` or similar to avoid double-printing).
-   f. In JSON mode, print the JSON output and return.
+   e. Handle errors. If the result is non-nil and `!result.Success`, return `ErrSilentExit` (a sentinel error defined in `cmd/` that `Execute()` recognizes — it exits 1 without printing the error, since the lint summary already reported failures).
+   f. Read JSON mode via `cmd.GetJSON()` (not `cfg.Output.JSON` — the helper resolves flag-vs-config precedence). Read verbose via `cmd.GetVerbose()`. Pass both into `LintOptions`.
+   g. In JSON mode, the workflow returns a `LintResult` and the CLI layer calls `runner.FormatJSON()` to print the single JSON object.
 
 #### Testing
 
@@ -186,9 +203,9 @@ Create `internal/unit/` with `workflow.go` and `types.go`.
 
 #### `workflow.go`
 
-The `UnitWorkflow` struct holds: config (`*config.Config`).
+The `UnitWorkflow` struct holds: executor (`runner.Executor` interface), config (`*config.Config`).
 
-Constructor: `NewUnitWorkflow(cfg *config.Config) *UnitWorkflow`.
+Constructor: `NewUnitWorkflow(executor runner.Executor, cfg *config.Config) *UnitWorkflow`.
 
 Method `Execute(ctx context.Context, opts *UnitOptions) (*UnitResult, error)`:
 
@@ -196,17 +213,18 @@ Method `Execute(ctx context.Context, opts *UnitOptions) (*UnitResult, error)`:
 2. **Build runner configs.** For each `config.TestRunner`:
    a. Create `runner.RunnerConfig` with Name, Command, Args, WorkingDir.
    b. Parse `Timeout` string to `time.Duration` (using `time.ParseDuration`). If parsing fails, error with clear message.
-3. **Execute.** Create `runner.Engine` and call `Run()`.
+3. **Execute.** Call `executor.Run()` with configs, no file paths.
 4. **Return** `UnitResult`.
 
-No git repository needed — unit doesn't do file scoping.
+No git repository needed — unit doesn't do file scoping. Same `Executor` interface as lint for testability.
 
 #### Testing
 
+Use a mock `Executor` (same approach as lint):
 - No runners → guidance message, success
-- Runners with valid timeout → parsed correctly
+- Runners with valid timeout → parsed correctly, executor receives correct timeout on RunnerConfig
 - Runners with invalid timeout string → error
-- Engine called with correct configs
+- Executor receives correct configs
 
 ### 2.2 CLI Command (`cmd/unit.go`)
 
@@ -216,9 +234,10 @@ Same pattern as `cmd/lint.go` but simpler:
 2. In `init()`: add to `rootCmd`. No command-specific flags in v1.
 3. `runUnit`:
    a. Load config.
-   b. Create `UnitWorkflow` (no git repo needed).
-   c. Call `Execute()`.
-   d. Handle results same as lint.
+   b. Create `runner.Engine` and `UnitWorkflow` (no git repo needed).
+   c. Read `cmd.GetJSON()` and `cmd.GetVerbose()` into `UnitOptions`.
+   d. Call `Execute()`.
+   e. Handle results same as lint (return `ErrSilentExit` on test failure).
 
 ---
 
@@ -241,10 +260,13 @@ Use the same output patterns as `internal/land/output.go`:
 
 ### JSON Mode
 
-Check `cfg.Output.JSON` or a future `--json` flag. When active:
-- Suppress all non-JSON output (banners, summaries, runner stdout)
-- Print a single JSON object at the end
+Read via `cmd.GetJSON()` (resolves `--json` flag vs `cfg.Output.JSON` precedence — the helper already exists in `cmd/root.go:128`). Similarly, use `cmd.GetVerbose()` for verbosity (`cmd/root.go:118`).
+
+When JSON mode is active:
+- Suppress **all** non-JSON output — banners, runner stdout/stderr, summaries, and guidance messages
+- Print a single JSON object to stdout at the end
 - Exit code still reflects pass/fail
+- JSON is emitted for every code path: no runners configured → `{"command":"lint","success":true,"runners":[]}`, no changed files → add `"skipped":"no changed files"`, runners executed → full results
 
 ### Testability
 

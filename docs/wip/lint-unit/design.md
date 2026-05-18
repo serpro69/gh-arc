@@ -45,7 +45,12 @@ cmd/unit.go ──┘    internal/unit/
 5. Print summary line: `✓ <name>: passed` or `✗ <name>: failed (exit code N)`
 6. After all runners: print overall summary
 
-**`--json` mode:** Suppresses banners and streaming output. Returns JSON with execution metadata only — not parsed lint/test findings. Users who need structured issue output configure the underlying tool to emit JSON (e.g., `eslint -f json` in the runner's args).
+**`--json` mode:** Suppresses **all** non-JSON output — banners, runner stdout/stderr, summaries, and guidance messages. Returns a single JSON object to stdout with execution metadata only — not parsed lint/test findings. Users who need structured issue output configure the underlying tool to emit JSON (e.g., `eslint -f json` in the runner's args).
+
+JSON is emitted for every code path, including edge cases:
+- No runners configured → `{"command":"lint","success":true,"runners":[]}`
+- No changed files → `{"command":"lint","success":true,"runners":[],"skipped":"no changed files"}`
+- Runners executed → full runner results
 
 ```json
 {
@@ -67,7 +72,7 @@ Wraps the runner engine with lint-specific concerns.
 **Workflow:**
 
 1. **Resolve runners.** Load `LintConfig.Runners` from config. If empty and MegaLinter is enabled → MegaLinter runner (deferred to v2). If nothing → print guidance message with config examples, exit 0.
-2. **Detect changed files.** Compute merge-base between HEAD and the default branch via `git.GetMergeBase()`, then `git.GetChangedFiles(mergeBase, "HEAD")`. Filter out deleted files. If `--all` flag → skip detection, pass no file paths (runner lints everything).
+2. **Detect changed files.** Compute merge-base between HEAD and the default branch via `git.GetMergeBase()`, then `git.GetFilesChanged(mergeBase, "HEAD")` (returns `[]git.FileChange` with deletion metadata). Filter out entries where `IsDeleted == true`, then extract paths from the remaining entries. If `--all` flag → skip detection, pass no file paths (runner lints everything).
 3. **Convert configs.** Map `config.LintRunner` → `runner.RunnerConfig`. When `--fix` is active and the runner's `autoFix` is true, append `fixArgs` to the command args.
 4. **Execute.** Call `Engine.Run()` with configs + changed file paths.
 5. **Return results.**
@@ -141,9 +146,9 @@ No positional arguments accepted (`cobra.NoArgs`). No command-specific flags in 
 }
 ```
 
-### New Config Fields
+### Config Additions: `fixArgs` and `timeout`
 
-`LintRunner` gains `fixArgs`:
+`LintRunner` gains two fields — `fixArgs` and `timeout`:
 
 ```json
 {
@@ -151,11 +156,13 @@ No positional arguments accepted (`cobra.NoArgs`). No command-specific flags in 
   "command": "golangci-lint",
   "args": ["run"],
   "fixArgs": ["--fix"],
-  "autoFix": true
+  "autoFix": true,
+  "timeout": "5m"
 }
 ```
 
-When `--fix` is active and `autoFix: true`, the executed command becomes: `golangci-lint run --fix <changed-files>`.
+- **`fixArgs`**: When `--fix` is active and `autoFix: true`, these args are appended. The executed command becomes: `golangci-lint run --fix <changed-files>`.
+- **`timeout`**: Go duration string (e.g., `"5m"`, `"30s"`). Symmetric with `TestRunner.Timeout`. A hung linter without a timeout blocks the entire pipeline indefinitely. If omitted, the runner has no timeout.
 
 ## Exit Codes
 
@@ -163,6 +170,8 @@ When `--fix` is active and `autoFix: true`, the executed command becomes: `golan
 - **1** — one or more runners reported issues (any non-zero exit code)
 
 Both `lint` and `unit` use the same exit code strategy.
+
+**Implementation note:** Cobra v1.10.1 has no `ErrSilent` sentinel. The project's `Execute()` in `cmd/root.go` prints any returned error to stderr before calling `os.Exit(1)`. Since lint/unit already print their own summary output, returning a normal error would double-print. Define a package-level sentinel `ErrSilentExit` in `cmd/` that `Execute()` recognizes and skips printing — it just exits with code 1.
 
 ## Multi-Runner Behavior
 
