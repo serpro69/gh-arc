@@ -300,11 +300,17 @@ func TestClientImplementsGitHubClient(t *testing.T) {
 	var _ GitHubClient = (*Client)(nil)
 }
 
-func TestClientAccessorMethods(t *testing.T) {
-	client, err := NewClient()
+func newClientOrSkip(t *testing.T, opts ...ClientOption) *Client {
+	t.Helper()
+	client, err := NewClient(opts...)
 	if err != nil {
-		t.Fatalf("Failed to create client: %v", err)
+		t.Skipf("Skipping: requires gh auth: %v", err)
 	}
+	return client
+}
+
+func TestClientAccessorMethods(t *testing.T) {
+	client := newClientOrSkip(t)
 	defer client.Close()
 
 	t.Run("REST returns REST client", func(t *testing.T) {
@@ -329,10 +335,7 @@ func TestClientAccessorMethods(t *testing.T) {
 
 func TestClientCacheManagement(t *testing.T) {
 	t.Run("CacheStats returns stats", func(t *testing.T) {
-		client, err := NewClient()
-		if err != nil {
-			t.Fatalf("Failed to create client: %v", err)
-		}
+		client := newClientOrSkip(t)
 		defer client.Close()
 
 		stats := client.CacheStats()
@@ -342,10 +345,7 @@ func TestClientCacheManagement(t *testing.T) {
 	})
 
 	t.Run("ClearCache clears the cache", func(t *testing.T) {
-		client, err := NewClient()
-		if err != nil {
-			t.Fatalf("Failed to create client: %v", err)
-		}
+		client := newClientOrSkip(t)
 		defer client.Close()
 
 		// Add something to cache
@@ -362,10 +362,7 @@ func TestClientCacheManagement(t *testing.T) {
 	})
 
 	t.Run("InvalidateCacheKey removes specific key", func(t *testing.T) {
-		client, err := NewClient()
-		if err != nil {
-			t.Fatalf("Failed to create client: %v", err)
-		}
+		client := newClientOrSkip(t)
 		defer client.Close()
 
 		// Add something to cache
@@ -382,13 +379,10 @@ func TestClientCacheManagement(t *testing.T) {
 	})
 
 	t.Run("Close stops cache cleanup", func(t *testing.T) {
-		client, err := NewClient()
-		if err != nil {
-			t.Fatalf("Failed to create client: %v", err)
-		}
+		client := newClientOrSkip(t)
 
 		// Should not panic
-		err = client.Close()
+		err := client.Close()
 		if err != nil {
 			t.Errorf("Close returned error: %v", err)
 		}
@@ -401,13 +395,10 @@ func TestClientCacheManagement(t *testing.T) {
 	})
 
 	t.Run("Close with NoOpCache does not panic", func(t *testing.T) {
-		client, err := NewClient(WithoutCache())
-		if err != nil {
-			t.Fatalf("Failed to create client: %v", err)
-		}
+		client := newClientOrSkip(t, WithoutCache())
 
 		// Should not panic even with NoOpCache
-		err = client.Close()
+		err := client.Close()
 		if err != nil {
 			t.Errorf("Close with NoOpCache returned error: %v", err)
 		}
@@ -416,10 +407,7 @@ func TestClientCacheManagement(t *testing.T) {
 
 func TestClientDo(t *testing.T) {
 	t.Run("circuit breaker open blocks request", func(t *testing.T) {
-		client, err := NewClient()
-		if err != nil {
-			t.Fatalf("Failed to create client: %v", err)
-		}
+		client := newClientOrSkip(t)
 		defer client.Close()
 
 		// Open the circuit breaker by simulating failures
@@ -429,7 +417,7 @@ func TestClientDo(t *testing.T) {
 
 		// Now the circuit should be open
 		var response interface{}
-		err = client.Do(nil, "GET", "/test", nil, &response)
+		err := client.Do(nil, "GET", "/test", nil, &response)
 
 		if err == nil {
 			t.Error("Do() should return error when circuit breaker is open")
@@ -441,17 +429,14 @@ func TestClientDo(t *testing.T) {
 	})
 
 	t.Run("request body marshaling error", func(t *testing.T) {
-		client, err := NewClient()
-		if err != nil {
-			t.Fatalf("Failed to create client: %v", err)
-		}
+		client := newClientOrSkip(t)
 		defer client.Close()
 
 		// Use a channel as body which cannot be marshaled to JSON
 		invalidBody := make(chan int)
 
 		var response interface{}
-		err = client.Do(nil, "POST", "/test", invalidBody, &response)
+		err := client.Do(nil, "POST", "/test", invalidBody, &response)
 
 		if err == nil {
 			t.Error("Do() should return error for invalid body")
@@ -463,10 +448,7 @@ func TestClientDo(t *testing.T) {
 	})
 
 	t.Run("cache generates correct key for GET requests", func(t *testing.T) {
-		client, err := NewClient()
-		if err != nil {
-			t.Fatalf("Failed to create client: %v", err)
-		}
+		client := newClientOrSkip(t)
 		defer client.Close()
 
 		// The Do method should generate a cache key using GenerateCacheKey
@@ -531,10 +513,7 @@ func TestCopyResponse(t *testing.T) {
 
 func TestClientDoGraphQL(t *testing.T) {
 	t.Run("circuit breaker integration", func(t *testing.T) {
-		client, err := NewClient()
-		if err != nil {
-			t.Fatalf("Failed to create client: %v", err)
-		}
+		client := newClientOrSkip(t)
 		defer client.Close()
 
 		// Open the circuit breaker
@@ -543,7 +522,7 @@ func TestClientDoGraphQL(t *testing.T) {
 		}
 
 		// DoGraphQL should respect circuit breaker state
-		err = client.DoGraphQL(nil, "query { viewer { login } }", nil, nil)
+		err := client.DoGraphQL(nil, "query { viewer { login } }", nil, nil)
 		if err == nil {
 			t.Error("DoGraphQL() should return error when circuit breaker is open")
 		}
