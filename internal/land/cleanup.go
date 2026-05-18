@@ -15,6 +15,7 @@ var (
 type CleanupRepo interface {
 	CheckoutBranch(branch string) error
 	PullOrigin(branch string) error
+	PruneRemoteRefs() error
 	GetBranchSHA(branch string) (string, error)
 	DeleteLocalBranch(branch string) error
 }
@@ -23,6 +24,7 @@ type CleanupRepo interface {
 type CleanupResult struct {
 	CheckedOut       bool
 	Pulled           bool
+	RemotePruned     bool
 	BranchDeleted    bool
 	DeletedBranchSHA string
 	Warnings         []string
@@ -63,6 +65,13 @@ func (c *PostMergeCleanup) Execute(defaultBranch, featureBranch string, noDelete
 			fmt.Sprintf("Failed to pull latest on %s: %v — run 'git pull origin %s' manually", defaultBranch, err, defaultBranch))
 	} else {
 		result.Pulled = true
+	}
+
+	if err := c.repo.PruneRemoteRefs(); err != nil {
+		result.Warnings = append(result.Warnings,
+			fmt.Sprintf("Failed to prune remote references: %v — run 'git remote prune origin' manually", err))
+	} else {
+		result.RemotePruned = true
 	}
 
 	if noDelete {

@@ -54,6 +54,10 @@ func (m *mockWorkflowRepo) PullOrigin(_ string) error {
 	return m.pullErr
 }
 
+func (m *mockWorkflowRepo) PruneRemoteRefs() error {
+	return nil
+}
+
 func (m *mockWorkflowRepo) GetBranchSHA(_ string) (string, error) {
 	return m.branchSHA, m.branchSHAErr
 }
