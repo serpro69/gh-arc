@@ -100,6 +100,8 @@ type LintRunner struct {
 	Args       []string `mapstructure:"args"`
 	WorkingDir string   `mapstructure:"workingDir"`
 	AutoFix    bool     `mapstructure:"autoFix"`
+	FixArgs    []string `mapstructure:"fixArgs"`
+	Timeout    string   `mapstructure:"timeout"`
 }
 
 // MegaLinterConfig contains mega-linter specific settings
