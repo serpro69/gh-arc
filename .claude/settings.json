@@ -49,7 +49,8 @@
       "mcp__serena__think_about_collected_information",
       "mcp__zen__codereview",
       "WebSearch",
-      "Skill(kk:*)"
+      "Skill(kk:*)",
+      "Read(~/.claude/plugins/cache/claude-toolbox/*)"
     ],
     "ask": [],
     "deny": [
