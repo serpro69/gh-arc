@@ -286,6 +286,17 @@
           "type": "boolean",
           "description": "Automatically apply fixes",
           "default": false
+        },
+        "fixArgs": {
+          "type": "array",
+          "description": "Arguments appended to the command when --fix is active",
+          "items": {
+            "type": "string"
+          }
+        },
+        "timeout": {
+          "type": "string",
+          "description": "Timeout duration (e.g. \"30s\", \"5m\")"
         }
       }
     }
