@@ -26,15 +26,15 @@
 
 ### Task 2: Config changes for fixArgs
 
-- **Status:** pending
+- **Status:** done
 - **Depends on:** —
 - **Docs:** [implementation.md#12-config-changes](./implementation.md#12-config-changes)
 
 #### Subtasks
 
-- [ ] 2.1 Add `FixArgs []string \`mapstructure:"fixArgs"\`` and `Timeout string \`mapstructure:"timeout"\`` fields to `LintRunner` in `internal/config/config.go`
-- [ ] 2.2 Add `fixArgs` (array of strings) and `timeout` (string, e.g. "30s", "5m") properties to the `lintRunner` definition in `docs/arc.schema.json`
-- [ ] 2.3 Add test cases in `internal/config/config_test.go` that load a config with `fixArgs` and `timeout` populated and verify they deserialize into `LintRunner.FixArgs` and `LintRunner.Timeout` correctly
+- [x] 2.1 Add `FixArgs []string \`mapstructure:"fixArgs"\`` and `Timeout string \`mapstructure:"timeout"\`` fields to `LintRunner` in `internal/config/config.go`
+- [x] 2.2 Add `fixArgs` (array of strings) and `timeout` (string, e.g. "30s", "5m") properties to the `lintRunner` definition in `docs/arc.schema.json`
+- [x] 2.3 Add test cases in `internal/config/config_test.go` that load a config with `fixArgs` and `timeout` populated and verify they deserialize into `LintRunner.FixArgs` and `LintRunner.Timeout` correctly
 
 → verify: `go test ./internal/config/... -v` passes, existing tests unbroken
 
