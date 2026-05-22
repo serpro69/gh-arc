@@ -647,7 +647,7 @@ Uses Viper for flexible configuration management.
 
 1. **Command-line flags** (highest priority)
 2. **Environment variables** (`GHARC_*` prefix)
-3. **Config files** in current directory
+3. **Config files** in repository root directory (resolved via `git.FindRepositoryRoot`, works from any subdirectory)
 4. **Config files** in user config directory (`~/.config/gh-arc/`)
 5. **Config files** in system directory (`/etc/gh-arc/`)
 6. **Default values** (lowest priority)

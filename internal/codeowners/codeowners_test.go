@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/serpro69/gh-arc/internal/git"
 )
 
 // Test CODEOWNERS file parsing
@@ -646,6 +648,52 @@ func TestHasCodeowners(t *testing.T) {
 			t.Error("HasCodeowners() = true, want false")
 		}
 	})
+}
+
+func TestParseCodeowners_FromSubdirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	if err := os.Mkdir(filepath.Join(tmpDir, ".git"), 0o755); err != nil {
+		t.Fatalf("Failed to create .git dir: %v", err)
+	}
+
+	githubDir := filepath.Join(tmpDir, ".github")
+	if err := os.MkdirAll(githubDir, 0o755); err != nil {
+		t.Fatalf("Failed to create .github dir: %v", err)
+	}
+	content := "*.go @golang-team\n"
+	if err := os.WriteFile(filepath.Join(githubDir, "CODEOWNERS"), []byte(content), 0o644); err != nil {
+		t.Fatalf("Failed to write CODEOWNERS: %v", err)
+	}
+
+	subDir := filepath.Join(tmpDir, "src", "pkg")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatalf("Failed to create subdir: %v", err)
+	}
+
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get cwd: %v", err)
+	}
+	os.Chdir(subDir)
+	defer os.Chdir(origDir)
+
+	// Resolve repo root from subdirectory (same pattern as diff/workflow.go)
+	repoRoot := "."
+	if root, err := git.FindRepositoryRoot(""); err == nil {
+		repoRoot = root
+	}
+
+	co, err := ParseCodeowners(repoRoot)
+	if err != nil {
+		t.Fatalf("ParseCodeowners failed from subdir: %v", err)
+	}
+	if len(co.Rules) != 1 {
+		t.Errorf("Expected 1 rule, got %d", len(co.Rules))
+	}
+	if co.Rules[0].Pattern != "*.go" {
+		t.Errorf("Expected pattern '*.go', got '%s'", co.Rules[0].Pattern)
+	}
 }
 
 // Benchmark tests

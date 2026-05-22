@@ -459,11 +459,14 @@ git remote -v
 
 **Problem:** Settings not being applied
 
+**Note:** `gh-arc` resolves config files, CODEOWNERS, and other project files from the **git repository root**, not the current working directory. This means you can run `gh-arc` from any subdirectory and it will still find files at the repo root.
+
 **Debugging:**
 
 ```bash
-# Check config file location
-ls -la .arc.json
+# Check config file location (at repo root, not necessarily cwd)
+git rev-parse --show-toplevel  # Shows where gh-arc looks for config
+ls -la $(git rev-parse --show-toplevel)/.arc.json
 ls -la ~/.config/gh-arc/.arc.json
 
 # Check which config is loaded
@@ -473,7 +476,7 @@ ls -la ~/.config/gh-arc/.arc.json
 **Solution:**
 
 ```bash
-# Create config in current directory
+# Create config at repository root (not necessarily cwd)
 cat > .arc.json << EOF
 {
   "github": {

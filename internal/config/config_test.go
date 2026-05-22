@@ -631,6 +631,38 @@ func TestValidate(t *testing.T) {
 	}
 }
 
+func TestValidateTemplatePath_FromSubdirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	if err := os.Mkdir(filepath.Join(tmpDir, ".git"), 0o755); err != nil {
+		t.Fatalf("Failed to create .git dir: %v", err)
+	}
+
+	// Place template at repo root
+	templatePath := filepath.Join(tmpDir, "template.md")
+	if err := os.WriteFile(templatePath, []byte("# PR Template"), 0o644); err != nil {
+		t.Fatalf("Failed to write template: %v", err)
+	}
+
+	subDir := filepath.Join(tmpDir, "src", "pkg")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatalf("Failed to create subdir: %v", err)
+	}
+	origDir, _ := os.Getwd()
+	os.Chdir(subDir)
+	defer os.Chdir(origDir)
+
+	cfg := &Config{
+		Land: LandConfig{DefaultMergeMethod: "squash", RequireApproval: "strict", RequireCI: "required"},
+		Lint: LintConfig{MegaLinter: MegaLinterConfig{Enabled: "auto"}},
+		Diff: DiffConfig{TemplatePath: "template.md"},
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Expected no error for template at repo root from subdir, got: %v", err)
+	}
+}
+
 func TestGetMegaLinterConfigPath(t *testing.T) {
 	t.Run("returns configured path if exists", func(t *testing.T) {
 		tmpDir := t.TempDir()
@@ -689,6 +721,86 @@ func TestGetMegaLinterConfigPath(t *testing.T) {
 		}
 		if path != defaultFile {
 			t.Errorf("Expected path '%s', got '%s'", defaultFile, path)
+		}
+	})
+
+	t.Run("finds configured path from subdirectory", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		if err := os.Mkdir(filepath.Join(tmpDir, ".git"), 0o755); err != nil {
+			t.Fatalf("Failed to create .git dir: %v", err)
+		}
+
+		configFile := filepath.Join(tmpDir, "custom-mega-linter.yml")
+		if err := os.WriteFile(configFile, []byte("test"), 0o644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		subDir := filepath.Join(tmpDir, "src", "pkg")
+		if err := os.MkdirAll(subDir, 0o755); err != nil {
+			t.Fatalf("Failed to create subdir: %v", err)
+		}
+		origDir, _ := os.Getwd()
+		os.Chdir(subDir)
+		defer os.Chdir(origDir)
+
+		cfg := &Config{
+			Lint: LintConfig{
+				MegaLinter: MegaLinterConfig{
+					Config: "custom-mega-linter.yml",
+				},
+			},
+		}
+
+		path, isURL, err := cfg.GetMegaLinterConfigPath()
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if isURL {
+			t.Error("Expected isURL to be false (local file)")
+		}
+		if path != configFile {
+			t.Errorf("Expected path '%s', got '%s'", configFile, path)
+		}
+	})
+
+	t.Run("finds default .mega-linter.yml from subdirectory", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		if err := os.Mkdir(filepath.Join(tmpDir, ".git"), 0o755); err != nil {
+			t.Fatalf("Failed to create .git dir: %v", err)
+		}
+
+		if err := os.WriteFile(filepath.Join(tmpDir, ".mega-linter.yml"), []byte("test"), 0o644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		subDir := filepath.Join(tmpDir, "src", "pkg")
+		if err := os.MkdirAll(subDir, 0o755); err != nil {
+			t.Fatalf("Failed to create subdir: %v", err)
+		}
+		origDir, _ := os.Getwd()
+		os.Chdir(subDir)
+		defer os.Chdir(origDir)
+
+		cfg := &Config{
+			Lint: LintConfig{
+				MegaLinter: MegaLinterConfig{
+					Config: "nonexistent.yml",
+				},
+			},
+		}
+
+		path, isURL, err := cfg.GetMegaLinterConfigPath()
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if isURL {
+			t.Error("Expected isURL to be false (local file)")
+		}
+		expected := filepath.Join(tmpDir, ".mega-linter.yml")
+		if path != expected {
+			t.Errorf("Expected path '%s', got '%s'", expected, path)
 		}
 	})
 
