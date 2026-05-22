@@ -318,11 +318,19 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	// Validate template path if specified
+	// Validate template path if specified (resolve relative to repo root)
 	if c.Diff.TemplatePath != "" {
-		if _, err := os.Stat(c.Diff.TemplatePath); err != nil {
+		templatePath := c.Diff.TemplatePath
+		if !filepath.IsAbs(templatePath) {
+			repoRoot := "."
+			if root, err := git.FindRepositoryRoot(""); err == nil {
+				repoRoot = root
+			}
+			templatePath = filepath.Join(repoRoot, templatePath)
+		}
+		if _, err := os.Stat(templatePath); err != nil {
 			if os.IsNotExist(err) {
-				return fmt.Errorf("diff.templatePath does not exist: %q", c.Diff.TemplatePath)
+				return fmt.Errorf("diff.templatePath does not exist: %q (resolved to %q)", c.Diff.TemplatePath, templatePath)
 			}
 			return fmt.Errorf("diff.templatePath cannot be accessed: %w", err)
 		}
@@ -374,17 +382,26 @@ func (c *Config) Validate() error {
 // Returns (path/url, isURL, error)
 // If no local config exists, returns the GitHub raw URL to gh-arc's default config
 func (c *Config) GetMegaLinterConfigPath() (string, bool, error) {
+	repoRoot := "."
+	if root, err := git.FindRepositoryRoot(""); err == nil {
+		repoRoot = root
+	}
+
 	configPath := c.Lint.MegaLinter.Config
 
-	// Check if config file exists in project
+	// Check if config file exists in project (resolve relative to repo root)
 	if configPath != "" {
-		if _, err := os.Stat(configPath); err == nil {
-			return configPath, false, nil
+		absPath := configPath
+		if !filepath.IsAbs(configPath) {
+			absPath = filepath.Join(repoRoot, configPath)
+		}
+		if _, err := os.Stat(absPath); err == nil {
+			return absPath, false, nil
 		}
 	}
 
 	// Check for .mega-linter.yml in project root
-	defaultPath := ".mega-linter.yml"
+	defaultPath := filepath.Join(repoRoot, ".mega-linter.yml")
 	if _, err := os.Stat(defaultPath); err == nil {
 		return defaultPath, false, nil
 	}

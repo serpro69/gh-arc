@@ -146,7 +146,7 @@ So we've come up with a "simple as a rock" (is that a thing? 🤔) solution to b
 
 `gh-arc` can be configured using either JSON or YAML configuration files. The extension looks for configuration files in the following locations (in order of precedence):
 
-1. Current directory: `./.arc.json`, `./.arc.yaml`, or `./.arc.yml`
+1. Repository root: `./.arc.json`, `./.arc.yaml`, or `./.arc.yml` (resolved from the git repository root, so it works from any subdirectory)
 2. User config: `~/.config/gh-arc/.arc.json`, `~/.config/gh-arc/.arc.yaml`, or `~/.config/gh-arc/.arc.yml`
 3. System-wide: `/etc/gh-arc/.arc.json`, `/etc/gh-arc/.arc.yaml`, or `/etc/gh-arc/.arc.yml`
 

@@ -485,8 +485,12 @@ func (w *DiffWorkflow) getReviewerSuggestions(ctx context.Context, currentBranch
 		currentUser = ""
 	}
 
-	// Parse CODEOWNERS file
-	co, err := codeowners.ParseCodeowners(".")
+	// Parse CODEOWNERS file from repo root so it's found from subdirectories
+	repoRoot := "."
+	if root, err := git.FindRepositoryRoot(""); err == nil {
+		repoRoot = root
+	}
+	co, err := codeowners.ParseCodeowners(repoRoot)
 	if err != nil {
 		logger.Warn().Err(err).Msg("Failed to parse CODEOWNERS file")
 	} else {
