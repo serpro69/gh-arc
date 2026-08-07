@@ -1,17 +1,17 @@
 {
   "schema_version": "1",
   "upstream_repo": "serpro69/claude-toolbox",
-  "template_version": "v0.18.2",
-  "synced_at": "2026-06-05T18:37:31Z",
+  "template_version": "v0.19.0",
+  "synced_at": "2026-08-07T10:14:19Z",
   "variables": {
     "PROJECT_NAME": "gh-arc",
     "LANGUAGES": "go",
-    "CC_MODEL": "claude-opus-4-8[1m]",
+    "CC_MODEL": "claude-opus-5",
     "CC_EFFORT_LEVEL": "high",
     "CC_PERMISSION_MODE": "default",
     "CC_STATUSLINE": "enhanced",
     "CODEX_APPROVAL_POLICY": "on-request",
-    "CODEX_MODEL": "gpt-5.5",
+    "CODEX_MODEL": "gpt-5.6-sol",
     "SKIP_CAPY": "false"
   },
   "plugin_migrated": true
