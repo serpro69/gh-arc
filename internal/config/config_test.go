@@ -193,6 +193,108 @@ output:
 		}
 	})
 
+	t.Run("load lint runner with fixArgs and timeout", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		os.Chdir(tmpDir)
+
+		configContent := `{
+			"lint": {
+				"runners": [
+					{
+						"name": "golangci-lint",
+						"command": "golangci-lint",
+						"args": ["run"],
+						"autoFix": true,
+						"fixArgs": ["--fix"],
+						"timeout": "5m"
+					},
+					{
+						"name": "eslint",
+						"command": "npx",
+						"args": ["eslint", "."],
+						"fixArgs": ["--fix", "--quiet"],
+						"timeout": "30s"
+					}
+				]
+			}
+		}`
+
+		err := os.WriteFile(".arc.json", []byte(configContent), 0o644)
+		if err != nil {
+			t.Fatalf("Failed to write config file: %v", err)
+		}
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if len(cfg.Lint.Runners) != 2 {
+			t.Fatalf("Expected 2 lint runners, got %d", len(cfg.Lint.Runners))
+		}
+
+		r0 := cfg.Lint.Runners[0]
+		if r0.Name != "golangci-lint" {
+			t.Errorf("Expected runner name 'golangci-lint', got '%s'", r0.Name)
+		}
+		if !r0.AutoFix {
+			t.Error("Expected autoFix to be true for golangci-lint")
+		}
+		if len(r0.FixArgs) != 1 || r0.FixArgs[0] != "--fix" {
+			t.Errorf("Expected fixArgs [\"--fix\"], got %v", r0.FixArgs)
+		}
+		if r0.Timeout != "5m" {
+			t.Errorf("Expected timeout '5m', got '%s'", r0.Timeout)
+		}
+
+		r1 := cfg.Lint.Runners[1]
+		if len(r1.FixArgs) != 2 || r1.FixArgs[0] != "--fix" || r1.FixArgs[1] != "--quiet" {
+			t.Errorf("Expected fixArgs [\"--fix\", \"--quiet\"], got %v", r1.FixArgs)
+		}
+		if r1.Timeout != "30s" {
+			t.Errorf("Expected timeout '30s', got '%s'", r1.Timeout)
+		}
+	})
+
+	t.Run("load lint runner without fixArgs and timeout uses zero values", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		os.Chdir(tmpDir)
+
+		configContent := `{
+			"lint": {
+				"runners": [
+					{
+						"name": "golangci-lint",
+						"command": "golangci-lint",
+						"args": ["run"]
+					}
+				]
+			}
+		}`
+
+		err := os.WriteFile(".arc.json", []byte(configContent), 0o644)
+		if err != nil {
+			t.Fatalf("Failed to write config file: %v", err)
+		}
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if len(cfg.Lint.Runners) != 1 {
+			t.Fatalf("Expected 1 lint runner, got %d", len(cfg.Lint.Runners))
+		}
+
+		r := cfg.Lint.Runners[0]
+		if r.FixArgs != nil {
+			t.Errorf("Expected fixArgs to be nil, got %v", r.FixArgs)
+		}
+		if r.Timeout != "" {
+			t.Errorf("Expected timeout to be empty, got '%s'", r.Timeout)
+		}
+	})
+
 	t.Run("load with environment variables", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		os.Chdir(tmpDir)

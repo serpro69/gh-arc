@@ -11,30 +11,30 @@
 
 ### Task 1: Shared runner engine types and execution
 
-- **Status:** pending
+- **Status:** done
 - **Depends on:** —
 - **Docs:** [implementation.md#11-shared-runner-engine](./implementation.md#11-shared-runner-engine-internalrunner)
 
 #### Subtasks
 
-- [ ] 1.1 Create `internal/runner/types.go` with `RunnerConfig`, `RunResult` (with Status string constants: Passed, Failed, Error, Skipped), `ExecutionResult` (with `FailedCount()` helper and `SkipReason string` for cases like "no changed files"), `EngineOptions` (JSONMode, Verbose, Stdout/Stderr as `io.Writer`), and `Executor` interface with `Run(ctx context.Context, configs []RunnerConfig) (*ExecutionResult, error)` method — `Engine` satisfies this interface, enabling mock injection in workflow tests
-- [ ] 1.2 Create `internal/runner/engine.go` with `Engine` struct and `NewEngine(opts EngineOptions) *Engine` constructor. Implement `Run(ctx context.Context, configs []RunnerConfig) (*ExecutionResult, error)` — sequential execution, arg building (Args + ExtraArgs + FilePaths), `exec.CommandContext` with optional timeout, exit code classification (0→Passed, ErrNotFound→Error, other→Failed), timeout detection via `ctx.Err()`
-- [ ] 1.3 Create `internal/runner/output.go` with `PrintBanner`, `PrintResult`, `PrintSummary`, and `FormatJSON` functions. `FormatJSON` includes `"skipped"` field when `ExecutionResult.SkipReason` is non-empty. Follow `internal/land/output.go` patterns (✓/✗/⚠ indicators). All functions write to injected `io.Writer`, not `os.Stdout` directly
-- [ ] 1.4 Write tests in `internal/runner/engine_test.go`: runner exits 0 → Passed; runner exits 1 → Failed; non-existent command → Error; timeout → Error; multiple runners with mixed results → correct aggregate; JSON mode produces valid JSON; file paths appended to args; ExtraArgs appended between Args and FilePaths; empty config list → success with no runners
+- [x] 1.1 Create `internal/runner/types.go` with `RunnerConfig`, `RunResult` (with Status string constants: Passed, Failed, Error, Skipped), `ExecutionResult` (with `FailedCount()` helper and `SkipReason string` for cases like "no changed files"), `EngineOptions` (JSONMode, Verbose, Stdout/Stderr as `io.Writer`), and `Executor` interface with `Run(ctx context.Context, configs []RunnerConfig) (*ExecutionResult, error)` method — `Engine` satisfies this interface, enabling mock injection in workflow tests
+- [x] 1.2 Create `internal/runner/engine.go` with `Engine` struct and `NewEngine(opts EngineOptions) *Engine` constructor. Implement `Run(ctx context.Context, configs []RunnerConfig) (*ExecutionResult, error)` — sequential execution, arg building (Args + ExtraArgs + FilePaths), `exec.CommandContext` with optional timeout, exit code classification (0→Passed, ErrNotFound→Error, other→Failed), timeout detection via `ctx.Err()`
+- [x] 1.3 Create `internal/runner/output.go` with `PrintBanner`, `PrintResult`, `PrintSummary`, and `FormatJSON` functions. `FormatJSON` includes `"skipped"` field when `ExecutionResult.SkipReason` is non-empty. Follow `internal/land/output.go` patterns (✓/✗/⚠ indicators). All functions write to injected `io.Writer`, not `os.Stdout` directly
+- [x] 1.4 Write tests in `internal/runner/engine_test.go`: runner exits 0 → Passed; runner exits 1 → Failed; non-existent command → Error; timeout → Error; multiple runners with mixed results → correct aggregate; JSON mode produces valid JSON; file paths appended to args; ExtraArgs appended between Args and FilePaths; empty config list → success with no runners
 
 → verify: `go test ./internal/runner/... -v` passes, all cases green
 
 ### Task 2: Config changes for fixArgs
 
-- **Status:** pending
+- **Status:** done
 - **Depends on:** —
 - **Docs:** [implementation.md#12-config-changes](./implementation.md#12-config-changes)
 
 #### Subtasks
 
-- [ ] 2.1 Add `FixArgs []string \`mapstructure:"fixArgs"\`` and `Timeout string \`mapstructure:"timeout"\`` fields to `LintRunner` in `internal/config/config.go`
-- [ ] 2.2 Add `fixArgs` (array of strings) and `timeout` (string, e.g. "30s", "5m") properties to the `lintRunner` definition in `docs/arc.schema.json`
-- [ ] 2.3 Add test cases in `internal/config/config_test.go` that load a config with `fixArgs` and `timeout` populated and verify they deserialize into `LintRunner.FixArgs` and `LintRunner.Timeout` correctly
+- [x] 2.1 Add `FixArgs []string \`mapstructure:"fixArgs"\`` and `Timeout string \`mapstructure:"timeout"\`` fields to `LintRunner` in `internal/config/config.go`
+- [x] 2.2 Add `fixArgs` (array of strings) and `timeout` (string, e.g. "30s", "5m") properties to the `lintRunner` definition in `docs/arc.schema.json`
+- [x] 2.3 Add test cases in `internal/config/config_test.go` that load a config with `fixArgs` and `timeout` populated and verify they deserialize into `LintRunner.FixArgs` and `LintRunner.Timeout` correctly
 
 → verify: `go test ./internal/config/... -v` passes, existing tests unbroken
 
