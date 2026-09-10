@@ -239,4 +239,4 @@ Or enable MegaLinter (requires Docker):
 
 ## Related Features
 
-- **testing-flags** (`docs/wip/testing-flags/`): Covers `--dry-run`/`--offline`/`--no-edit` for E2E testing. Complementary to lint/unit — these are local-only commands that don't hit the network, so `--offline` is irrelevant. `--dry-run` could be useful for showing what would be linted without running it, but this is deferred.
+- **testing-flags** (`docs/feat/wip/testing-flags/`): Covers `--dry-run`/`--offline`/`--no-edit` for E2E testing. Complementary to lint/unit — these are local-only commands that don't hit the network, so `--offline` is irrelevant. `--dry-run` could be useful for showing what would be linted without running it, but this is deferred.

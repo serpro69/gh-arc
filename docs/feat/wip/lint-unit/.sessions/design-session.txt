@@ -381,16 +381,16 @@
   │                    │ internal/unit/ wrappers                            │
   └────────────────────┴────────────────────────────────────────────────────┘
 ● User answered Claude's questions:
-  ⎿  · Does the full design look right? Ready to document it in docs/wip/ and 
+  ⎿  · Does the full design look right? Ready to document it in docs/feat/wip/ and 
      create the task list? → Yes, document it
 
 ● I'll create the docs directory and write all three files.
 
-● Bash(mkdir -p /home/sergio/Projects/personal/gh-arc/docs/wip/lint-unit)
+● Bash(mkdir -p /home/sergio/Projects/personal/gh-arc/docs/feat/wip/lint-unit)
   ⎿  Done
 
-● Write(docs/wip/lint-unit/design.md)
-  ⎿  Wrote 231 lines to docs/wip/lint-unit/design.md
+● Write(docs/feat/wip/lint-unit/design.md)
+  ⎿  Wrote 231 lines to docs/feat/wip/lint-unit/design.md
       2 # Design: `gh arc lint` and `gh arc unit`
       3 > Status: approved
       5 > Task 8 from [docs/archive/tm_tasks.md](../../archive/tm_tasks.m
@@ -403,8 +403,8 @@
         based workflow tool, not tied to any specific language ecosystem.
      … +299 lines (ctrl+o to expand)
 
-● Write(docs/wip/lint-unit/implementation.md)
-  ⎿  Wrote 251 lines to docs/wip/lint-unit/implementation.md
+● Write(docs/feat/wip/lint-unit/implementation.md)
+  ⎿  Wrote 251 lines to docs/feat/wip/lint-unit/implementation.md
        2 # Implementation Plan: `gh arc lint` and `gh arc unit`
        3 > Design: [./design.md](./design.md)
        4 > Status: ready
@@ -417,8 +417,8 @@
       10 - **Phase 2**: `gh arc unit` command (reuses the engine)
      … +327 lines (ctrl+o to expand)
 
-● Write(docs/wip/lint-unit/tasks.md)
-  ⎿  Wrote 121 lines to docs/wip/lint-unit/tasks.md
+● Write(docs/feat/wip/lint-unit/tasks.md)
+  ⎿  Wrote 121 lines to docs/feat/wip/lint-unit/tasks.md
        1 # Tasks: `gh arc lint` and `gh arc unit`
        2 
        3 > Design: [./design.md](./design.md)
@@ -433,11 +433,11 @@
 
 ● All three documents are written:
 
-  - docs/wip/lint-unit/design.md — Full design covering architecture, decisions,
+  - docs/feat/wip/lint-unit/design.md — Full design covering architecture, decisions,
    output strategy, config, and deferred items
-  - docs/wip/lint-unit/implementation.md — Detailed implementation plan in two
+  - docs/feat/wip/lint-unit/implementation.md — Detailed implementation plan in two
   phases with file paths, types, testing approaches, and verification steps
-  - docs/wip/lint-unit/tasks.md — 7 tasks (4 in Phase 1, 2 in Phase 2, 1
+  - docs/feat/wip/lint-unit/tasks.md — 7 tasks (4 in Phase 1, 2 in Phase 2, 1
   verification) with granular subtasks
 
   Key design decisions captured:

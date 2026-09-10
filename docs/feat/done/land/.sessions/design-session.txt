@@ -603,11 +603,11 @@
   - [ ] Step 5: Document the design
   - [ ] Step 6: Create the task list
 
-● Bash(mkdir -p /home/sergio/Projects/personal/gh-arc/docs/wip/land)
+● Bash(mkdir -p /home/sergio/Projects/personal/gh-arc/docs/feat/wip/land)
   ⎿  Done
 
-● Write(docs/wip/land/design.md)
-  ⎿  Wrote 292 lines to docs/wip/land/design.md
+● Write(docs/feat/wip/land/design.md)
+  ⎿  Wrote 292 lines to docs/feat/wip/land/design.md
       2 # Design: `gh arc land` — Merge Approved PRs
       3 > Status: design-complete
       5 > Date: 2026-04-25
@@ -620,8 +620,8 @@
         ` directly, losing the opinionated verification flow.
      … +341 lines (ctrl+o to expand)
 
-● Write(docs/wip/land/implementation.md)
-  ⎿  Wrote 252 lines to docs/wip/land/implementation.md
+● Write(docs/feat/wip/land/implementation.md)
+  ⎿  Wrote 252 lines to docs/feat/wip/land/implementation.md
        2 # Implementation Plan: `gh arc land`
        3 > Status: ready
        4 > Design: [design.md](./design.md)
@@ -638,8 +638,8 @@
   create the task list.
 
   Read 1 file (ctrl+o to expand)
-● Write(docs/wip/land/tasks.md)
-  ⎿  Wrote 132 lines to docs/wip/land/tasks.md
+● Write(docs/feat/wip/land/tasks.md)
+  ⎿  Wrote 132 lines to docs/feat/wip/land/tasks.md
        1 # Tasks: `gh arc land`
        2 
        3 > Design: [./design.md](./design.md)
@@ -660,7 +660,7 @@
   - [x] Step 5: Document the design
   - [x] Step 6: Create the task list
 
-  Design complete. Created three files in docs/wip/land/:
+  Design complete. Created three files in docs/feat/wip/land/:
 
   - design.md — full design spec covering command interface, config changes,
   workflow, pre-merge checks, merge execution, post-merge cleanup, and output

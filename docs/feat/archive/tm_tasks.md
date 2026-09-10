@@ -4,7 +4,7 @@
 > Source: `.taskmaster/tasks/tasks.json`
 > Last synced: 2026-03-11
 
-These tasks were imported from Task Master and represent the remaining feature roadmap for `gh-arc`. Each needs a design/implementation plan before work begins — use the `analysis-process` skill to create `docs/wip/<feature>/` directories with full documentation.
+These tasks were imported from Task Master and represent the remaining feature roadmap for `gh-arc`. Each needs a design/implementation plan before work begins — use the `analysis-process` skill to create `docs/feat/wip/<feature>/` directories with full documentation.
 
 ### Completed foundation (tasks 1–5)
 
@@ -136,7 +136,7 @@ These commands mirror [phorgeit/arcanist](https://github.com/phorgeit/arcanist) 
 - The config wizard should generate `.arc.json`/`.arc.yaml` and explain what each setting does — useful for onboarding new team members
 - Lipgloss styling should be added incrementally to existing commands, not just new ones — but avoid a massive refactor. Define a style system in `internal/ui/` and migrate commands over time
 - Progress indicators (spinners) are most valuable for `diff` (pushing, creating PR) and `land` (merging, cleanup) — the operations that hit the network
-- **Overlap with testing-flags:** The dry-run mode mentioned here overlaps with the `testing-flags` WIP feature. During design, reference `docs/wip/testing-flags/design.md` to avoid duplicating that work
+- **Overlap with testing-flags:** The dry-run mode mentioned here overlaps with the `testing-flags` WIP feature. During design, reference `docs/feat/wip/testing-flags/design.md` to avoid duplicating that work
 
 ---
 
@@ -190,7 +190,7 @@ These commands mirror [phorgeit/arcanist](https://github.com/phorgeit/arcanist) 
 
 **Key considerations for design:**
 
-- **Overlap with testing-flags:** The `docs/wip/testing-flags/` feature covers E2E testing from the binary/CLI level using `--dry-run`/`--offline` flags. This task is about API-level integration tests using real GitHub calls. They're complementary, not duplicative — but the design should clarify the boundary
+- **Overlap with testing-flags:** The `docs/feat/wip/testing-flags/` feature covers E2E testing from the binary/CLI level using `--dry-run`/`--offline` flags. This task is about API-level integration tests using real GitHub calls. They're complementary, not duplicative — but the design should clarify the boundary
 - Ephemeral test repos must be reliably cleaned up — orphan detection should scan for repos matching a naming pattern (e.g., `gh-arc-integration-test-*`) and delete stale ones
 - Tests should be gated behind `GITHUB_INTEGRATION_TOKEN` env var — never run against real repos by accident
 - Rate limiting is a real concern for integration tests — consider test design that minimizes API calls (reuse repos across tests in a suite, batch operations)

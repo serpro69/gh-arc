@@ -7,7 +7,7 @@ This document provides a comprehensive implementation plan for the simplified Au
 ## Prerequisites
 
 Before starting implementation:
-- Review the feature design document: `docs/wip/auto-branch-from-main/feature-design.md`
+- Review the feature design document: `docs/feat/wip/auto-branch-from-main/feature-design.md`
 - Review architecture documentation: `docs/contributing/ARCHITECTURE.md`
 - Review testing guidelines: `docs/contributing/TESTING.md`
 - Ensure development environment works: project builds successfully
@@ -1064,6 +1064,6 @@ This simplified implementation plan provides 14 tasks organized into 5 phases:
 ## Questions or Issues?
 
 Refer to:
-- Feature design: `docs/wip/auto-branch-from-main/feature-design.md`
+- Feature design: `docs/feat/wip/auto-branch-from-main/feature-design.md`
 - Architecture guide: `docs/contributing/ARCHITECTURE.md`
 - Testing guide: `docs/contributing/TESTING.md`

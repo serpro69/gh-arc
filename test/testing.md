@@ -10,16 +10,16 @@ Run the automated test suite:
 
 ```bash
 # From repository root
-./docs/wip/auto-branch-from-main/test-auto-branch.sh
+./docs/feat/wip/auto-branch-from-main/test-auto-branch.sh
 
 # Run specific test
-./docs/wip/auto-branch-from-main/test-auto-branch.sh test_happy_path_with_auto_create
+./docs/feat/wip/auto-branch-from-main/test-auto-branch.sh test_happy_path_with_auto_create
 
 # Use custom test directory (preserved after tests)
-TEST_DIR=/tmp/my-test-dir ./docs/wip/auto-branch-from-main/test-auto-branch.sh
+TEST_DIR=/tmp/my-test-dir ./docs/feat/wip/auto-branch-from-main/test-auto-branch.sh
 
 # Force cleanup even with custom directory
-CLEANUP=1 TEST_DIR=/tmp/my-test-dir ./docs/wip/auto-branch-from-main/test-auto-branch.sh
+CLEANUP=1 TEST_DIR=/tmp/my-test-dir ./docs/feat/wip/auto-branch-from-main/test-auto-branch.sh
 ```
 
 **Directory Behavior:**

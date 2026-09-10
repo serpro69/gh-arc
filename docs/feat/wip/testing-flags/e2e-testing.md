@@ -482,7 +482,7 @@ jobs:
         run: go build -o gh-arc
 
       - name: Run dry-run tests
-        run: ./docs/wip/testing-flags/test-auto-branch-e2e.sh dry-run
+        run: ./docs/feat/wip/testing-flags/test-auto-branch-e2e.sh dry-run
 
   e2e-offline:
     runs-on: ubuntu-latest
@@ -498,7 +498,7 @@ jobs:
         run: go build -o gh-arc
 
       - name: Run offline tests
-        run: ./docs/wip/testing-flags/test-auto-branch-e2e.sh offline
+        run: ./docs/feat/wip/testing-flags/test-auto-branch-e2e.sh offline
 
   e2e-github:
     runs-on: ubuntu-latest
@@ -517,7 +517,7 @@ jobs:
       - name: Run GitHub integration tests
         env:
           GITHUB_TOKEN: ${{ secrets.E2E_TEST_TOKEN }}
-        run: ./docs/wip/testing-flags/test-auto-branch-e2e.sh github
+        run: ./docs/feat/wip/testing-flags/test-auto-branch-e2e.sh github
 ```
 
 ## Benefits of This Approach
@@ -555,7 +555,7 @@ jobs:
 ## Test Organization
 
 ```
-docs/wip/testing-flags/
+docs/feat/wip/testing-flags/
 ├── design.md                           # Feature design (this doc's companion)
 ├── e2e-testing.md                      # This document
 ├── test-auto-branch-e2e.sh             # Main test script
