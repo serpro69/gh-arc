@@ -19,8 +19,8 @@ func TestLoad(t *testing.T) {
 		}
 
 		// Check defaults
-		if cfg.GitHub.DefaultBranch != "main" {
-			t.Errorf("Expected default branch 'main', got '%s'", cfg.GitHub.DefaultBranch)
+		if cfg.GitHub.DefaultBranch != "" {
+			t.Errorf("Expected an empty default branch for autodetection, got '%s'", cfg.GitHub.DefaultBranch)
 		}
 		if cfg.Land.DefaultMergeMethod != "squash" {
 			t.Errorf("Expected default merge method 'squash', got '%s'", cfg.Land.DefaultMergeMethod)

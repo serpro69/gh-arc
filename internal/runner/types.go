@@ -51,7 +51,7 @@ func (r *ExecutionResult) FailedCount() int {
 
 type EngineOptions struct {
 	JSONMode bool
-	Verbose  bool // consumed by lint/unit workflows (Tasks 3/5) for verbose logging
+	Verbose  bool // reserved for CLI verbosity; currently does not alter runner output
 	Stdout   io.Writer
 	Stderr   io.Writer
 }

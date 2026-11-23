@@ -220,8 +220,8 @@ func TestConfig(t *testing.T) {
     }
 
     // Use t.Errorf for independent checks (test continues)
-    if cfg.GitHub.DefaultBranch != "main" {
-        t.Errorf("GitHub.DefaultBranch = %s, expected 'main'", cfg.GitHub.DefaultBranch)
+    if cfg.GitHub.DefaultBranch != "" {
+        t.Errorf("GitHub.DefaultBranch = %s, expected empty for autodetection", cfg.GitHub.DefaultBranch)
     }
     if !cfg.Diff.EnableStacking {
         t.Error("Diff.EnableStacking = false, expected true")

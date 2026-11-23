@@ -17,8 +17,8 @@
       "properties": {
         "defaultBranch": {
           "type": "string",
-          "description": "Default base branch for the repository",
-          "default": "main"
+          "description": "Default branch override; empty means detect from the repository",
+          "default": ""
         },
         "defaultReviewers": {
           "type": "array",
