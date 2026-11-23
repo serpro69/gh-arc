@@ -3,102 +3,18 @@
 package cmd
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 )
-
-// TestLintCLIProcess runs the real root command in a child process so tests
-// observe Execute's os.Exit behavior without replacing production exit logic.
-func TestLintCLIProcess(t *testing.T) {
-	if os.Getenv("GHARC_LINT_CLI_TEST") != "1" {
-		return
-	}
-	args := os.Args
-	for len(args) > 0 && args[0] != "--" {
-		args = args[1:]
-	}
-	if len(args) == 0 {
-		t.Fatal("missing command arguments")
-	}
-	args = args[1:]
-	rootCmd.AddCommand(&cobra.Command{
-		Use: "test-wrapped-silent",
-		RunE: func(*cobra.Command, []string) error {
-			return fmt.Errorf("wrapped failure: %w", ErrSilentExit)
-		},
-	})
-	rootCmd.SetArgs(args)
-	Execute()
-	os.Exit(0)
-}
-
-func newLintCLIRepo(t *testing.T, settings map[string]any) string {
-	t.Helper()
-	root := t.TempDir()
-	for _, args := range [][]string{
-		{"init", "-b", "main"},
-		{"-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false",
-			"commit", "--allow-empty", "-m", "initial"},
-	} {
-		runLintGit(t, root, args...)
-	}
-	data, err := json.Marshal(settings)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, ".arc.json"), data, 0644); err != nil {
-		t.Fatal(err)
-	}
-	return root
-}
-
-func runLintGit(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, output)
-	}
-}
-
-func runLintCLI(t *testing.T, dir string, args ...string) (string, string, int) {
-	t.Helper()
-	binary, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	cmd := exec.Command(binary, append([]string{"-test.run=^TestLintCLIProcess$", "--"}, args...)...)
-	cmd.Dir = dir
-	// Keep inherited GHARC settings from changing these fixtures.
-	for _, entry := range os.Environ() {
-		if !strings.HasPrefix(entry, "GHARC_") {
-			cmd.Env = append(cmd.Env, entry)
-		}
-	}
-	cmd.Env = append(cmd.Env, "GHARC_LINT_CLI_TEST=1")
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	code := 0
-	if err := cmd.Run(); err != nil {
-		var exitErr *exec.ExitError
-		if !errors.As(err, &exitErr) {
-			t.Fatal(err)
-		}
-		code = exitErr.ExitCode()
-	}
-	return stdout.String(), stderr.String(), code
-}
 
 func TestLintCLIResults(t *testing.T) {
 	for _, tt := range []struct {
@@ -151,19 +67,19 @@ func TestLintCLIResults(t *testing.T) {
 					"autoFix": true, "fixArgs": []string{"--fix"},
 				}}
 			}
-			root := newLintCLIRepo(t, settings)
+			root := newCLIRepo(t, settings)
 			if tt.changed {
-				runLintGit(t, root, "checkout", "-b", "feature")
+				runGit(t, root, "checkout", "-b", "feature")
 				if err := os.WriteFile(filepath.Join(root, "changed.txt"), []byte("change\n"), 0644); err != nil {
 					t.Fatal(err)
 				}
-				runLintGit(t, root, "add", "changed.txt")
-				runLintGit(t, root,
+				runGit(t, root, "add", "changed.txt")
+				runGit(t, root,
 					"-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false",
 					"commit", "-m", "change",
 				)
 			}
-			stdout, stderr, code := runLintCLI(t, root, append([]string{"lint"}, tt.args...)...)
+			stdout, stderr, code := runCLI(t, root, append([]string{"lint"}, tt.args...)...)
 			if code != tt.wantCode {
 				t.Fatalf("exit = %d, want %d; stdout=%s; stderr=%s", code, tt.wantCode, stdout, stderr)
 			}
@@ -202,27 +118,27 @@ func TestLintCLIResults(t *testing.T) {
 }
 
 func TestLintCLIExitHandling(t *testing.T) {
-	root := newLintCLIRepo(t, map[string]any{})
+	root := newCLIRepo(t, map[string]any{})
 	t.Run("wrapped sentinel remains silent", func(t *testing.T) {
-		stdout, stderr, code := runLintCLI(t, root, "test-wrapped-silent")
+		stdout, stderr, code := runCLI(t, root, "test-wrapped-silent")
 		if code != 1 || stdout != "" || stderr != "" {
 			t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 		}
 	})
 	t.Run("ordinary errors still print", func(t *testing.T) {
-		stdout, stderr, code := runLintCLI(t, root, "lint", "unexpected")
+		stdout, stderr, code := runCLI(t, root, "lint", "unexpected")
 		if code != 1 || stdout != "" || !strings.Contains(stderr, "unexpected") {
 			t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 		}
 	})
 	t.Run("help outside repository", func(t *testing.T) {
-		stdout, stderr, code := runLintCLI(t, t.TempDir(), "lint", "--help")
+		stdout, stderr, code := runCLI(t, t.TempDir(), "lint", "--help")
 		if code != 0 || stderr != "" || !strings.Contains(stdout, "--fix") || !strings.Contains(stdout, "--all") {
 			t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 		}
 	})
 	t.Run("other command verbose diagnostics preserved", func(t *testing.T) {
-		_, stderr, code := runLintCLI(t, root, "version", "-v")
+		_, stderr, code := runCLI(t, root, "version", "-v")
 		if code != 0 || !strings.Contains(stderr, "Using config file:") || !strings.Contains(stderr, "Starting gh-arc") {
 			t.Fatalf("exit=%d stderr=%q", code, stderr)
 		}
@@ -230,7 +146,7 @@ func TestLintCLIExitHandling(t *testing.T) {
 }
 
 func TestRunLintErrors(t *testing.T) {
-	root := newLintCLIRepo(t, map[string]any{
+	root := newCLIRepo(t, map[string]any{
 		"lint": map[string]any{"runners": []map[string]any{{"name": "check", "command": "gh-arc-test-linter-not-installed"}}},
 	})
 	t.Chdir(root)
