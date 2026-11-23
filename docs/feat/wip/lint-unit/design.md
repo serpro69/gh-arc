@@ -51,6 +51,19 @@ JSON is emitted for every code path, including edge cases:
 - No runners configured → `{"command":"lint","success":true,"runners":[]}`
 - No changed files → `{"command":"lint","success":true,"runners":[],"skipped":"no changed files"}`
 - Runners executed → full runner results
+- Setup, configuration validation, or command argument failure → `{"command":"lint","success":false,"runners":[],"error":"..."}`, exit 1 and empty stderr. The same envelope uses `"command":"unit"` for unit failures.
+
+The error envelope was explicitly selected by the user on 2026-11-23 (Task 7).
+Lint/unit reject invalid configuration before starting runners. Effective JSON
+mode is resolved before diagnostics, including `output.json` from a successfully
+loaded config and explicit flag overrides. If a config cannot be loaded, use
+`--json` to request the envelope. Help remains ordinary command help. If a stdout
+write returns an error, report it on stderr and exit 1; do not attempt a
+second JSON object after a partial write.
+Signal termination can prevent any diagnostic from being emitted.
+The envelope applies to errors from a selected `lint` or `unit` command.
+Top-level command-selection failures retain ordinary CLI diagnostics; for
+example, `gh arc --unknown unit --json` does not identify `unit` as the command.
 
 ```json
 {

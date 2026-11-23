@@ -32,6 +32,7 @@ logs
 *.sw?
 # OS specific
 .DS_Store
+__pycache__/
 
 # AI tools
 !.claude

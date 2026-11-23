@@ -3,11 +3,11 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/spf13/cobra"
 
-	"github.com/serpro69/gh-arc/internal/config"
 	"github.com/serpro69/gh-arc/internal/git"
 	"github.com/serpro69/gh-arc/internal/runner"
 	"github.com/serpro69/gh-arc/internal/unit"
@@ -39,9 +39,9 @@ func init() {
 }
 
 func runUnit(cmd *cobra.Command, args []string) error {
-	cfg, err := config.Load()
+	cfg, err := loadRunnerConfig(cmd)
 	if err != nil {
-		return fmt.Errorf("failed to load configuration: %w", err)
+		return err
 	}
 	baseDir, err := os.Getwd()
 	if err != nil {
@@ -56,31 +56,24 @@ func runUnit(cmd *cobra.Command, args []string) error {
 	opts := &unit.UnitOptions{JSONMode: GetJSON(), Verbose: GetVerbose()}
 	engine := runner.NewEngine(runner.EngineOptions{
 		JSONMode: opts.JSONMode,
+		Quiet:    GetQuiet(),
 		Verbose:  opts.Verbose,
 		Stdout:   cmd.OutOrStdout(),
 		Stderr:   cmd.ErrOrStderr(),
 	})
+	guidance := cmd.OutOrStdout()
+	if GetQuiet() {
+		guidance = io.Discard
+	}
 	workflow := unit.NewUnitWorkflow(
 		engine,
 		cfg,
 		unit.WithBaseDir(baseDir),
-		unit.WithOutput(cmd.OutOrStdout()),
+		unit.WithOutput(guidance),
 	)
 	result, err := workflow.Execute(cmd.Context(), opts)
 	if err != nil {
 		return err
 	}
-	if opts.JSONMode {
-		output, err := runner.FormatJSON(result.ExecutionResult, "unit")
-		if err != nil {
-			return fmt.Errorf("failed to format unit results: %w", err)
-		}
-		if _, err := fmt.Fprintln(cmd.OutOrStdout(), string(output)); err != nil {
-			return fmt.Errorf("failed to write unit results: %w", err)
-		}
-	}
-	if !result.Success {
-		return ErrSilentExit
-	}
-	return nil
+	return finishRunnerCommand(cmd, result.ExecutionResult, "unit")
 }

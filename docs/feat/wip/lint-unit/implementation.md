@@ -26,7 +26,7 @@ Define the following types:
 - **`RunnerConfig`**: Name (string), Command (string), Args ([]string), ExtraArgs ([]string — appended to Args at execution time, used for --fix), WorkingDir (string), Timeout (time.Duration), FilePaths ([]string — changed files appended to command args).
 - **`RunResult`**: Name (string), Status (enum: Passed, Failed, Error, Skipped), ExitCode (int), Duration (time.Duration), Err (error — only set for Status=Error, e.g. command not found).
 - **`ExecutionResult`**: Runners ([]RunResult), Success (bool — true iff all runners passed), SkipReason (string — optional, set when execution was skipped e.g. "no changed files"). Add a helper method `FailedCount() int`.
-- **`EngineOptions`**: JSONMode (bool), Verbose (bool), Stdout (io.Writer), Stderr (io.Writer) — allow injection for testing.
+- **`EngineOptions`**: JSONMode (bool), Quiet (bool), Verbose (bool), Stdout (io.Writer), Stderr (io.Writer) — allow injection for testing. Quiet suppresses tool stdout and successful framing; tool stderr and failure summaries remain visible. JSON mode takes precedence.
 
 Status should be a string type with constants, not iota, so it serializes cleanly to JSON.
 
@@ -41,7 +41,7 @@ Method `Run(ctx context.Context, configs []RunnerConfig) (*ExecutionResult, erro
    a. Build the full arg list: `config.Args + config.ExtraArgs + config.FilePaths`.
    b. Create `exec.CommandContext`. If `config.Timeout > 0`, wrap `ctx` with `context.WithTimeout`. Set `cmd.Dir` to `config.WorkingDir` if non-empty.
    c. In normal mode: set `cmd.Stdout` and `cmd.Stderr` to `engine.Stdout/Stderr` (defaults to `os.Stdout/os.Stderr`). Print banner before execution.
-   d. In JSON mode: capture stdout/stderr into buffers (don't stream). Suppress banners.
+   d. In JSON mode: discard stdout/stderr (don't stream). Leave subprocess writers nil to use the null device without copy pipes that background children could hold open. Suppress banners. The output contract includes execution metadata only, so retaining tool output in buffers is unnecessary.
    e. Run the command, measure duration with `time.Now()` before/after.
    f. Classify result: exit code 0 → Passed; `exec.ErrNotFound` → Error (command not found); any other non-zero → Failed.
    g. Print per-runner summary line (normal mode only).
@@ -276,6 +276,19 @@ When JSON mode is active:
 - Print a single JSON object to stdout at the end
 - Exit code still reflects pass/fail
 - JSON is emitted for every code path: no runners configured → `{"command":"lint","success":true,"runners":[]}`, no changed files → add `"skipped":"no changed files"`, runners executed → full results
+
+Task 7 decision (2026-11-23): setup/validation/argument failures use
+`{"command":"lint|unit","success":false,"runners":[],"error":"..."}` with exit 1
+and empty stderr. Root execution retains Cobra's selected command on failure and
+reports these errors once. Initialization loads config and resolves output
+preferences before validation; invalid config stops lint/unit in the pre-run
+hook. Other commands retain advisory validation. Lint/unit reuse initialized
+config, with loading/validation retained for direct handler calls. The shared
+command result emitter preserves existing runner-result JSON and silent exits.
+A returned output-write error is reported to stderr without attempting another JSON
+object, since stdout may already contain a partial write. Standard help is text.
+Root failures before `lint`/`unit` is identified remain outside these commands'
+envelope; do not infer a command name from an unknown flag's apparent value.
 
 ### Testability
 

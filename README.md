@@ -103,10 +103,10 @@ In a gist, `gh arc` allows you to do things like:
 - push changes with `gh arc land`
 - view enhanced information about Git branches with `gh arc branch`
 
-Once you've [configured lint and unit test integration](TODO), you can also:
+Once you've [configured lint and unit test integration](#lint-and-unit-tests), you can also:
 
 - check your code for syntax and style errors with `gh arc lint`
-- run unit tests that cover your changes with `gh arc unit`
+- run all configured test runners with `gh arc unit`
 
 This extension also integrates with other tools:
 
@@ -116,6 +116,94 @@ It has some advanced features as well, you can:
 
 - enable tab completion with `gh arc completion`
 - ...or extend the extension and add new commands
+
+### Lint and Unit Tests
+
+Configure the tools your project uses under [`lint.runners`](#lint-runners) and
+[`test.runners`](#test-runners), then run:
+
+```bash
+gh arc lint             # Lint files changed in commits on this branch
+gh arc lint --all       # Let each runner select its full target set
+gh arc lint --fix       # Append fixArgs for runners with autoFix enabled
+gh arc unit             # Run all configured tests
+gh arc unit --json      # Emit execution metadata as one JSON object
+```
+
+`lint` compares `HEAD` with the merge-base of the default branch. It excludes
+deleted files; staged, unstaged, and untracked changes are not part of that file
+selection. Tools read the current working-tree contents of selected files. Use
+`--all` to check uncommitted work as part of the runner's full target set. There
+is no file-extension filtering: configure each runner's `workingDir` or use a
+wrapper when different tools need different file types.
+
+`lint` requires a Git repository and uses local refs without fetching. It tries
+`origin/<defaultBranch>`, then the local branch if that remote ref is missing.
+Set `github.defaultBranch` explicitly in detached CI checkouts or repositories
+without a cached `origin/HEAD` or a common local default branch. Otherwise the
+autodetection fallback can select the first local branch, including the feature
+branch itself. A missing base ref is an error suggesting `git fetch origin`;
+unrelated or shallow local history with no common ancestor falls back to all
+files. Fetch the needed history first when changed-file scoping matters.
+
+`unit` does not scope tests to changed files and also works outside Git. Within a
+repository, both commands resolve empty or relative runner working directories
+from the repository root, including when invoked from a subdirectory. Outside
+Git, `unit` uses the invocation directory. Absolute working directories are kept.
+
+Runners execute sequentially, including after another runner fails. Normal mode
+streams tool output and prints a summary. Exit status is `0` when every executed
+runner passes or there is nothing to run, and `1` for runner or setup failures.
+No configured runners prints guidance and succeeds. Lint also succeeds without
+running tools when there are no eligible changed files.
+
+`--quiet` suppresses guidance, banners, successful summaries, and tool stdout.
+Tool stderr and gh-arc's failure summaries remain visible. Findings or test
+reports that a tool prints to stdout are suppressed even on failure; rerun
+without `--quiet` to see them. `--json` takes precedence over quiet mode and
+still emits the result object.
+
+With `--json`, runner output, banners, guidance, and summaries are suppressed.
+Execution results contain metadata, not the tools' lint findings or test reports:
+
+```json
+{
+  "command": "unit",
+  "success": true,
+  "runners": [
+    { "name": "go-test", "status": "passed", "exit_code": 0, "duration_ms": 320 }
+  ]
+}
+```
+
+An empty configuration produces `"runners":[]`. A lint skip also includes
+`"skipped":"no changed files"` or
+`"skipped":"no changed files in runner working directories"`. Runner statuses
+are `passed`, `failed`, or `error`; startup failures and timeouts include a
+per-runner `error` message. A zero `exit_code` on an `error` result does not mean
+success: no normal exit status may be available. Use `status` and `success`.
+JSON mode discards the underlying tools' output even if they emit JSON; configure
+those tools to write report files when you need their findings.
+
+Setup, invalid configuration, and argument errors also return one JSON object,
+with exit status `1` and empty stderr:
+
+```json
+{"command":"unit","success":false,"runners":[],"error":"invalid timeout ..."}
+```
+
+Lint/unit reject invalid configuration before running tools. `output.json: true`
+also enables this envelope when configuration can be loaded; pass `--json`
+explicitly for malformed or unreadable config files. `--json=false` restores
+ordinary error output. Help remains text. If a stdout write returns an error,
+the command reports it on stderr instead of appending another JSON object.
+Termination by a signal, such as a closed output pipe, can prevent diagnostics.
+Errors before a valid command is identified (for example,
+`gh arc --unknown unit --json`) retain ordinary top-level CLI diagnostics.
+
+These commands do not call GitHub or require GitHub authentication themselves;
+configured tools can still use the network. MegaLinter/Docker execution,
+parallel runners, unit coverage flags, and `--dry-run` are not implemented.
 
 ### Shell Completion
 
@@ -151,6 +239,10 @@ So we've come up with a "simple as a rock" (is that a thing? 🤔) solution to b
 3. System-wide: `/etc/gh-arc/.arc.json`, `/etc/gh-arc/.arc.yaml`, or `/etc/gh-arc/.arc.yml`
 
 Within each directory, JSON files take precedence over YAML files (`.arc.json` > `.arc.yaml` > `.arc.yml`).
+
+The first existing file is used; configuration files are not merged. A malformed
+or unreadable file is an error, not a reason to try a lower-priority file. Outside
+a Git repository, the first search location is the invocation directory.
 
 ### Configuration Format
 
@@ -300,6 +392,18 @@ Configure custom test runners in your `.arc.json`:
 }
 ```
 
+`gh arc unit` runs every entry in order. `name` labels its results, `command` is
+the executable, and `args` is an array of literal arguments. The command is not
+interpreted by a shell, so shell expansion, pipes, and redirection require an
+explicit wrapper script. Tools must already be installed and available on `PATH`
+(or specified by executable path).
+
+`workingDir` defaults to the project root (invocation directory outside Git).
+`timeout` accepts Go durations such as `30s` or `5m`; omitted, zero, and negative
+durations currently disable the timeout. Use a positive duration to bound a run.
+An invalid duration is an error. A timeout stops the direct runner process;
+wrapper scripts are responsible for any child-process cleanup.
+
 #### Lint Runners
 
 Configure custom linters:
@@ -313,7 +417,9 @@ Configure custom linters:
         "command": "golangci-lint",
         "args": ["run"],
         "workingDir": "",
-        "autoFix": true
+        "autoFix": true,
+        "fixArgs": ["--fix"],
+        "timeout": "5m"
       }
     ],
     "megaLinter": {
@@ -324,6 +430,25 @@ Configure custom linters:
   }
 }
 ```
+
+Lint runners use the same `name`, `command`, `args`, `workingDir`, and `timeout`
+fields as test runners. The arguments are assembled in this order:
+`args`, then `fixArgs` when both `--fix` and `autoFix: true` are set, then selected
+file paths. `autoFix` defaults to `false`; `fixArgs` defaults to an empty array.
+Merely setting `autoFix: true` does not add tool-specific fix flags.
+
+Changed paths are relative to each runner's working directory. Files outside it
+are omitted, and a runner with no remaining files is not executed. With `--all`,
+no file paths are appended: configure the runner's arguments to select its full
+target set. For package-oriented tools such as the Go example above, use
+`gh arc lint --all` when mixing explicit filenames would not be supported by the
+tool. For a file-oriented linter, use an empty `args` array or options without a
+fixed target; adding `.` to `args` can make it scan everything even in changed-file
+mode.
+
+The `megaLinter` settings are reserved for future integration. Enabling them
+currently prints a notice when no explicit lint runners are configured; it does
+not launch Docker or perform linting.
 
 ### Example: Minimal Configuration
 

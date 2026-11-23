@@ -51,6 +51,7 @@ func (r *ExecutionResult) FailedCount() int {
 
 type EngineOptions struct {
 	JSONMode bool
+	Quiet    bool // suppress stdout and successful framing; retain stderr and failures
 	Verbose  bool // reserved for CLI verbosity; currently does not alter runner output
 	Stdout   io.Writer
 	Stderr   io.Writer

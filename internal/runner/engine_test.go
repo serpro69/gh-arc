@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -91,6 +92,56 @@ func TestRun_CommandNotFound(t *testing.T) {
 	assert.Equal(t, StatusError, result.Runners[0].Status)
 	assert.Contains(t, result.Runners[0].Err.Error(), "command not found")
 	assert.Contains(t, buf.String(), "✗ missing: command not found")
+}
+
+func TestRunJSONBackgroundChild(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		timeout time.Duration
+	}{
+		{name: "no timeout"},
+		{name: "with timeout", timeout: 5 * time.Second},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			pidFile := filepath.Join(t.TempDir(), "child.pid")
+			script := writeScript(t, "background.sh", "#!/bin/sh\nsleep 30 &\necho $! > \"$1\"\n")
+			engine, _ := newTestEngine(true)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			type outcome struct {
+				result *ExecutionResult
+				err    error
+			}
+			done := make(chan outcome, 1)
+			go func() {
+				result, err := engine.Run(ctx, []RunnerConfig{{
+					Name: "background", Command: script, Args: []string{pidFile}, Timeout: tt.timeout,
+				}})
+				done <- outcome{result: result, err: err}
+			}()
+			// The fixture child is ours to stop; production only owns the direct runner.
+			stopChild := func() {
+				data, err := os.ReadFile(pidFile)
+				require.NoError(t, err)
+				pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+				require.NoError(t, err)
+				child, err := os.FindProcess(pid)
+				require.NoError(t, err)
+				require.NoError(t, child.Kill())
+			}
+			select {
+			case got := <-done:
+				stopChild()
+				require.NoError(t, got.err)
+				require.True(t, got.result.Success, "background output handles must not fail the runner: %+v", got.result)
+			case <-time.After(3 * time.Second):
+				cancel()
+				stopChild()
+				<-done
+				t.Fatal("JSON execution waited for the background child's output handles")
+			}
+		})
+	}
 }
 
 func TestRun_Timeout(t *testing.T) {
