@@ -224,6 +224,8 @@ Method `Execute(ctx context.Context, opts *UnitOptions) (*UnitResult, error)`:
 
 No git repository needed — unit doesn't do file scoping. Same `Executor` interface as lint for testability.
 
+Task 5 implementation note (2026-11-23): the constructor also accepts `WithOutput` for guidance and `WithBaseDir` for project-directory selection. With a base supplied, empty/relative runner working directories resolve from that base; absolute directories remain unchanged. Task 6 selects the repository root when available, otherwise the invocation directory, so running from a subdirectory does not silently limit the test suite. The workflow itself performs no Git lookup. See Task 5's Execution context for the reviewed correction and verification evidence.
+
 #### Testing
 
 Use a mock `Executor` (same approach as lint):
@@ -240,7 +242,7 @@ Same pattern as `cmd/lint.go` but simpler:
 2. In `init()`: add to `rootCmd`. No command-specific flags in v1.
 3. `runUnit`:
    a. Load config.
-   b. Create `runner.Engine` and `UnitWorkflow` (no git repo needed).
+   b. Select the repository root when discoverable, otherwise the invocation directory. Create `runner.Engine` and `UnitWorkflow`, passing `unit.WithBaseDir` and injected output writers (no git repo required).
    c. Read `GetJSON()` and `GetVerbose()` into `UnitOptions`.
    d. Call `Execute()`.
    e. Handle results same as lint (return `ErrSilentExit` on test failure).

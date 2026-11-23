@@ -102,19 +102,29 @@
 
 ### Task 5: Unit workflow
 
-- **Status:** pending
+- **Status:** done
 - **Depends on:** Task 1
 - **Docs:** [implementation.md#21-unit-workflow](./implementation.md#21-unit-workflow-internalunit)
 
 #### Subtasks
 
-- [ ] 5.1 Create `internal/unit/types.go` with `UnitOptions` (JSONMode, Verbose bools) and `UnitResult` (wrapping `runner.ExecutionResult`)
-- [ ] 5.2 Implement `UnitWorkflow` struct (fields: executor runner.Executor, config *config.Config) with `NewUnitWorkflow(executor, cfg)` constructor and `Execute(ctx, *UnitOptions) (*UnitResult, error)` method: resolve runners → parse timeouts → build runner configs → execute via injected executor
-- [ ] 5.3 Implement timeout parsing: `time.ParseDuration(runner.Timeout)` with clear error on invalid format (e.g., "invalid timeout '5min' for runner 'go-test': use Go duration format like '5m' or '300s'")
-- [ ] 5.4 Implement "no runners" guidance message (same pattern as lint — only print if not JSON mode, with test runner config examples)
-- [ ] 5.5 Write tests in `internal/unit/workflow_test.go` using mock runner.Executor: no runners → guidance + success; runners with valid timeout → parsed correctly and executor receives correct RunnerConfig.Timeout; invalid timeout → descriptive error; executor receives correct configs; JSON mode suppresses guidance
+- [x] 5.1 Create `internal/unit/types.go` with `UnitOptions` (JSONMode, Verbose bools) and `UnitResult` (wrapping `runner.ExecutionResult`)
+- [x] 5.2 Implement `UnitWorkflow` struct (fields: executor runner.Executor, config *config.Config) with `NewUnitWorkflow(executor, cfg)` constructor and `Execute(ctx, *UnitOptions) (*UnitResult, error)` method: resolve runners → parse timeouts → build runner configs → execute via injected executor
+- [x] 5.3 Implement timeout parsing: `time.ParseDuration(runner.Timeout)` with clear error on invalid format (e.g., "invalid timeout '5min' for runner 'go-test': use Go duration format like '5m' or '300s'")
+- [x] 5.4 Implement "no runners" guidance message (same pattern as lint — only print if not JSON mode, with test runner config examples)
+- [x] 5.5 Write tests in `internal/unit/workflow_test.go` using mock runner.Executor: no runners → guidance + success; runners with valid timeout → parsed correctly and executor receives correct RunnerConfig.Timeout; invalid timeout → descriptive error; executor receives correct configs; JSON mode suppresses guidance
 
 → verify: `go test ./internal/unit/... -v` passes
+
+#### Execution context
+
+- 2026-11-23 — Observed: Task 4 was committed as `b2fc6a9` at the user's request; this is the Task 5 baseline. Scope is the unit workflow and mock-executor tests. Task 6 owns the CLI command; Task 7 owns final feature verification and the previously recorded config/output issues. No new external dependency, Git operation, deployment or migration is needed.
+- 2026-11-23 — Implementation detail: follow lint's optional `WithOutput` constructor option so guidance uses an injected writer. JSON mode suppresses workflow guidance; the future CLI must configure the executor's JSON/verbose flags and writers separately and emit `runner.FormatJSON` output. Map configured working directories unchanged, without repository-root or changed-file resolution, as specified in implementation §2.1.
+- 2026-11-23 — Verification plan: cover empty configuration, JSON silence, ordered config mapping, parsed/invalid timeouts before any execution, executor outcome/error propagation, cancellation and guidance write errors. Reuse the shared engine's existing subprocess tests; no new CLI or external-tool integration is claimed in this task.
+- 2026-11-23 — Verified: `go test ./internal/unit/... -v`, `go test -race ./internal/unit/...`, and `go vet ./internal/unit/...` all passed in captured run `34257779-66cb-4bf7-8716-41a2a9eff2c9` (exit 0, complete capture). `git diff --check` passed. Checks are scoped to the new package; no shared production code changed and the unit CLI remains Task 6.
+- 2026-11-23 — Review correction, superseding the initial working-directory interpretation: root-level config discovery (`config.Load`, `docs/contributing/TROUBLESHOOTING.md` §Config File Not Found) must not cause a subdirectory invocation to test only that subtree. Added `WithBaseDir(dir)` to resolve empty/relative runner working directories from a caller-supplied project directory, retaining absolute paths and requiring no Git access in the workflow. Without the option, directories retain their configured values. A regression invokes the workflow from a nested directory, with an explicit base outside any Git repository. Task 6 must supply the base and verify CLI integration.
+- 2026-11-23 — Final verification: after the base-directory correction, package tests, race checks and vet passed again in captured run `7fbbffed-bddf-4757-8ce2-76753266500f` (exit 0, complete capture). No full-suite or unit CLI execution is claimed for this isolated library increment.
+- 2026-11-23 — Isolated review: internal `code-reviewer` (GPT-6.1 Sol) and external PAL `clink`/Claude approved Task 5 after the directory correction. Backend: clink, configured model unknown, observed `claude-opus-5-5` (Anthropic; initially assumed from shipped mapping). Codex was excluded as the authoring provider, agy unavailable, gemini retired. PAL removed read-event traces, so external source receipt is unverified and no corroboration is claimed; both reviews were source-only. The remaining checklist wording comment was addressed in Tasks 6.2–6.3. Optional timeout-policy/parser work is recorded under Task 7. No systemic findings to index.
 
 ### Task 6: Unit CLI command
 
@@ -125,10 +135,14 @@
 #### Subtasks
 
 - [ ] 6.1 Create `cmd/unit.go` following `cmd/land.go` pattern: `unitCmd` with Use/Short/Long/Args(cobra.NoArgs)/RunE, `init()` adding to `rootCmd`. No command-specific flags
-- [ ] 6.2 Implement `runUnit(cmd, args)`: load config, create `runner.Engine` + `UnitWorkflow` (no git repo needed), read `GetJSON()` and `GetVerbose()` into options, call Execute, return `ErrSilentExit` on test failure, print JSON via `runner.FormatJSON()` in JSON mode
-- [ ] 6.3 Write `cmd/unit_test.go`: test that unexpected positional args are rejected
+- [ ] 6.2 Implement `runUnit(cmd, args)`: load config, select the repository root when discoverable or the invocation directory otherwise, create `runner.Engine` + `UnitWorkflow` with `unit.WithBaseDir` and `unit.WithOutput` (no git repo required), read `GetJSON()` and `GetVerbose()` into matching workflow/engine options, call Execute, return `ErrSilentExit` on test failure, print JSON via `runner.FormatJSON()` in JSON mode
+- [ ] 6.3 Write command tests: reject unexpected positional args; verify invocation from a nested project directory runs omitted/relative runner working directories from the project root; verify execution from a directory without Git uses the invocation directory. Put real-process cases in an integration-tagged test file.
 
 → verify: `go test ./cmd/... -v` passes; `go build -o gh-arc && ./gh-arc unit --help` shows correct usage
+
+#### Execution context
+
+- 2026-11-23 — Required integration from Task 5 review (owner: Task 6 implementer): resolve the project base with `git.FindRepositoryRoot("")` when inside a repository, otherwise use the invocation directory; pass it through `unit.WithBaseDir`. This is optional repository discovery, not a Git requirement for unit. Add CLI tests from a nested project directory and from a directory without Git. Also configure engine JSON/verbose flags and output writers consistently with `UnitOptions`, and pass `unit.WithOutput` for guidance.
 
 ---
 
@@ -153,3 +167,4 @@
 - 2026-11-23 — Optional external-review cleanup (owner: unassigned): several long workflow/test lines and the illustrative `main` fallback in `CONTRIBUTING.md` remain. Deferred as nonblocking style/example work; inspect and adjust when editing those examples, preserving their behavior. The workflow's omitted-runner behavior is documented, and adding per-runner skipped output is outside this task.
 - 2026-11-23 — Inherited P2, deferred (owner: unassigned): `config.Load` ignores non-nil `ReadInConfig` errors while probing search paths (`internal/config/config.go`), including malformed existing files. Lint can therefore fall back to no configured runners and exit 0. The shared loader policy was preserved during Task 4 CLI wiring. Next action: distinguish absent config files from parse/read failures, return found-file failures, and add regressions showing malformed repo config cannot fall through to another source or report a successful empty lint run. Existing advisory-only `Config.Validate` behavior also needs an explicit policy check.
 - 2026-11-23 — Unresolved output-contract detail (owner: unassigned, Task 7): Task 4 emits JSON for execution results, including failed runners, empty runner lists and skipped changes. Setup/workflow errors (invalid duration, unresolved base, no repository, load failure) retain the existing command convention: stderr error, exit 1, empty stdout. The design's “every code path” wording does not define an operational-error envelope. Clarify whether to document that convention or add a structured error object; then verify those failure cases against the chosen schema. This observation is not an authorization to weaken the design wording.
+- 2026-11-23 — Optional timeout follow-up from Task 5 review (owner: unassigned): lint and unit currently share the same parsing/error pattern, and the engine applies only positive durations. Explicit `0s` or negative durations therefore mean no timeout. Keep semantics consistent in this increment; decide and document allowed non-positive values, then add corresponding validation/tests in both workflows if changing that policy. A small shared timeout parser may be appropriate when making that coordinated change; extracting it alone was deferred to avoid shared-code churn in Task 5.
