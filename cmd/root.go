@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -38,10 +39,11 @@ external tools for code-review processes.`,
 			Verbosity: verbosity,
 			Quiet:     quiet,
 			JSON:      jsonOut,
+			Writer:    cmd.ErrOrStderr(),
 		})
 
 		// Log startup if verbosity >= 1
-		if verbosity >= 1 {
+		if verbosity >= 1 && !jsonOut {
 			logger.Info().
 				Str("command", cmd.Name()).
 				Msg("Starting gh-arc")
@@ -53,7 +55,7 @@ external tools for code-review processes.`,
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
-		if !quiet {
+		if !quiet && !errors.Is(err, ErrSilentExit) {
 			fmt.Fprintln(os.Stderr, err)
 		}
 		os.Exit(1)
@@ -104,7 +106,7 @@ func initConfig() {
 	}
 
 	// Print config file used if verbosity > 0
-	if verbosity > 0 && config.GetConfigFilePath() != "" {
+	if verbosity > 0 && !jsonOut && config.GetConfigFilePath() != "" {
 		fmt.Fprintln(os.Stderr, "Using config file:", config.GetConfigFilePath())
 	}
 }
