@@ -34,7 +34,22 @@ var (
 
 	// ErrAuthenticationFailed indicates git push failed due to authentication
 	ErrAuthenticationFailed = errors.New("authentication failed")
+
+	// ErrNoCommonAncestor indicates that valid refs have unrelated histories.
+	ErrNoCommonAncestor = errors.New("no common ancestor")
 )
+
+// RefResolutionError identifies the ref that could not be resolved.
+type RefResolutionError struct {
+	Ref string
+	Err error
+}
+
+func (e *RefResolutionError) Error() string {
+	return fmt.Sprintf("failed to resolve ref %s: %v", e.Ref, e.Err)
+}
+
+func (e *RefResolutionError) Unwrap() error { return e.Err }
 
 // Repository represents a Git repository and provides methods for Git operations.
 //
@@ -339,6 +354,12 @@ func (r *Repository) GetDefaultBranch() (string, error) {
 	}
 
 	// Fallback to CLI (handles worktrees where go-git can't enumerate branches)
+	return r.getDefaultBranchViaCLI()
+}
+
+// GetLocalDefaultBranch detects the default branch without contacting remotes.
+// It uses the cached origin/HEAD, then common local branch names.
+func (r *Repository) GetLocalDefaultBranch() (string, error) {
 	return r.getDefaultBranchViaCLI()
 }
 
@@ -1101,10 +1122,18 @@ func (r *Repository) GetMergeBase(ref1, ref2 string) (string, error) {
 
 	output, err := cmd.Output()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			// Exit code 1 means no common ancestor
 			if exitErr.ExitCode() == 1 {
-				return "", fmt.Errorf("no common ancestor between %s and %s", ref1, ref2)
+				return "", fmt.Errorf("%w between %s and %s", ErrNoCommonAncestor, ref1, ref2)
+			}
+			// Resolve only after a failure to distinguish missing refs from
+			// other merge-base errors without parsing git's localized stderr.
+			for _, ref := range []string{ref1, ref2} {
+				if _, resolveErr := r.resolveRevision(ref); resolveErr != nil {
+					return "", &RefResolutionError{Ref: ref, Err: resolveErr}
+				}
 			}
 			// Other exit codes indicate errors
 			return "", fmt.Errorf("failed to find merge-base: %s", string(exitErr.Stderr))

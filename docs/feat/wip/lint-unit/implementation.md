@@ -130,7 +130,7 @@ Method `Execute(ctx context.Context, opts *LintOptions) (*LintResult, error)`:
    - Check MegaLinter config: if `enabled == "true"` or (`enabled == "auto"` and Docker is available), and not JSON mode, print a message that MegaLinter support is coming in a future version, then fall through.
    - If not JSON mode, print guidance message (config examples for adding runners). Return success result with zero runners (in JSON mode, the empty ExecutionResult serializes to `{"command":"lint","success":true,"runners":[]}` — no guidance printed).
 2. **Detect changed files** (unless `opts.All`):
-   a. Get default branch: `cfg.GitHub.DefaultBranch` (or auto-detect via `repo.GetDefaultBranch()`).
+   a. Get default branch: `cfg.GitHub.DefaultBranch` (or auto-detect via `repo.GetLocalDefaultBranch()`). An omitted config value remains empty so autodetection can run.
    b. Compute merge-base: `repo.GetMergeBase("origin/"+defaultBranch, "HEAD")`. Fall back to `repo.GetMergeBase(defaultBranch, "HEAD")` if origin ref doesn't exist.
    c. Get changed files: `repo.GetFilesChanged(mergeBase, "HEAD")` — returns `[]git.FileChange` with deletion metadata.
    d. Filter out entries where `FileChange.IsDeleted == true`. Extract `.Path` from remaining entries.
@@ -162,7 +162,7 @@ type Executor interface {
 
 The workflow orchestrates git operations and the runner engine. Test with mocks/interfaces:
 
-- Define a `LintRepository` interface with the git methods the workflow needs: `GetDefaultBranch() (string, error)`, `GetMergeBase(ref1, ref2 string) (string, error)`, `GetFilesChanged(base, head string) ([]git.FileChange, error)`. The real `git.Repository` satisfies this.
+- Define a `LintRepository` interface with the git methods the workflow needs: `Path() string`, `GetLocalDefaultBranch() (string, error)`, `GetMergeBase(ref1, ref2 string) (string, error)`, `GetFilesChanged(base, head string) ([]git.FileChange, error)`. The real `git.Repository` satisfies this.
 - Define a mock `Executor` that records the `[]RunnerConfig` it receives, allowing assertions on file paths, extra args, etc. without running subprocesses.
 - Test cases:
   - No runners configured → guidance message, success
@@ -171,6 +171,8 @@ The workflow orchestrates git operations and the runner engine. Test with mocks/
   - `--fix` mode → ExtraArgs set correctly on runners with autoFix=true, omitted on others
   - No changed files → early exit with success
   - Merge-base resolution failure → appropriate error
+
+Task 3 implementation note (2026-11-23): the local-only getter replaces the originally planned network-capable `GetDefaultBranch()` to preserve lint's local-only behavior. `Path()` locates the repository root for runner working directories, including invocation from a subdirectory. See the task's Execution context for review and verification evidence.
 
 ### 1.4 CLI Command (`cmd/lint.go`)
 

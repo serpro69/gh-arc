@@ -232,7 +232,7 @@ output:
 
 #### GitHub Settings
 
-- **`github.defaultBranch`** (string, default: `"main"`): The default base branch for new PRs
+- **`github.defaultBranch`** (string, default: `""`): Repository default branch override; empty allows autodetection
 - **`github.defaultReviewer`** (string, default: `""`): Default reviewer to assign to PRs
 - **`github.autoAssignReviewer`** (bool, default: `false`): Automatically assign the default reviewer to new PRs
 

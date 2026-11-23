@@ -199,7 +199,7 @@ func GetConfigFilePath() string {
 // setDefaults sets default configuration values
 func setDefaults(v *viper.Viper) {
 	// GitHub defaults
-	v.SetDefault("github.defaultBranch", "main")
+	v.SetDefault("github.defaultBranch", "") // Empty = detect from the repository
 	v.SetDefault("github.defaultReviewers", []string{})
 	v.SetDefault("github.autoAssignReviewer", false)
 
