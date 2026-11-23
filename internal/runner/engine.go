@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"time"
@@ -51,15 +50,19 @@ func (e *Engine) Run(ctx context.Context, configs []RunnerConfig) (*ExecutionRes
 		Success: allPassed,
 	}
 
-	if !e.opts.JSONMode {
-		PrintSummary(e.opts.Stdout, *execResult)
+	if !e.opts.JSONMode && (!e.opts.Quiet || !execResult.Success) {
+		output := e.opts.Stdout
+		if e.opts.Quiet {
+			output = e.opts.Stderr
+		}
+		PrintSummary(output, *execResult)
 	}
 
 	return execResult, nil
 }
 
 func (e *Engine) runOne(ctx context.Context, cfg RunnerConfig) RunResult {
-	if !e.opts.JSONMode {
+	if !e.opts.JSONMode && !e.opts.Quiet {
 		PrintBanner(e.opts.Stdout, cfg.Name)
 	}
 
@@ -83,11 +86,12 @@ func (e *Engine) runOne(ctx context.Context, cfg RunnerConfig) RunResult {
 		cmd.Dir = cfg.WorkingDir
 	}
 
-	if e.opts.JSONMode {
-		cmd.Stdout = io.Discard
-		cmd.Stderr = io.Discard
-	} else {
-		cmd.Stdout = e.opts.Stdout
+	// Nil subprocess streams use the null device directly. An io.Writer such
+	// as io.Discard creates copy pipes that background children can hold open.
+	if !e.opts.JSONMode {
+		if !e.opts.Quiet {
+			cmd.Stdout = e.opts.Stdout
+		}
 		cmd.Stderr = e.opts.Stderr
 	}
 
@@ -105,7 +109,7 @@ func (e *Engine) runOne(ctx context.Context, cfg RunnerConfig) RunResult {
 		result.Status = StatusPassed
 	case errors.Is(err, exec.ErrNotFound):
 		result.Status = StatusError
-		result.Err = errors.New("command not found")
+		result.Err = errors.New("command not found: install the tool or check the runner command in your config")
 	case errors.Is(execCtx.Err(), context.DeadlineExceeded):
 		result.Status = StatusError
 		result.Err = fmt.Errorf("timed out after %s", cfg.Timeout)
@@ -123,8 +127,12 @@ func (e *Engine) runOne(ctx context.Context, cfg RunnerConfig) RunResult {
 		}
 	}
 
-	if !e.opts.JSONMode {
-		PrintResult(e.opts.Stdout, result)
+	if !e.opts.JSONMode && (!e.opts.Quiet || result.Status != StatusPassed) {
+		output := e.opts.Stdout
+		if e.opts.Quiet {
+			output = e.opts.Stderr
+		}
+		PrintResult(output, result)
 	}
 
 	return result

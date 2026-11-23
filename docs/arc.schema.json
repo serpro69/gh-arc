@@ -147,7 +147,7 @@
       "properties": {
         "runners": {
           "type": "array",
-          "description": "Test runner configurations. Empty array enables auto-detection",
+          "description": "Test runners executed in order. An empty array prints guidance and succeeds without running tests",
           "items": {
             "$ref": "#/$defs/testRunner"
           },
@@ -175,7 +175,7 @@
           "properties": {
             "enabled": {
               "type": "string",
-              "description": "Whether to use mega-linter. \"auto\" detects based on project config",
+              "description": "Reserved for future MegaLinter execution. Currently only controls a notice when no lint runners are configured",
               "enum": ["auto", "true", "false"],
               "default": "auto"
             },

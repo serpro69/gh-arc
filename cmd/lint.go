@@ -2,10 +2,10 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/spf13/cobra"
 
-	"github.com/serpro69/gh-arc/internal/config"
 	"github.com/serpro69/gh-arc/internal/git"
 	"github.com/serpro69/gh-arc/internal/lint"
 	"github.com/serpro69/gh-arc/internal/runner"
@@ -20,8 +20,8 @@ var lintCmd = &cobra.Command{
 	Use:   "lint",
 	Short: "Run configured linters on changed files",
 	Long: `Run configured lint runners on committed changes since the merge-base
-with the default branch. Deleted files are excluded. Use --all to let each
-runner lint its entire working directory instead.
+with the default branch. Deleted files are excluded. Use --all to pass no file
+paths and let each runner's configured arguments select its targets.
 
 Configure runners in .arc.json, .arc.yaml, or .arc.yml under lint.runners.
 --fix appends a runner's fixArgs only when that runner enables autoFix.
@@ -43,9 +43,9 @@ func init() {
 }
 
 func runLint(cmd *cobra.Command, args []string) error {
-	cfg, err := config.Load()
+	cfg, err := loadRunnerConfig(cmd)
 	if err != nil {
-		return fmt.Errorf("failed to load configuration: %w", err)
+		return err
 	}
 	repo, err := git.OpenRepository(".")
 	if err != nil {
@@ -58,26 +58,19 @@ func runLint(cmd *cobra.Command, args []string) error {
 	}
 	engine := runner.NewEngine(runner.EngineOptions{
 		JSONMode: opts.JSONMode,
+		Quiet:    GetQuiet(),
 		Verbose:  opts.Verbose,
 		Stdout:   cmd.OutOrStdout(),
 		Stderr:   cmd.ErrOrStderr(),
 	})
-	workflow := lint.NewLintWorkflow(repo, engine, cfg, lint.WithOutput(cmd.OutOrStdout()))
+	guidance := cmd.OutOrStdout()
+	if GetQuiet() {
+		guidance = io.Discard
+	}
+	workflow := lint.NewLintWorkflow(repo, engine, cfg, lint.WithOutput(guidance))
 	result, err := workflow.Execute(cmd.Context(), opts)
 	if err != nil {
 		return err
 	}
-	if opts.JSONMode {
-		output, err := runner.FormatJSON(result.ExecutionResult, "lint")
-		if err != nil {
-			return fmt.Errorf("failed to format lint results: %w", err)
-		}
-		if _, err := fmt.Fprintln(cmd.OutOrStdout(), string(output)); err != nil {
-			return fmt.Errorf("failed to write lint results: %w", err)
-		}
-	}
-	if !result.Success {
-		return ErrSilentExit
-	}
-	return nil
+	return finishRunnerCommand(cmd, result.ExecutionResult, "lint")
 }

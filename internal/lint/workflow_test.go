@@ -373,6 +373,32 @@ func TestLintWorkflowMultipleRunners(t *testing.T) {
 	}
 }
 
+func TestLintWorkflowWorkingDirectoryAlias(t *testing.T) {
+	t.Parallel()
+	w, repo, executor, _ := newTestWorkflow(t)
+	frontend := filepath.Join(repo.path, "frontend")
+	if err := os.Mkdir(frontend, 0755); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "project-alias")
+	if err := os.Symlink(repo.path, alias); err != nil {
+		t.Fatal(err)
+	}
+	w.config.Lint.Runners[0].WorkingDir = filepath.Join(alias, "frontend")
+	repo.changes = []git.FileChange{{Path: "frontend/app.js"}, {Path: "backend/file.go"}}
+	result, err := w.Execute(context.Background(), &LintOptions{JSONMode: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !executor.called || result.SkipReason != "" || len(executor.configs) != 1 {
+		t.Fatalf("aliased directory skipped: result=%+v configs=%+v", result, executor.configs)
+	}
+	got := executor.configs[0]
+	if got.WorkingDir != filepath.Join(alias, "frontend") || !reflect.DeepEqual(got.FilePaths, []string{"app.js"}) {
+		t.Fatalf("unexpected aliased directory config: %+v", got)
+	}
+}
+
 func TestLintWorkflowErrors(t *testing.T) {
 	failure := errors.New("injected failure")
 	for _, tt := range []struct {

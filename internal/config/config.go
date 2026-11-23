@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -128,6 +129,7 @@ var (
 
 // Load loads the configuration from files and environment variables
 func Load() (*Config, error) {
+	cfg = nil
 	v = viper.New()
 
 	// Set defaults
@@ -157,6 +159,8 @@ func Load() (*Config, error) {
 			if err := v.ReadInConfig(); err == nil {
 				configFound = true
 				break
+			} else if !errors.Is(err, os.ErrNotExist) {
+				return nil, fmt.Errorf("failed to read config %q: %w", configPath, err)
 			}
 		}
 		if configFound {
@@ -225,7 +229,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("land.requireApproval", ApprovalStrict)
 	v.SetDefault("land.requireCI", CIModeRequired)
 
-	// Test defaults (empty runners - auto-detect)
+	// Test defaults (empty runners - print setup guidance)
 	v.SetDefault("test.runners", []TestRunner{})
 
 	// Lint defaults

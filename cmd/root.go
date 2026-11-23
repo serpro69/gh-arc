@@ -17,7 +17,9 @@ var (
 	jsonOut   bool
 
 	// cfg holds the loaded configuration
-	cfg *config.Config
+	cfg               *config.Config
+	configErr         error
+	configInitialized bool
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -33,7 +35,16 @@ during the entire development workflow without switching contexts or opening
 external tools for code-review processes.`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
-	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		if configErr != nil {
+			if isRunnerCommand(cmd) {
+				return configErr
+			}
+			fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %v\n", configErr)
+		}
+		if verbosity > 0 && !jsonOut && !quiet && config.GetConfigFilePath() != "" {
+			fmt.Fprintln(cmd.ErrOrStderr(), "Using config file:", config.GetConfigFilePath())
+		}
 		// Initialize logger after config is loaded
 		logger.Init(logger.Config{
 			Verbosity: verbosity,
@@ -48,15 +59,33 @@ external tools for code-review processes.`,
 				Str("command", cmd.Name()).
 				Msg("Starting gh-arc")
 		}
+		return nil
 	},
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
-	if err := rootCmd.Execute(); err != nil {
-		if !quiet && !errors.Is(err, ErrSilentExit) {
-			fmt.Fprintln(os.Stderr, err)
+	execute(os.Args[1:])
+}
+
+func execute(args []string) {
+	rootCmd.SetArgs(args)
+	cmd, err := rootCmd.ExecuteC()
+	if err != nil {
+		if isRunnerCommand(cmd) {
+			// Flag errors can occur before Cobra invokes initializers.
+			if !configInitialized {
+				initConfig()
+			}
+			// A flag error may have stopped parsing before --json was reached.
+			if requested, ok := runnerJSONFlag(args); ok {
+				jsonOut = requested
+			}
+			err = reportRunnerError(cmd, err)
+		}
+		if !errors.Is(err, ErrSilentExit) {
+			fmt.Fprintln(rootCmd.ErrOrStderr(), err)
 		}
 		os.Exit(1)
 	}
@@ -77,16 +106,13 @@ func init() {
 // initConfig reads in config file and ENV variables if set.
 func initConfig() {
 	// Load configuration
+	configInitialized = true
+	configErr = nil
 	var err error
 	cfg, err = config.Load()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to load config: %v\n", err)
+		configErr = fmt.Errorf("failed to load configuration: %w", err)
 		return
-	}
-
-	// Validate configuration
-	if err := cfg.Validate(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: invalid config: %v\n", err)
 	}
 
 	// Apply config values to flags if flags weren't explicitly set
@@ -105,9 +131,8 @@ func initConfig() {
 		jsonOut = cfg.Output.JSON
 	}
 
-	// Print config file used if verbosity > 0
-	if verbosity > 0 && !jsonOut && config.GetConfigFilePath() != "" {
-		fmt.Fprintln(os.Stderr, "Using config file:", config.GetConfigFilePath())
+	if err := cfg.Validate(); err != nil {
+		configErr = fmt.Errorf("invalid configuration: %w", err)
 	}
 }
 

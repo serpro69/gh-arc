@@ -95,6 +95,8 @@ Contains Cobra command definitions that handle:
 - `root.go` - Root command, global flags, initialization
 - `diff.go` - PR creation/update workflow
 - `land.go` - PR merge workflow (pre-merge checks, merge, cleanup)
+- `lint.go` - Changed-file selection and configured linter execution
+- `unit.go` - Configured test runner execution
 - `list.go` - PR listing and filtering
 - `auth.go` - Authentication verification
 - `version.go` - Version information display
@@ -150,6 +152,30 @@ Contains the core implementation organized by domain:
 - Configuration validation
 - Default values
 - Config file search paths
+
+#### `internal/runner/`, `internal/lint/`, `internal/unit/` - Local Checks
+
+`cmd/lint.go` and `cmd/unit.go` create the shared `runner.Engine` and inject it
+through the `runner.Executor` interface into their respective workflows. The
+engine runs subprocesses sequentially with literal arguments, working directories,
+optional timeouts, streamed output, and aggregate results. JSON mode discards
+subprocess output; the command serializes execution metadata once using
+`runner.FormatJSON`. A failed result returns `cmd.ErrSilentExit`, which makes the
+root command exit 1 without duplicating the already printed result.
+
+`lint.LintWorkflow` depends on a `LintRepository` interface for local default-ref
+and merge-base lookup, changed-file detection, and repository location. It excludes
+deletions, scopes paths to each runner's working directory, and adds opt-in fix
+arguments. `--all` bypasses changed-file detection.
+
+`unit.UnitWorkflow` has no Git dependency. The command supplies a base directory:
+the repository root if discoverable, otherwise the invocation directory. It runs
+all configured test runners without mapping changed files to test targets.
+
+Workflow tests inject executors; engine tests use controlled subprocesses.
+Integration-tagged command tests use real Git fixtures and subprocess CLI calls
+to verify output, exit status, and working directories. Configuration and user
+examples are in the [README](../../README.md#lint-and-unit-tests).
 
 #### `internal/logger/` - Structured Logging
 

@@ -4,8 +4,51 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
+
+func TestLoadRejectsInvalidFiles(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		file      string
+		content   string
+		directory bool
+	}{
+		{name: "malformed JSON before valid YAML", file: ".arc.json", content: "{"},
+		{name: "malformed YAML before valid yml", file: ".arc.yaml", content: "lint: ["},
+		{name: "malformed yml", file: ".arc.yml", content: "test: ["},
+		{name: "unreadable file", file: ".arc.json", directory: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			t.Chdir(root)
+			if err := os.Mkdir(".git", 0o755); err != nil {
+				t.Fatal(err)
+			}
+			// Valid lower-priority config must not hide a broken project file.
+			if tt.file != ".arc.yml" {
+				if err := os.WriteFile(".arc.yml", []byte("{}"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tt.directory {
+				if err := os.Mkdir(tt.file, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.WriteFile(tt.file, []byte(tt.content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			got, err := Load()
+			if err == nil || !strings.Contains(err.Error(), tt.file) {
+				t.Fatalf("Load() = %v, %v; want error naming %s", got, err, tt.file)
+			}
+			if got != nil {
+				t.Fatalf("Load() returned config after read failure: %+v", got)
+			}
+		})
+	}
+}
 
 func TestLoad(t *testing.T) {
 	t.Run("load with defaults when no config file exists", func(t *testing.T) {
@@ -828,6 +871,11 @@ func TestGetMegaLinterConfigPath(t *testing.T) {
 
 	t.Run("finds configured path from subdirectory", func(t *testing.T) {
 		tmpDir := t.TempDir()
+		// Getwd resolves symlink aliases such as macOS /var -> /private/var.
+		tmpDir, err := filepath.EvalSymlinks(tmpDir)
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		if err := os.Mkdir(filepath.Join(tmpDir, ".git"), 0o755); err != nil {
 			t.Fatalf("Failed to create .git dir: %v", err)
@@ -868,6 +916,10 @@ func TestGetMegaLinterConfigPath(t *testing.T) {
 
 	t.Run("finds default .mega-linter.yml from subdirectory", func(t *testing.T) {
 		tmpDir := t.TempDir()
+		tmpDir, err := filepath.EvalSymlinks(tmpDir)
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		if err := os.Mkdir(filepath.Join(tmpDir, ".git"), 0o755); err != nil {
 			t.Fatalf("Failed to create .git dir: %v", err)

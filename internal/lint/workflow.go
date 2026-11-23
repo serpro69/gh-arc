@@ -182,8 +182,22 @@ func (w *LintWorkflow) runnerConfigs(opts *LintOptions, root string, paths []str
 			cfg.ExtraArgs = lintRunner.FixArgs
 		}
 		if !all {
+			// Compare physical directory paths so absolute workingDir aliases
+			// (for example /tmp and /private/tmp) select the same changed files.
+			pathRoot, pathDir := root, workingDir
+			resolvedDir, err := filepath.EvalSymlinks(workingDir)
+			switch {
+			case err == nil:
+				pathDir = resolvedDir
+				pathRoot, err = filepath.EvalSymlinks(root)
+				if err != nil {
+					return nil, fmt.Errorf("failed to resolve repository directory: %w", err)
+				}
+			case !errors.Is(err, os.ErrNotExist):
+				return nil, fmt.Errorf("failed to resolve working directory for runner %q: %w", cfg.Name, err)
+			}
 			for _, path := range paths {
-				rel, err := filepath.Rel(workingDir, filepath.Join(root, filepath.FromSlash(path)))
+				rel, err := filepath.Rel(pathDir, filepath.Join(pathRoot, filepath.FromSlash(path)))
 				if err != nil {
 					return nil, fmt.Errorf("failed to normalize file %q for runner %q: %w", path, cfg.Name, err)
 				}
