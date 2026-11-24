@@ -2,9 +2,7 @@
 .SHELL      := $(shell which bash)
 .SHELLFLAGS := -ec
 
-TOOLBOX_VERSION := latest # also accepts other refs like branch names ('master', 'feat/...'), or tags ('v1.2.3')
-
-.PHONY: help build test fmt vet install clean sync
+.PHONY: help build test fmt vet install clean
 
 help: ## Print this help message
 	@grep -E "^[a-zA-Z_-]+:.*?## .*$$" $(MAKEFILE_LIST) |\
@@ -28,6 +26,3 @@ install: ## Install extension locally
 
 clean: ## Remove capy binary
 	rm -f gh-arc
-
-sync: ## Sync serpro69/claude-toolbox template files against TOOLBOX_VERSION
-	@.claude/toolbox/scripts/template-sync.sh --local --version $(TOOLBOX_VERSION)

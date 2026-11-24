@@ -3,28 +3,9 @@
     "commit": "",
     "pr": ""
   },
-  "enabledMcpjsonServers": [],
-  "enabledPlugins": {
-    "kk@claude-toolbox": true
-  },
-  "env": {
-    "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "64000",
-    "CLAUDE_STATUSLINE_MODE": "dark",
-    "CLAUDE_STATUSLINE_THEME": "catppuccin",
-    "MAX_MCP_OUTPUT_TOKENS": "64000"
-  },
-  "extraKnownMarketplaces": {
-    "claude-toolbox": {
-      "source": {
-        "source": "github",
-        "repo": "serpro69/claude-toolbox"
-      }
-    }
-  },
   "model": "claude-opus-5-5",
   "permissions": {
     "allow": [
-      "Bash(cat:*)",
       "Bash(go build:*)",
       "Bash(go get:*)",
       "Bash(go list:*)",
@@ -32,10 +13,6 @@
       "Bash(go test:*)",
       "Bash(go tool cover:*)",
       "Bash(chmod:*)",
-      "Bash(grep:*)",
-      "Bash(ls:*)",
-      "Bash(mkdir:*)",
-      "Bash(sort:*)",
       "mcp__context7__resolve-library-id",
       "mcp__context7__get-library-docs",
       "mcp__serena__get_symbols_overview",
@@ -47,48 +24,7 @@
       "mcp__serena__replace_symbol_body",
       "mcp__serena__search_for_pattern",
       "mcp__serena__think_about_collected_information",
-      "mcp__zen__codereview",
-      "WebSearch",
-      "Skill(kk:*)",
-      "Read(~/.claude/plugins/cache/claude-toolbox/*)",
-      "Bash(echo \"${TOOLBOX_PLUGIN_ROOT}\")",
-      "Bash(echo \"${TOOLBOX_PLUGIN_ROOT:-NOT_SET}\")",
-      "Read(//tmp/**)",
-      "Read(//var/folders/vv/**/T/**)"
-    ],
-    "ask": [],
-    "deny": [
-      "Read(./**/*.kubeconfig)",
-      "Read(./**/*.pem)",
-      "Read(./**/*.tfstate)",
-      "Read(./**/*.tfstate.backup)",
-      "Read(./**/.env)",
-      "Read(./**/.env.*.local)",
-      "Read(./**/.env.local)",
-      "Read(./**/.kube/**)",
-      "Read(./**/.terraform/**)",
-      "Read(./**/id_ecdsa)",
-      "Read(./**/id_ed25519)",
-      "Read(./**/id_rsa)",
-      "Read(./**/kubeconfig)",
-      "Read(./**/kubeconfig.yaml)",
-      "Read(./**/kubeconfig.yml)",
-      "Read(./**/service-account*.json)",
-      "Read(~/.aws/**)",
-      "Read(~/.claude/.credentials.json)",
-      "Read(~/.config/gcloud/**)",
-      "Read(~/.docker/config.json)",
-      "Read(~/.gnupg/**)",
-      "Read(~/.kube/**)",
-      "Read(~/.netrc)",
-      "Read(~/.pypirc)",
-      "Read(~/.ssh/**)"
-    ],
-    "defaultMode": "default"
-  },
-  "statusLine": {
-    "command": "bash $CLAUDE_PROJECT_DIR/.claude/toolbox/scripts/statusline_enhanced.sh",
-    "type": "command"
-  },
-  "effortLevel": "high"
+      "mcp__zen__codereview"
+    ]
+  }
 }

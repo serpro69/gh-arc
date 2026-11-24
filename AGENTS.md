@@ -112,10 +112,6 @@ Based on @./README.md, the extension will implement commands for:
 - [Arcanist CLI Repo](https://github.com/phorgeit/arcanist)
 - [Trunk-based Development](https://martinfowler.com/articles/branching-patterns.html#Trunk-basedDevelopment)
 
-
-@.claude/CLAUDE.extra.md
-@.claude/toolbox/CLAUDE.md
-
 # capy — context-window routing
 
 @.capy/AGENTS.md
